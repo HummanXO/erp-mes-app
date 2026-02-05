@@ -280,6 +280,16 @@ export function isTaskAssignedToUser(task: Task, user: User): boolean {
   return false
 }
 
+// Get current user (not stored in API mode)
+export function getCurrentUser(): User | null {
+  return null
+}
+
+// Set current user (no-op in API mode)
+export function setCurrentUser(userId: string | null): void {
+  // No-op: user is managed via JWT token
+}
+
 // Get demo date (system date)
 export function getDemoDate(): string {
   const today = new Date()
