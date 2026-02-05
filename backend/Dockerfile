@@ -17,8 +17,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application
 COPY . .
 
-# Create uploads directory
-RUN mkdir -p /app/uploads
+# Create necessary directories
+RUN mkdir -p /app/uploads /app/alembic/versions
 
 # Expose port
 EXPOSE 8000
