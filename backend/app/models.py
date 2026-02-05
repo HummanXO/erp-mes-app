@@ -484,9 +484,9 @@ class NotificationOutbox(Base):
             status.in_(['pending', 'sent', 'failed', 'skipped']),
             name='chk_notification_status'
         ),
-        # Index for efficient SELECT FOR UPDATE SKIP LOCKED
+        # Index for efficient SELECT FOR UPDATE SKIP LOCKED (without now() - not IMMUTABLE)
         Index('idx_outbox_pending_retry', 'status', 'next_retry_at', 
-              postgresql_where=((status == 'pending') & ((next_retry_at == None) | (next_retry_at <= func.now())))),
+              postgresql_where=(status == 'pending')),
     )
 
 
