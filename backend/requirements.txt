@@ -26,6 +26,7 @@ pydantic-settings==2.1.0
 
 # HTTP
 httpx==0.25.2
+requests==2.31.0
 aiofiles==23.2.1
 
 # Telegram
