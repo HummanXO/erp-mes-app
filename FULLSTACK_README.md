@@ -52,7 +52,7 @@ docker-compose exec backend python seed_data.py
 
 ```bash
 # .env
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 
 # Start backend
 cd backend
@@ -74,7 +74,7 @@ npm run dev
 
 ```bash
 # .env
-# VITE_API_BASE_URL=
+# NEXT_PUBLIC_API_BASE_URL=
 
 # Start frontend only
 npm run dev
@@ -224,10 +224,10 @@ TELEGRAM_BOT_TOKEN=[REDACTED]# Optional
 
 ```bash
 # Use API mode
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 
 # OR localStorage mode (leave empty)
-# VITE_API_BASE_URL=
+# NEXT_PUBLIC_API_BASE_URL=
 ```
 
 ## API Examples
@@ -308,7 +308,7 @@ docker-compose logs postgres
 
 ### Frontend can't connect to backend
 
-1. Check `VITE_API_BASE_URL` in `.env`
+1. Check `NEXT_PUBLIC_API_BASE_URL` in `.env`
 2. Check backend is running: `curl http://localhost:8000/api/v1/system/health`
 3. Check CORS settings in `backend/app/config.py`
 
