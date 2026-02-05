@@ -127,14 +127,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setIsInitialized(true)
   }, [])
 
-  const refreshData = useCallback(() => {
-    setUsers(dataProvider.getUsers())
-    setMachines(dataProvider.getMachines())
-    setParts(dataProvider.getParts())
-    setStageFacts(dataProvider.getStageFacts())
-    setTasks(dataProvider.getTasks())
-    setLogistics(dataProvider.getLogistics())
-    setMachineNorms(dataProvider.getMachineNorms())
+  const refreshData = useCallback(async () => {
+    try {
+      // Load data (async in API mode, sync in localStorage mode)
+      const [users, machines, parts, facts, tasks, logistics, norms] = await Promise.all([
+        dataProvider.getUsers(),
+        dataProvider.getMachines(),
+        dataProvider.getParts(),
+        dataProvider.getStageFacts(),
+        dataProvider.getTasks(),
+        dataProvider.getLogistics(),
+        dataProvider.getMachineNorms(),
+      ])
+      
+      setUsers(Array.isArray(users) ? users : [])
+      setMachines(Array.isArray(machines) ? machines : [])
+      setParts(Array.isArray(parts) ? parts : [])
+      setStageFacts(Array.isArray(facts) ? facts : [])
+      setTasks(Array.isArray(tasks) ? tasks : [])
+      setLogistics(Array.isArray(logistics) ? logistics : [])
+      setMachineNorms(Array.isArray(norms) ? norms : [])
+    } catch (error) {
+      console.error("Failed to load data:", error)
+    }
   }, [])
 
   const login = useCallback((userId: string) => {
