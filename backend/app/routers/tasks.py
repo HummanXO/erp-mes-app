@@ -11,6 +11,7 @@ from ..schemas import (
     TaskReviewRequest, UserBrief, PartBrief, AttachmentBase
 )
 from ..auth import get_current_user, PermissionChecker, ROLE_PERMISSIONS
+from ..celery_worker import create_notification_for_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -212,6 +213,29 @@ def create_task(
     
     db.commit()
     db.refresh(task)
+    
+    # Create notification (Requirement A: outbox pattern)
+    target_user_ids = []
+    if task.assignee_type == "user" and task.assignee_id:
+        target_user_ids = [str(task.assignee_id)]
+    elif task.assignee_type == "role" and task.assignee_role:
+        # Get all users with this role
+        users = db.query(User).filter(
+            User.org_id == current_user.org_id,
+            User.role == task.assignee_role,
+            User.is_active == True
+        ).all()
+        target_user_ids = [str(u.id) for u in users]
+    
+    if target_user_ids:
+        part_code = part.code if part else "N/A"
+        message = f"📋 Новая задача: {task.title}\nДеталь: {part_code}\nОт: {current_user.initials}"
+        create_notification_for_task.delay(
+            str(task.id),
+            "task_created",
+            target_user_ids,
+            message
+        )
     
     return task_to_response(db, task, current_user)
 
