@@ -4,12 +4,14 @@ import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { ROLE_LABELS } from "@/lib/types"
 import { LoginPage } from "@/components/login-page"
+import { LoginPageApi } from "@/components/login-page-api"
 import { AppSidebar } from "@/components/app-sidebar"
 import { PartsView } from "@/components/parts-view"
 import { AllTasksView } from "@/components/all-tasks-view"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
+import * as dataProvider from "@/lib/data-provider-adapter"
 
 type View = "parts" | "tasks"
 
@@ -21,7 +23,8 @@ export function Dashboard() {
 
   // Not logged in
   if (!currentUser) {
-    return <LoginPage />
+    // Show API login form if using HTTP API, otherwise show user picker
+    return dataProvider.isUsingApi() ? <LoginPageApi /> : <LoginPage />
   }
 
   return (

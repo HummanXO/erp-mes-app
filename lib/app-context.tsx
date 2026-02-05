@@ -9,6 +9,7 @@ interface AppContextType {
   // Auth
   currentUser: User | null
   login: (userId: string) => void
+  loginWithCredentials: (username: string, password: string) => Promise<void>
   logout: () => void
   permissions: typeof ROLE_PERMISSIONS["admin"]
   
@@ -110,7 +111,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     dataProvider.initializeData()
-    refreshData()
+    
+    // Only load data if NOT using API (localStorage mode)
+    // In API mode, data is loaded after login
+    if (!dataProvider.isUsingApi()) {
+      refreshData()
+    }
     
     const user = dataProvider.getCurrentUser()
     setCurrentUser(user)
@@ -135,6 +141,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     dataProvider.setCurrentUser(userId)
     setCurrentUser(dataProvider.getUserById(userId) || null)
   }, [])
+
+  const loginWithCredentials = useCallback(async (username: string, password: string) => {
+    if (!dataProvider.login) {
+      throw new Error("Login not available in localStorage mode")
+    }
+    
+    const user = await dataProvider.login(username, password)
+    setCurrentUser(user)
+    refreshData()
+  }, [refreshData])
 
   const logout = useCallback(() => {
     dataProvider.setCurrentUser(null)
@@ -397,6 +413,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         currentUser,
         login,
+        loginWithCredentials,
         logout,
         permissions,
         demoDate,
