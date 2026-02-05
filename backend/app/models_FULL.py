@@ -457,7 +457,7 @@ class NotificationOutbox(Base):
     recipient_chat_id = Column(String(100), nullable=True)  # Telegram chat_id snapshot
     
     message = Column(Text, nullable=False)
-    metadata = Column(JSONB, default={})
+    meta_data = Column(JSONB, default={})  # Renamed from 'metadata' (SQLAlchemy reserved)
     
     # Status tracking for requirement A
     status = Column(String(20), default='pending', index=True)  # pending/sent/failed/skipped
