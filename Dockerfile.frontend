@@ -16,8 +16,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Set API URL for build
+ARG VITE_API_BASE_URL=http://152.67.72.212/api/v1
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NEXT_PUBLIC_API_BASE_URL=http://152.67.72.212/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build
 
