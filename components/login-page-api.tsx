@@ -76,7 +76,7 @@ export function LoginPageApi() {
           <div className="mt-6 text-sm text-muted-foreground text-center">
             <p className="font-medium mb-1">Тестовые учётные записи:</p>
             <p>admin / admin123</p>
-            <p>ivanov / pass123</p>
+            <p>petrov / petrov123</p>
           </div>
         </CardContent>
       </Card>

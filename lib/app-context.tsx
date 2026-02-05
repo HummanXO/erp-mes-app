@@ -152,7 +152,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshData()
   }, [refreshData])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // Call API logout if available
+    if (dataProvider.logout) {
+      await dataProvider.logout()
+    }
     dataProvider.setCurrentUser(null)
     setCurrentUser(null)
   }, [])
