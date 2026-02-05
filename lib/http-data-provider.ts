@@ -4,6 +4,12 @@
 
 import { apiClient, ApiClientError } from "./api-client"
 import { isApiConfigured as isApiConfiguredEnv } from "./env"
+
+// Helper to check if user is authenticated
+function isAuthenticated(): boolean {
+  return !!apiClient.getAccessToken()
+}
+
 import type {
   User,
   Machine,
@@ -89,6 +95,7 @@ function transformStageFact(backendFact: any): StageFact {
 
 // Users
 export async function getUsers(): Promise<User[]> {
+  if (!isAuthenticated()) return []
   const response = await apiClient.getUsers()
   return response.data || response
 }
@@ -109,16 +116,15 @@ export async function getOperators(): Promise<User[]> {
   return response.data || response
 }
 
-export async function getCurrentUser(): Promise<User | null> {
-  try {
-    return await apiClient.getMe()
-  } catch (error) {
-    return null
-  }
+// Get current user synchronously (checks if token exists)
+export function getCurrentUser(): User | null {
+  // In API mode, user is loaded after login, not stored
+  return null
 }
 
-export async function setCurrentUser(userId: string | null): Promise<void> {
-  // Token management handled by apiClient
+// Set current user (no-op in API mode, managed via JWT)
+export function setCurrentUser(userId: string | null): void {
+  // No-op: user is managed via JWT token
 }
 
 // Machines - placeholder (would need backend endpoint)
@@ -134,6 +140,7 @@ export async function getMachineById(id: string): Promise<Machine | undefined> {
 
 // Parts
 export async function getParts(): Promise<Part[]> {
+  if (!isAuthenticated()) return []
   const response = await apiClient.getParts()
   const parts = response.data || response
   return parts.map(transformPart)
@@ -199,6 +206,7 @@ export async function createStageFact(
 
 // Tasks
 export async function getTasks(): Promise<Task[]> {
+  if (!isAuthenticated()) return []
   const response = await apiClient.getTasks()
   const tasks = response.data || response
   return tasks.map(transformTask)
