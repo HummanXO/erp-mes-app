@@ -3,6 +3,7 @@
  */
 
 import { apiClient, ApiClientError } from "./api-client"
+import { isApiConfigured as isApiConfiguredEnv } from "./env"
 import type {
   User,
   Machine,
@@ -298,5 +299,5 @@ export async function logout(): Promise<void> {
 
 // Check if API is configured
 export function isApiConfigured(): boolean {
-  return !!import.meta.env.VITE_API_BASE_URL
+  return isApiConfiguredEnv()
 }

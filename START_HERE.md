@@ -61,10 +61,10 @@ Create `.env` file:
 
 ```bash
 # Use API mode (backend)
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 
 # OR localStorage mode (no backend)
-# VITE_API_BASE_URL=
+# NEXT_PUBLIC_API_BASE_URL=
 ```
 
 ## ✅ What's Implemented
@@ -170,7 +170,7 @@ docker-compose exec backend python seed_data.py
 
 ### Frontend can't connect?
 
-1. Check `.env` has `VITE_API_BASE_URL`
+1. Check `.env` has `NEXT_PUBLIC_API_BASE_URL`
 2. Check backend is running: `curl http://localhost:8000/api/v1/system/health`
 3. Check browser console for CORS errors
 
@@ -179,7 +179,7 @@ docker-compose exec backend python seed_data.py
 Edit `.env`:
 ```bash
 # Comment out or remove
-# VITE_API_BASE_URL=http://localhost:8000/api/v1
+# NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
 Restart dev server:

@@ -50,10 +50,10 @@ backend/
 ### Работа в 2 режимах:
 ```bash
 # Режим 1: С backend (API)
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 
 # Режим 2: Без backend (localStorage)
-# VITE_API_BASE_URL=
+# NEXT_PUBLIC_API_BASE_URL=
 ```
 
 ## 4. **Docker + Infrastructure**
@@ -143,7 +143,7 @@ docker-compose exec backend python seed_data.py
 
 2. **Двойной режим работы**:
    - Фронт работает и без backend (localStorage)
-   - При настройке VITE_API_BASE_URL автоматически переключается
+   - При настройке NEXT_PUBLIC_API_BASE_URL автоматически переключается
    - Логирование в консоль какой провайдер используется
 
 3. **Полная совместимость**:

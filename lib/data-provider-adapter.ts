@@ -4,16 +4,18 @@
 
 import * as localStorageProvider from "./data-provider"
 import * as httpProvider from "./http-data-provider"
+import { getApiBaseUrl, isApiConfigured } from "./env"
 
 // Check if API is configured
-const USE_API = !!import.meta.env.VITE_API_BASE_URL
+const API_BASE_URL = getApiBaseUrl()
+const USE_API = isApiConfigured()
 
 // Log which provider is being used
 if (typeof window !== "undefined") {
   console.log(
     USE_API 
-      ? `🌐 Using HTTP API: ${import.meta.env.VITE_API_BASE_URL}` 
-      : "💾 Using localStorage (no VITE_API_BASE_URL configured)"
+      ? `🌐 Using HTTP API: ${API_BASE_URL}` 
+      : "💾 Using localStorage (no API base URL configured)"
   )
 }
 
