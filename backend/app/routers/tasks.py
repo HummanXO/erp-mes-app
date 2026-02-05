@@ -11,7 +11,7 @@ from ..schemas import (
     TaskReviewRequest, UserBrief, PartBrief, AttachmentBase
 )
 from ..auth import get_current_user, PermissionChecker, ROLE_PERMISSIONS
-from ..celery_worker import create_notification_for_task
+from ..celery_app import create_notification_for_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
