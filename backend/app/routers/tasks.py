@@ -8,7 +8,7 @@ from ..database import get_db
 from ..models import User, Part, Task, TaskComment, TaskReadStatus, TaskAttachment, AuditEvent, NotificationOutbox
 from ..schemas import (
     TaskCreate, TaskResponse, TaskCommentCreate, TaskCommentResponse,
-    TaskReviewRequest, UserBrief, PartBrief, AttachmentBase
+    TaskReviewRequest, UserBrief, PartBrief, AttachmentBase, TaskReadInfo
 )
 from ..auth import get_current_user, PermissionChecker, ROLE_PERMISSIONS
 from ..celery_app import create_notification_for_task
@@ -40,6 +40,18 @@ def task_to_response(db: Session, task: Task, current_user: User) -> TaskRespons
         TaskReadStatus.user_id == current_user.id
     ).first() is not None
     
+    # Get all read statuses (who read and when)
+    read_statuses = db.query(TaskReadStatus, User).join(
+        User, TaskReadStatus.user_id == User.id
+    ).filter(
+        TaskReadStatus.task_id == task.id
+    ).all()
+    
+    read_by_users = [
+        {"user": UserBrief.model_validate(user), "read_at": status.read_at}
+        for status, user in read_statuses
+    ]
+    
     # Get comments with attachments
     comments = []
     for comment in task.comments:
@@ -69,6 +81,7 @@ def task_to_response(db: Session, task: Task, current_user: User) -> TaskRespons
         stage=task.stage,
         part=PartBrief.model_validate(part) if part else None,
         is_read=is_read,
+        read_by_users=read_by_users,
         comments=comments,
         review_comment=task.review_comment,
         reviewed_by=UserBrief.model_validate(reviewed_by) if reviewed_by else None,
