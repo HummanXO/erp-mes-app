@@ -80,6 +80,18 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   const doneTasks = filteredTasks.filter(t => t.status === "done")
   
   const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) : null
+  const isMaster = currentUser?.role === "master"
+  const isShopHead = currentUser?.role === "shop_head"
+  const allowedUsers = users.filter((user) => {
+    if (isMaster) return user.role === "operator"
+    if (isShopHead) return user.role !== "director"
+    return true
+  })
+  const allowedRoleEntries = Object.entries(ASSIGNEE_ROLE_GROUPS).filter(([role]) => {
+    if (isMaster) return role === "operator"
+    if (isShopHead) return role !== "director"
+    return true
+  })
 
   const unreadActiveCount = currentUser
     ? activeTasks.filter(t => !t.read_by.includes(currentUser.id)).length
@@ -93,6 +105,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   const handleCreateTask = () => {
     if (!title || !currentUser) return
     
+    const normalizedAssigneeType =
+      (isMaster || isShopHead) && assigneeType === "all" ? "role" : assigneeType
+
     createTask({
       part_id: partId,
       machine_id: machineId,
@@ -100,9 +115,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
       title,
       description,
       creator_id: currentUser.id,
-      assignee_type: assigneeType,
-      assignee_id: assigneeType === "user" ? assigneeId : undefined,
-      assignee_role: assigneeType === "role" ? assigneeRole : undefined,
+      assignee_type: normalizedAssigneeType,
+      assignee_id: normalizedAssigneeType === "user" ? assigneeId : undefined,
+      assignee_role: normalizedAssigneeType === "role" ? assigneeRole : undefined,
       status: "open",
       is_blocker: isBlocker,
       due_date: dueDate || demoDate,
@@ -234,7 +249,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
             <div className="space-y-2">
               <Label>Кому назначить</Label>
               <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
-                <TabsList className="grid grid-cols-3">
+                <TabsList className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
                   <TabsTrigger value="user">
                     <User className="h-4 w-4 mr-1" />
                     Человеку
@@ -243,10 +258,12 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                     <Users className="h-4 w-4 mr-1" />
                     Группе
                   </TabsTrigger>
-                  <TabsTrigger value="all">
-                    <Users className="h-4 w-4 mr-1" />
-                    Всем
-                  </TabsTrigger>
+                  {!isMaster && !isShopHead && (
+                    <TabsTrigger value="all">
+                      <Users className="h-4 w-4 mr-1" />
+                      Всем
+                    </TabsTrigger>
+                  )}
                 </TabsList>
               </Tabs>
             </div>
@@ -259,7 +276,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                     <SelectValue placeholder="Выберите человека" />
                   </SelectTrigger>
                   <SelectContent>
-                    {users.map(user => (
+                    {allowedUsers.map(user => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.initials} ({ROLE_LABELS[user.role]})
                       </SelectItem>
@@ -277,7 +294,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                     <SelectValue placeholder="Выберите группу" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(ASSIGNEE_ROLE_GROUPS).map(([role, label]) => (
+                    {allowedRoleEntries.map(([role, label]) => (
                       <SelectItem key={role} value={role}>{label}</SelectItem>
                     ))}
                   </SelectContent>

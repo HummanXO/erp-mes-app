@@ -100,6 +100,43 @@ def get_current_user(
             detail="User not found or inactive"
         )
     
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password change required before continuing",
+        )
+    
+    return user
+
+
+def get_current_user_allow_password_change(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """Get current authenticated user, allowing only password-change flow."""
+    token = credentials.credentials
+    payload = decode_token(token)
+    
+    if payload.get("type") != "access":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type"
+        )
+    
+    user_id: str = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials"
+        )
+    
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive"
+        )
+    
     return user
 
 
@@ -174,7 +211,7 @@ ROLE_PERMISSIONS = {
     "supply": {
         "canViewAll": True,
         "canViewCooperation": True,
-        "canEditFacts": True,
+        "canEditFacts": False,
         "canCreateTasks": True,
         "canManageUsers": False,
         "canDeleteData": False,
@@ -199,7 +236,7 @@ ROLE_PERMISSIONS = {
         "canViewAll": False,
         "canViewCooperation": False,
         "canEditFacts": True,
-        "canCreateTasks": True,
+        "canCreateTasks": False,
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": False,

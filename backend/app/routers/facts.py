@@ -1,6 +1,7 @@
 """Stage Facts endpoints."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from uuid import UUID
 from ..database import get_db
 from ..models import User, Part, StageFact, StageFactAttachment, PartStageStatus, AuditEvent

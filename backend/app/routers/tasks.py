@@ -1,7 +1,7 @@
 """Task endpoints."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from uuid import UUID
 from typing import Optional
 from ..database import get_db
@@ -15,6 +15,8 @@ from ..celery_app import create_notification_for_task
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
+PRODUCTION_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
+
 
 def is_task_assigned_to_user(task: Task, user: User) -> bool:
     """Check if task is assigned to user."""
@@ -25,6 +27,69 @@ def is_task_assigned_to_user(task: Task, user: User) -> bool:
     if task.assignee_type == "user" and task.assignee_id == user.id:
         return True
     return False
+
+
+def get_task_assignee_user(db: Session, org_id, assignee_id):
+    if not assignee_id:
+        return None
+    return db.query(User).filter(
+        User.id == assignee_id,
+        User.org_id == org_id,
+        User.is_active == True,
+    ).first()
+
+
+def validate_task_assignment_rules(db: Session, current_user: User, data: TaskCreate):
+    """Enforce business-specific task assignment restrictions."""
+    # Master: production-only tasks, assignee only operators.
+    if current_user.role == "master":
+        if not data.stage or data.stage not in PRODUCTION_STAGES:
+            raise HTTPException(
+                status_code=400,
+                detail="Master can create tasks only for production stages",
+            )
+        if data.assignee_type == "all":
+            raise HTTPException(
+                status_code=400,
+                detail="Master must assign tasks only to operators",
+            )
+        if data.assignee_type == "role":
+            if data.assignee_role != "operator":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Master can assign tasks only to operators",
+                )
+        if data.assignee_type == "user":
+            assignee = get_task_assignee_user(db, current_user.org_id, data.assignee_id)
+            if not assignee:
+                raise HTTPException(status_code=404, detail="Assignee user not found")
+            if assignee.role != "operator":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Master can assign tasks only to operators",
+                )
+
+    # Shop head: can assign everyone except director.
+    if current_user.role == "shop_head":
+        if data.assignee_type == "all":
+            raise HTTPException(
+                status_code=400,
+                detail="Shop head cannot assign task to all users because director must be excluded",
+            )
+        if data.assignee_type == "role" and data.assignee_role == "director":
+            raise HTTPException(
+                status_code=400,
+                detail="Shop head cannot assign tasks to director",
+            )
+        if data.assignee_type == "user":
+            assignee = get_task_assignee_user(db, current_user.org_id, data.assignee_id)
+            if not assignee:
+                raise HTTPException(status_code=404, detail="Assignee user not found")
+            if assignee.role == "director":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Shop head cannot assign tasks to director",
+                )
 
 
 def task_to_response(db: Session, task: Task, current_user: User) -> TaskResponse:
@@ -199,6 +264,7 @@ def create_task(
         raise HTTPException(status_code=400, detail="assignee_id required for user assignment")
     if data.assignee_type == "role" and not data.assignee_role:
         raise HTTPException(status_code=400, detail="assignee_role required for role assignment")
+    validate_task_assignment_rules(db, current_user, data)
     
     # Create task
     task = Task(
