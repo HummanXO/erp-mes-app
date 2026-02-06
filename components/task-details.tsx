@@ -76,12 +76,14 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
   const isMyTask = currentUser && isTaskAssignedToUser(task, currentUser)
   const isCreator = currentUser?.id === task.creator_id
   
-  // Mark as read when opening
+  // Mark as read when opening (only once)
+  const hasMarkedAsRead = useRef(false)
   useEffect(() => {
-    if (currentUser && !task.read_by.includes(currentUser.id)) {
+    if (currentUser && !task.read_by.includes(currentUser.id) && !hasMarkedAsRead.current) {
+      hasMarkedAsRead.current = true
       markTaskAsRead(task.id)
     }
-  }, [task.id, currentUser, task.read_by, markTaskAsRead])
+  }, [task.id, currentUser, markTaskAsRead])
   
   // Scroll to bottom when comments change
   useEffect(() => {
