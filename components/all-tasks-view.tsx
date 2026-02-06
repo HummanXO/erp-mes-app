@@ -54,7 +54,7 @@ export function AllTasksView() {
   const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
   const [readFilter, setReadFilter] = useState<"all" | "unread" | "read">("all")
   const [acceptedFilter, setAcceptedFilter] = useState<"all" | "accepted" | "pending">("all")
-  const [assigneeTypeFilter, setAssigneeTypeFilter] = useState<TaskAssigneeType | "all">("all")
+  const [assigneeTypeFilter, setAssigneeTypeFilter] = useState<TaskAssigneeType | "all_types">("all_types")
   
   // Selected task for detail view
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
@@ -120,7 +120,7 @@ export function AllTasksView() {
   }
   
   // Assignee type filter
-  if (assigneeTypeFilter !== "all") {
+  if (assigneeTypeFilter !== "all_types") {
     filteredTasks = filteredTasks.filter(t => t.assignee_type === assigneeTypeFilter)
   }
   
@@ -458,13 +458,13 @@ const getStatusIcon = (status: TaskStatus) => {
       </div>
       
       <div className="flex flex-wrap gap-2">
-        <Select value={assigneeTypeFilter} onValueChange={(v) => setAssigneeTypeFilter(v as TaskAssigneeType | "all")}>
+        <Select value={assigneeTypeFilter} onValueChange={(v) => setAssigneeTypeFilter(v as TaskAssigneeType | "all_types")}>
           <SelectTrigger className="w-40">
             <Users className="h-4 w-4 mr-2" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Все типы</SelectItem>
+            <SelectItem value="all_types">Все типы</SelectItem>
             <SelectItem value="user">Личные</SelectItem>
             <SelectItem value="role">Групповые ({groupTasksCount})</SelectItem>
             <SelectItem value="all">Для всех</SelectItem>
