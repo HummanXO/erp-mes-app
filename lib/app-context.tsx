@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm } from "./types"
 import { ROLE_PERMISSIONS } from "./types"
 import * as dataProvider from "./data-provider-adapter"
+import { ApiClientError } from "./api-client"
 
 interface AppContextType {
   // Auth
@@ -150,7 +151,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await refreshData()
             }
           } catch (e) {
-            console.error("Failed to restore user from token", e)
+            // 401/403 on /auth/me is expected when an old token remains in browser storage.
+            if (!(e instanceof ApiClientError && (e.statusCode === 401 || e.statusCode === 403))) {
+              console.error("Failed to restore user from token", e)
+            }
           }
         }
       } else {
