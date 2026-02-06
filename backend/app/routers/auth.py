@@ -8,7 +8,7 @@ from ..models import User, AuditEvent
 from ..schemas import LoginRequest, TokenResponse, UserResponse, RefreshTokenRequest, ChangePasswordRequest
 from ..auth import (
     verify_password, hash_password, create_access_token, create_refresh_token,
-    get_current_user, decode_token
+    get_current_user, get_current_user_allow_password_change, decode_token
 )
 from ..config import settings
 from datetime import timedelta
@@ -94,7 +94,7 @@ def refresh_token(request: RefreshTokenRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/logout")
-def logout(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def logout(current_user: User = Depends(get_current_user_allow_password_change), db: Session = Depends(get_db)):
     """Logout (audit log only)."""
     audit = AuditEvent(
         org_id=current_user.org_id,
@@ -119,7 +119,7 @@ def get_me(current_user: User = Depends(get_current_user)):
 @router.post("/change-password")
 def change_password(
     request: ChangePasswordRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db)
 ):
     """Change user password."""
