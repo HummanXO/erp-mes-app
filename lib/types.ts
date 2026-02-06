@@ -376,7 +376,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   supply: {
     canViewAll: true,
     canViewCooperation: true,
-    canEditFacts: true,
+    canEditFacts: false, // Снабжение НЕ вносит факты производства
     canCreateTasks: true,
     canManageUsers: false,
     canDeleteData: false,
@@ -391,7 +391,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: false, // Мастер НЕ видит кооперацию
     canEditFacts: true,
-    canCreateTasks: true,
+    canCreateTasks: true, // Мастер может создавать задачи операторам по производству
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: true,
@@ -404,15 +404,15 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   operator: {
     canViewAll: false,
     canViewCooperation: false, // Оператор НЕ видит кооперацию
-    canEditFacts: true, // Оператор может только вводить данные (факты)
-    canCreateTasks: true, // Оператор может создавать задачи
+    canEditFacts: true, // Оператор вносит факты производства
+    canCreateTasks: false, // Оператор НЕ может создавать задачи
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: false,
     canCreateParts: false, // Оператор НЕ может создавать детали
     canCreateOwnParts: false,
     canCreateCoopParts: false,
-    canEditParts: false, // Оператор НЕ может изменять детали
+    canEditParts: false,
     canManageLogistics: false,
   },
 }
