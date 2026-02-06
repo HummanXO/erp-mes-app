@@ -1,12 +1,10 @@
-"use client"
+import dynamic from "next/dynamic"
 
-import { AppProvider } from "@/lib/app-context"
-import { Dashboard } from "@/components/dashboard"
+const ClientApp = dynamic(() => import("@/components/client-app").then(m => m.ClientApp), {
+  ssr: false,
+  loading: () => null,
+})
 
 export default function Home() {
-  return (
-    <AppProvider>
-      <Dashboard />
-    </AppProvider>
-  )
+  return <ClientApp />
 }
