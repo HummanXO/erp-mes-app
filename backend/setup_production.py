@@ -117,6 +117,15 @@ def setup():
         print("\n👥 Creating users...")
         
         users_data = [
+            # Администратор (не требует смены пароля)
+            {
+                'id': uuid.UUID('20000000-0000-0000-0000-000000000000'),
+                'username': 'HummanXo',
+                'password': 'Kolchin4228',
+                'initials': 'Администратор',
+                'role': 'admin',
+                'must_change_password': False,
+            },
             # Генеральный директор
             {
                 'id': uuid.UUID('20000000-0000-0000-0000-000000000001'),
@@ -124,6 +133,7 @@ def setup():
                 'password': 'gorbenko123',
                 'initials': 'Горбенко А.А.',
                 'role': 'director',
+                'must_change_password': True,
             },
             # Главный инженер
             {
@@ -132,6 +142,7 @@ def setup():
                 'password': 'shamaev123',
                 'initials': 'Шамаев А.А.',
                 'role': 'chief_engineer',
+                'must_change_password': True,
             },
             # Начальник цеха
             {
@@ -140,6 +151,7 @@ def setup():
                 'password': 'berzhanovsky123',
                 'initials': 'Бержановский Г.В.',
                 'role': 'shop_head',
+                'must_change_password': True,
             },
             # Мастер
             {
@@ -148,6 +160,7 @@ def setup():
                 'password': 'kozlov123',
                 'initials': 'Козлов А.Ю.',
                 'role': 'master',
+                'must_change_password': True,
             },
             # Снабжение/Кооперация (2 человека)
             {
@@ -156,6 +169,7 @@ def setup():
                 'password': 'kolchin123',
                 'initials': 'Колчин А.А.',
                 'role': 'supply',
+                'must_change_password': True,
             },
             {
                 'id': uuid.UUID('20000000-0000-0000-0000-000000000006'),
@@ -163,6 +177,7 @@ def setup():
                 'password': 'kuznetsov123',
                 'initials': 'Кузнецов В.С.',
                 'role': 'supply',
+                'must_change_password': True,
             },
             # Операторы (4 человека)
             {
@@ -171,6 +186,7 @@ def setup():
                 'password': 'ilinykh123',
                 'initials': 'Ильиных Е.Б.',
                 'role': 'operator',
+                'must_change_password': True,
             },
             {
                 'id': uuid.UUID('20000000-0000-0000-0000-000000000008'),
@@ -178,6 +194,7 @@ def setup():
                 'password': 'vakhrushev123',
                 'initials': 'Вахрушев А.В.',
                 'role': 'operator',
+                'must_change_password': True,
             },
             {
                 'id': uuid.UUID('20000000-0000-0000-0000-000000000009'),
@@ -185,6 +202,7 @@ def setup():
                 'password': 'shumilov123',
                 'initials': 'Шумилов А.В.',
                 'role': 'operator',
+                'must_change_password': True,
             },
             {
                 'id': uuid.UUID('20000000-0000-0000-0000-000000000010'),
@@ -192,26 +210,33 @@ def setup():
                 'password': 'solovyev123',
                 'initials': 'Соловьев А.С.',
                 'role': 'operator',
+                'must_change_password': True,
             },
         ]
         
         users = []
         for user_data in users_data:
             password = user_data.pop('password')
+            must_change = user_data.pop('must_change_password', True)  # По умолчанию требуем смену
             user = User(
                 org_id=org.id,
                 password_hash=pwd_context.hash(password),
                 is_active=True,
+                must_change_password=must_change,
                 **user_data
             )
             db.add(user)
             users.append(user)
-            print(f"  ✓ {user.initials} ({user.username} / {password}) - {user.role}")
+            change_mark = " [ТРЕБУЕТСЯ СМЕНА ПАРОЛЯ]" if must_change else ""
+            print(f"  ✓ {user.initials} ({user.username} / {password}) - {user.role}{change_mark}")
         
         db.commit()
         
         print("\n✅ Production environment setup complete!")
         print("\n📋 Login credentials:")
+        print("\n  🔑 Администратор (постоянный доступ):")
+        print("     HummanXo / Kolchin4228")
+        print("\n  ⚠️  Все остальные пользователи ОБЯЗАНЫ сменить пароль при первом входе:")
         print("\n  🔹 Генеральный директор:")
         print("     gorbenko / gorbenko123")
         print("\n  🔹 Главный инженер:")
@@ -228,7 +253,7 @@ def setup():
         print("     vakhrushev / vakhrushev123")
         print("     shumilov / shumilov123")
         print("     solovyev / solovyev123")
-        print("\n🏭 Machines:")
+        print("\n🏭 Станки:")
         print("  - Tsugami S205A")
         print("  - NextTurn SA12B")
         

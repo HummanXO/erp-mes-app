@@ -2,12 +2,14 @@
 
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
+import { apiClient } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2 } from "lucide-react"
+import { ChangePasswordDialog } from "./change-password-dialog"
 
 export function LoginPageApi() {
   const { loginWithCredentials } = useApp()
@@ -15,6 +17,8 @@ export function LoginPageApi() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [temporaryPassword, setTemporaryPassword] = useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,12 +26,33 @@ export function LoginPageApi() {
     setLoading(true)
 
     try {
-      await loginWithCredentials(username, password)
+      const response = await apiClient.login(username, password)
+      
+      // Check if password change is required
+      if (response.must_change_password) {
+        setTemporaryPassword(password)
+        setShowChangePassword(true)
+        setLoading(false)
+      } else {
+        // Normal login flow
+        await loginWithCredentials(username, password)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка авторизации")
-    } finally {
       setLoading(false)
     }
+  }
+
+  const handlePasswordChanged = async (oldPassword: string, newPassword: string) => {
+    await apiClient.changePassword(oldPassword, newPassword)
+    // После смены пароля логинимся с новым паролем
+    await loginWithCredentials(username, newPassword)
+  }
+
+  const onPasswordChangedSuccess = () => {
+    setShowChangePassword(false)
+    setPassword("")
+    setTemporaryPassword("")
   }
 
   return (
@@ -73,13 +98,15 @@ export function LoginPageApi() {
               Войти
             </Button>
           </form>
-          <div className="mt-6 text-sm text-muted-foreground text-center">
-            <p className="font-medium mb-1">Тестовые учётные записи:</p>
-            <p>admin / admin123</p>
-            <p>petrov / petrov123</p>
-          </div>
         </CardContent>
       </Card>
+      
+      {/* Change password dialog */}
+      <ChangePasswordDialog
+        open={showChangePassword}
+        onPasswordChanged={onPasswordChangedSuccess}
+        onChangePassword={handlePasswordChanged}
+      />
     </div>
   )
 }

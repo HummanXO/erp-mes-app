@@ -22,6 +22,7 @@ class UserCreate(UserBase):
 class UserResponse(UserBase):
     id: UUID
     is_active: bool
+    must_change_password: bool
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -45,11 +46,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     expires_in: int
     user: UserResponse
+    must_change_password: bool = False
 
 
 class RefreshTokenRequest(BaseModel):

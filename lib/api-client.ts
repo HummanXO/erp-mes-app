@@ -129,6 +129,13 @@ class ApiClient {
     return this.request<any>("/auth/me")
   }
 
+  async changePassword(oldPassword: string, newPassword: string) {
+    return this.request<any>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    })
+  }
+
   // Users
   async getUsers() {
     return this.request<any>("/users")
