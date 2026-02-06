@@ -62,13 +62,13 @@ def setup():
         deleted_statuses = db.query(PartStageStatus).delete()
         print(f"  - Deleted {deleted_statuses} part stage statuses")
         
+        # Delete machine norms (BEFORE parts due to FK constraint)
+        deleted_norms = db.query(MachineNorm).delete()
+        print(f"  - Deleted {deleted_norms} machine norms")
+        
         # Delete parts
         deleted_parts = db.query(Part).delete()
         print(f"  - Deleted {deleted_parts} parts")
-        
-        # Delete machine norms
-        deleted_norms = db.query(MachineNorm).delete()
-        print(f"  - Deleted {deleted_norms} machine norms")
         
         # Delete demo machines
         deleted_machines = db.query(Machine).delete()
