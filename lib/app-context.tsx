@@ -109,6 +109,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [machineNorms, setMachineNorms] = useState<MachineNorm[]>([])
   const [isInitialized, setIsInitialized] = useState(false)
 
+  async function refreshData() {
+    try {
+      // Load data (async in API mode, sync in localStorage mode)
+      const [users, machines, parts, facts, tasks, logistics, norms] = await Promise.all([
+        dataProvider.getUsers(),
+        dataProvider.getMachines(),
+        dataProvider.getParts(),
+        dataProvider.getStageFacts(),
+        dataProvider.getTasks(),
+        dataProvider.getLogistics(),
+        dataProvider.getMachineNorms(),
+      ])
+      
+      setUsers(Array.isArray(users) ? users : [])
+      setMachines(Array.isArray(machines) ? machines : [])
+      setParts(Array.isArray(parts) ? parts : [])
+      setStageFacts(Array.isArray(facts) ? facts : [])
+      setTasks(Array.isArray(tasks) ? tasks : [])
+      setLogistics(Array.isArray(logistics) ? logistics : [])
+      setMachineNorms(Array.isArray(norms) ? norms : [])
+    } catch (error) {
+      console.error("Failed to load data:", error)
+    }
+  }
+
   useEffect(() => {
     let isMounted = true
 
@@ -144,31 +169,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false
-    }
-  }, [refreshData])
-
-  const refreshData = useCallback(async () => {
-    try {
-      // Load data (async in API mode, sync in localStorage mode)
-      const [users, machines, parts, facts, tasks, logistics, norms] = await Promise.all([
-        dataProvider.getUsers(),
-        dataProvider.getMachines(),
-        dataProvider.getParts(),
-        dataProvider.getStageFacts(),
-        dataProvider.getTasks(),
-        dataProvider.getLogistics(),
-        dataProvider.getMachineNorms(),
-      ])
-      
-      setUsers(Array.isArray(users) ? users : [])
-      setMachines(Array.isArray(machines) ? machines : [])
-      setParts(Array.isArray(parts) ? parts : [])
-      setStageFacts(Array.isArray(facts) ? facts : [])
-      setTasks(Array.isArray(tasks) ? tasks : [])
-      setLogistics(Array.isArray(logistics) ? logistics : [])
-      setMachineNorms(Array.isArray(norms) ? norms : [])
-    } catch (error) {
-      console.error("Failed to load data:", error)
     }
   }, [])
 
