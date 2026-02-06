@@ -1,6 +1,8 @@
 """Auth endpoints."""
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from ..database import get_db
 from ..models import User, AuditEvent
 from ..schemas import LoginRequest, TokenResponse, UserResponse, RefreshTokenRequest, ChangePasswordRequest
@@ -12,6 +14,7 @@ from ..config import settings
 from datetime import timedelta
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -33,17 +36,21 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token({"sub": str(user.id)})
     refresh_token = create_refresh_token({"sub": str(user.id)})
     
-    # Audit log
-    audit = AuditEvent(
-        org_id=user.org_id,
-        action="user_login",
-        entity_type="user",
-        entity_id=user.id,
-        user_id=user.id,
-        user_name=user.initials,
-    )
-    db.add(audit)
-    db.commit()
+    # Audit failure must not break successful login.
+    try:
+        audit = AuditEvent(
+            org_id=user.org_id,
+            action="user_login",
+            entity_type="user",
+            entity_id=user.id,
+            user_id=user.id,
+            user_name=user.initials,
+        )
+        db.add(audit)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Failed to write login audit event")
     
     return TokenResponse(
         access_token=access_token,
