@@ -108,5 +108,8 @@ export const getStageCompletion = localStorageProvider.getStageCompletion
 export const login = USE_API ? httpProvider.login : undefined
 export const logout = USE_API ? httpProvider.logout : undefined
 
+// Session restore (API mode only)
+export const loadCurrentUserFromToken = USE_API ? httpProvider.loadCurrentUserFromToken : undefined
+
 // Check if using API
 export const isUsingApi = () => USE_API

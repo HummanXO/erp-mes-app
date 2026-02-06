@@ -87,6 +87,9 @@ class PartUpdate(BaseModel):
 class MachineResponse(BaseModel):
     id: UUID
     name: str
+    department: str
+    rate_per_shift: int
+    
     model_config = ConfigDict(from_attributes=True)
 
 

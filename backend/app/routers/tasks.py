@@ -40,12 +40,16 @@ def task_to_response(db: Session, task: Task, current_user: User) -> TaskRespons
         TaskReadStatus.user_id == current_user.id
     ).first() is not None
     
-    # Get all read statuses (who read and when)
-    read_statuses = db.query(TaskReadStatus, User).join(
-        User, TaskReadStatus.user_id == User.id
-    ).filter(
-        TaskReadStatus.task_id == task.id
-    ).all()
+    # Get all read statuses (who read and when), excluding task creator
+    read_statuses = (
+        db.query(TaskReadStatus, User)
+        .join(User, TaskReadStatus.user_id == User.id)
+        .filter(
+            TaskReadStatus.task_id == task.id,
+            TaskReadStatus.user_id != task.creator_id,
+        )
+        .all()
+    )
     
     read_by_users = [
         {"user": UserBrief.model_validate(user), "read_at": status.read_at}
