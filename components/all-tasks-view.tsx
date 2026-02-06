@@ -70,17 +70,8 @@ export function AllTasksView() {
   const [dueDate, setDueDate] = useState("")
   const [category, setCategory] = useState<"tooling" | "quality" | "machine" | "material" | "logistics" | "general">("general")
   
-  // Mark tasks as read when viewing
-  useEffect(() => {
-    if (!currentUser) return
-    
-    // Mark assigned tasks as read when this view is opened
-    tasks.forEach(task => {
-      if (isTaskAssignedToUser(task, currentUser) && !task.read_by.includes(currentUser.id)) {
-        markTaskAsRead(task.id)
-      }
-    })
-  }, [currentUser, tasks, markTaskAsRead, isTaskAssignedToUser])
+  // NOTE: Removed auto-mark-as-read on view - tasks are marked as read only when opened individually
+  // This prevents infinite loops when markTaskAsRead updates the tasks array
   
   // Filter tasks
   let filteredTasks = statusFilter === "all" 
