@@ -344,3 +344,14 @@ export async function logout(): Promise<void> {
 export function isApiConfigured(): boolean {
   return isApiConfiguredEnv()
 }
+
+// Helper functions (fallbacks for localStorage-specific features)
+export function getTasksCreatedByUser(userId: string): Task[] {
+  // Not implemented in API mode - return empty array
+  return []
+}
+
+export function getUsersByRole(role: string): User[] {
+  // Not implemented in API mode - return empty array
+  return []
+}

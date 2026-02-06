@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from app.database import SessionLocal
-from app.models import Organization, User, Machine, Part, Task, StageFact, PartStageStatus, TaskReadStatus, TaskComment, TaskAttachment, NotificationOutbox, MachineNorm
+from app.models import Organization, User, Machine, Part, Task, StageFact, PartStageStatus, TaskReadStatus, TaskComment, TaskAttachment, NotificationOutbox, MachineNorm, AuditEvent
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -65,6 +65,10 @@ def setup():
         # Delete machine norms (BEFORE parts due to FK constraint)
         deleted_norms = db.query(MachineNorm).delete()
         print(f"  - Deleted {deleted_norms} machine norms")
+        
+        # Delete audit events (BEFORE parts/machines/users due to FK constraints)
+        deleted_audit = db.query(AuditEvent).delete()
+        print(f"  - Deleted {deleted_audit} audit events")
         
         # Delete parts
         deleted_parts = db.query(Part).delete()
