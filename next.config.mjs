@@ -7,6 +7,12 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  webpack: (config, { dev }) => {
+    if (!dev) {
+      config.optimization.minimize = false
+    }
+    return config
+  },
 }
 
 export default nextConfig
