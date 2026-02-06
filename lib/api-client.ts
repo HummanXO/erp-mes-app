@@ -146,6 +146,15 @@ class ApiClient {
     return this.request<any>(`/users/by-role/${role}`)
   }
 
+  // Machines
+  async getMachines() {
+    return this.request<any>("/machines")
+  }
+
+  async getMachineById(id: string) {
+    return this.request<any>(`/machines/${id}`)
+  }
+
   // Parts
   async getParts(filters?: {
     status?: string

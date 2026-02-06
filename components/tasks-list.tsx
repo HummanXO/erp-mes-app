@@ -80,6 +80,10 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   const doneTasks = filteredTasks.filter(t => t.status === "done")
   
   const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) : null
+
+  const unreadActiveCount = currentUser
+    ? activeTasks.filter(t => !t.read_by.includes(currentUser.id)).length
+    : 0
   
   // If a task is selected, show task details
   if (selectedTask) {
@@ -348,7 +352,10 @@ export function TasksList({ partId, machineId }: TasksListProps) {
       {activeTasks.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Активные задачи ({activeTasks.length})</CardTitle>
+            <CardTitle className="text-sm">
+              Активные задачи ({activeTasks.length}
+              {unreadActiveCount > 0 && `, непрочитанных: ${unreadActiveCount}`})
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {activeTasks.map(task => {

@@ -47,6 +47,17 @@ function transformPart(backendPart: any): Part {
   }
 }
 
+function transformComment(backendComment: any, taskId?: string): TaskComment {
+  return {
+    id: backendComment.id,
+    task_id: taskId ?? backendComment.task_id,
+    user_id: backendComment.user?.id,
+    message: backendComment.message,
+    attachments: backendComment.attachments || [],
+    created_at: backendComment.created_at,
+  }
+}
+
 function transformTask(backendTask: any): Task {
   return {
     id: backendTask.id,
@@ -68,7 +79,7 @@ function transformTask(backendTask: any): Task {
     created_at: backendTask.created_at,
     read_by: backendTask.read_by_users?.map((r: any) => r.user.id) || [],
     read_by_users: backendTask.read_by_users || [],
-    comments: backendTask.comments || [],
+    comments: (backendTask.comments || []).map((c: any) => transformComment(c, backendTask.id)),
     review_comment: backendTask.review_comment,
     reviewed_by_id: backendTask.reviewed_by?.id,
     reviewed_at: backendTask.reviewed_at,
@@ -119,24 +130,31 @@ export async function getOperators(): Promise<User[]> {
 
 // Get current user synchronously (checks if token exists)
 export function getCurrentUser(): User | null {
-  // In API mode, user is loaded after login, not stored
+  // In API mode, user is restored via token on app init
   return null
 }
 
-// Set current user (no-op in API mode, managed via JWT)
+// API mode: user is managed via JWT, no explicit setter
 export function setCurrentUser(userId: string | null): void {
-  // No-op: user is managed via JWT token
+  // No-op
 }
 
-// Machines - placeholder (would need backend endpoint)
 export async function getMachines(): Promise<Machine[]> {
-  // TODO: Implement when backend has machines endpoint
-  return []
+  const response = await apiClient.getMachines()
+  const machines = response.data || response
+  return machines as Machine[]
 }
 
 export async function getMachineById(id: string): Promise<Machine | undefined> {
-  // TODO: Implement
-  return undefined
+  try {
+    const machine = await apiClient.getMachineById(id)
+    return machine as Machine
+  } catch (error) {
+    if (error instanceof ApiClientError && error.statusCode === 404) {
+      return undefined
+    }
+    throw error
+  }
 }
 
 // Parts
@@ -261,8 +279,23 @@ export async function addTaskComment(
   attachments: TaskComment["attachments"] = []
 ): Promise<TaskComment | null> {
   const response = await apiClient.addTaskComment(taskId, message, attachments)
-  return response
+  return transformComment(response, taskId)
 }
+
+// Try to restore current user from existing access token (for session persistence)
+export async function loadCurrentUserFromToken(): Promise<User | null> {
+  if (!apiClient.getAccessToken()) return null
+  try {
+    const me = await apiClient.getMe()
+    return me as User
+  } catch (error) {
+    if (error instanceof ApiClientError && (error.statusCode === 401 || error.statusCode === 403)) {
+      // Token invalid – clear it
+      apiClient.setAccessToken(null)
+      return null
+    }
+    throw error
+  }
 
 export async function sendTaskForReview(
   taskId: string,

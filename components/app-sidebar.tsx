@@ -1,6 +1,7 @@
 "use client"
 
 import { useApp } from "@/lib/app-context"
+import * as dataProvider from "@/lib/data-provider-adapter"
 import { ROLE_LABELS } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,7 +34,8 @@ interface AppSidebarProps {
 
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
   const { currentUser, logout, demoDate, setDemoDate, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount } = useApp()
-  
+  const usingApi = dataProvider.isUsingApi()
+
   const blockers = getAllBlockers()
   const overdue = getOverdueTasks()
   const unreadCount = getUnreadTasksCount()
@@ -124,10 +126,12 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
         )}
         
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={resetData}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Сброс
-          </Button>
+          {!usingApi && (
+            <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={resetData}>
+              <RefreshCw className="h-4 w-4 mr-1" />
+              Сброс
+            </Button>
+          )}
           <Button variant="outline" size="sm" className="flex-1 bg-transparent" onClick={logout}>
             <LogOut className="h-4 w-4 mr-1" />
             Выход

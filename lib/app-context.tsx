@@ -110,22 +110,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isInitialized, setIsInitialized] = useState(false)
 
   useEffect(() => {
-    dataProvider.initializeData()
-    
-    // Only load data if NOT using API (localStorage mode)
-    // In API mode, data is loaded after login
-    if (!dataProvider.isUsingApi()) {
-      refreshData()
+    let isMounted = true
+
+    const init = async () => {
+      dataProvider.initializeData()
+
+      if (dataProvider.isUsingApi()) {
+        // API mode: попробуем восстановить пользователя по токену
+        if (dataProvider.loadCurrentUserFromToken) {
+          try {
+            const user = await dataProvider.loadCurrentUserFromToken()
+            if (isMounted && user) {
+              setCurrentUser(user)
+              await refreshData()
+            }
+          } catch (e) {
+            console.error("Failed to restore user from token", e)
+          }
+        }
+      } else {
+        // LocalStorage mode: старая логика
+        const user = dataProvider.getCurrentUser()
+        setCurrentUser(user)
+        await refreshData()
+      }
+
+      const date = dataProvider.getDemoDate()
+      setDemoDateState(date)
+      setIsInitialized(true)
     }
-    
-    const user = dataProvider.getCurrentUser()
-    setCurrentUser(user)
-    
-    const date = dataProvider.getDemoDate()
-    setDemoDateState(date)
-    
-    setIsInitialized(true)
-  }, [])
+
+    void init()
+
+    return () => {
+      isMounted = false
+    }
+  }, [refreshData])
 
   const refreshData = useCallback(async () => {
     try {
@@ -220,8 +240,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const createTask = useCallback(async (task: Omit<Task, "id" | "created_at" | "read_by">) => {
+    // Создаем задачу на сервере
     const newTask = await dataProvider.createTask(task)
-    await refreshData()
+
+    // Мгновенно добавляем в локальное состояние, чтобы не было задержки
+    setTasks(prev => [newTask, ...prev])
+
+    // Фоновое обновление всех данных (не блокируем UI)
+    refreshData()
+
     return newTask
   }, [refreshData])
 
