@@ -232,8 +232,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const markTaskAsRead = useCallback(async (taskId: string) => {
     if (!currentUser) return
-    await dataProvider.markTaskAsRead(taskId, currentUser.id)
-    await refreshData()
+    
+    // Optimistically update local state first
+    setTasks(prevTasks => 
+      prevTasks.map(t => 
+        t.id === taskId 
+          ? { ...t, read_by: [...t.read_by, currentUser.id] }
+          : t
+      )
+    )
+    
+    // Then update on server (no refresh needed - already updated locally)
+    try {
+      await dataProvider.markTaskAsRead(taskId, currentUser.id)
+    } catch (error) {
+      console.error("Failed to mark task as read:", error)
+      // Revert on error
+      await refreshData()
+    }
   }, [currentUser, refreshData])
 
   const acceptTask = useCallback(async (taskId: string) => {
