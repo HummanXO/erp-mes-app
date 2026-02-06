@@ -4,43 +4,20 @@
 
 import * as localStorageProvider from "./data-provider"
 import * as httpProvider from "./http-data-provider"
+import { getApiBaseUrl, isApiConfigured } from "./env"
 
-// Avoid circular dependency by reading env directly here
-function getApiBaseUrl(): string {
-  if (typeof process !== "undefined" && process.env) {
-    return (
-      process.env.NEXT_PUBLIC_API_BASE_URL ||
-      process.env.VITE_API_BASE_URL ||
-      ""
-    )
-  }
-  return ""
+// Determine which provider to use
+const API_BASE_URL = getApiBaseUrl()
+const USE_API = isApiConfigured()
+
+// Log which provider is being used (client-side only)
+if (typeof window !== "undefined") {
+  console.log(
+    USE_API 
+      ? `🌐 Using HTTP API: ${API_BASE_URL}` 
+      : "💾 Using localStorage (no API base URL configured)"
+  )
 }
-
-function isApiConfigured(): boolean {
-  return getApiBaseUrl().length > 0
-}
-
-let _USE_API: boolean | undefined = undefined
-let _API_BASE_URL: string | undefined = undefined
-
-function initProvider() {
-  if (_USE_API === undefined) {
-    _API_BASE_URL = getApiBaseUrl()
-    _USE_API = isApiConfigured()
-
-    if (typeof window !== "undefined") {
-      console.log(
-        _USE_API
-          ? `🌐 Using HTTP API: ${_API_BASE_URL}`
-          : "💾 Using localStorage (no API base URL configured)"
-      )
-    }
-  }
-  return _USE_API!
-}
-
-const USE_API = initProvider()
 
 // Re-export all functions from the appropriate provider
 export const initializeData = USE_API ? (() => {}) : localStorageProvider.initializeData
