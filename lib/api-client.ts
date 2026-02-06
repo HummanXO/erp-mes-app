@@ -4,7 +4,14 @@
 
 import { getApiBaseUrl } from "./env"
 
-const API_BASE_URL = getApiBaseUrl()
+// Lazy initialization to avoid circular dependency issues
+let _API_BASE_URL: string | null = null
+function getBaseUrl(): string {
+  if (_API_BASE_URL === null) {
+    _API_BASE_URL = getApiBaseUrl()
+  }
+  return _API_BASE_URL
+}
 
 export interface ApiError {
   code: string
@@ -289,5 +296,21 @@ class ApiClient {
   }
 }
 
-// Export singleton instance
-export const apiClient = new ApiClient(API_BASE_URL)
+// Export lazy singleton instance
+let _apiClient: ApiClient | null = null
+
+function getApiClientInstance(): ApiClient {
+  if (_apiClient === null) {
+    _apiClient = new ApiClient(getBaseUrl())
+  }
+  return _apiClient
+}
+
+// Export as object with getters to enable lazy initialization
+export const apiClient = new Proxy({} as ApiClient, {
+  get: (target, prop) => {
+    const instance = getApiClientInstance()
+    const value = (instance as any)[prop]
+    return typeof value === 'function' ? value.bind(instance) : value
+  }
+})
