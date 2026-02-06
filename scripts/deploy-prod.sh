@@ -17,7 +17,7 @@ fi
 
 git fetch --all --prune
 git checkout "${BRANCH}"
-git pull --ff-only origin "${BRANCH}"
+git reset --hard "origin/${BRANCH}"
 
 docker compose -f "${COMPOSE_FILE}" build --pull "${SERVICE}"
 docker compose -f "${COMPOSE_FILE}" up -d "${SERVICE}"
