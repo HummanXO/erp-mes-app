@@ -7,7 +7,7 @@ from pathlib import Path
 # Add app to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.database import SessionLocal
+from app.database import SessionLocal, Base, engine
 from app.models import Organization, User, Machine, Part, Task, StageFact, PartStageStatus, TaskReadStatus, TaskComment, TaskAttachment, NotificationOutbox, MachineNorm, AuditEvent
 from passlib.context import CryptContext
 
@@ -16,6 +16,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def setup():
     """Setup production environment."""
+    # Create all tables first
+    print("📦 Creating database tables...")
+    Base.metadata.create_all(bind=engine)
+    print("✅ Tables created")
+    
     db = SessionLocal()
     
     try:
