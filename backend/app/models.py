@@ -42,6 +42,7 @@ class User(Base):
     telegram_chat_id = Column(String(50), nullable=True)  # Can be NULL if unlinked/blocked
     email = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)  # Force password change on first login
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     

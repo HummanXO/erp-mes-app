@@ -3,9 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import User, AuditEvent
-from ..schemas import LoginRequest, TokenResponse, UserResponse, RefreshTokenRequest
+from ..schemas import LoginRequest, TokenResponse, UserResponse, RefreshTokenRequest, ChangePasswordRequest
 from ..auth import (
-    verify_password, create_access_token, create_refresh_token,
+    verify_password, hash_password, create_access_token, create_refresh_token,
     get_current_user, decode_token
 )
 from ..config import settings
@@ -49,7 +49,8 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user)
+        user=UserResponse.model_validate(user),
+        must_change_password=user.must_change_password
     )
 
 
@@ -106,3 +107,36 @@ def logout(current_user: User = Depends(get_current_user), db: Session = Depends
 def get_me(current_user: User = Depends(get_current_user)):
     """Get current user info."""
     return UserResponse.model_validate(current_user)
+
+
+@router.post("/change-password")
+def change_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Change user password."""
+    # Verify old password
+    if not verify_password(request.old_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid current password"
+        )
+    
+    # Update password
+    current_user.password_hash = hash_password(request.new_password)
+    current_user.must_change_password = False
+    
+    # Audit log
+    audit = AuditEvent(
+        org_id=current_user.org_id,
+        action="password_changed",
+        entity_type="user",
+        entity_id=current_user.id,
+        user_id=current_user.id,
+        user_name=current_user.initials,
+    )
+    db.add(audit)
+    db.commit()
+    
+    return {"message": "Password changed successfully"}
