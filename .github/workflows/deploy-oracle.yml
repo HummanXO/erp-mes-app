@@ -23,7 +23,6 @@ jobs:
           username: ${{ secrets.ORACLE_USER }}
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script_stop: true
-          envs: APP_DIR,BRANCH,COMPOSE_FILE,SERVICE
           script: |
             APP_DIR="${{ secrets.ORACLE_APP_DIR }}"
             BRANCH="main"
@@ -35,6 +34,21 @@ jobs:
               exit 1
             fi
 
-            chmod +x "$APP_DIR/scripts/deploy-prod.sh"
-            APP_DIR="$APP_DIR" BRANCH="$BRANCH" COMPOSE_FILE="$COMPOSE_FILE" SERVICE="$SERVICE" \
-              "$APP_DIR/scripts/deploy-prod.sh"
+            if [ ! -d "$APP_DIR" ]; then
+              echo "APP_DIR does not exist: $APP_DIR"
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+
+            if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              echo "Not a git repository: $APP_DIR"
+              exit 1
+            fi
+
+            git fetch --all --prune
+            git checkout "$BRANCH"
+            git pull --ff-only origin "$BRANCH"
+
+            docker compose -f "$COMPOSE_FILE" build --pull "$SERVICE"
+            docker compose -f "$COMPOSE_FILE" up -d "$SERVICE"
