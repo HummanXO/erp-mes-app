@@ -1,5 +1,5 @@
 """Seed database with demo data."""
-from app.database import SessionLocal
+from app.database import SessionLocal, Base, engine
 from app.models import (
     Organization, User, Machine, Part, PartStageStatus, 
     StageFact, Task, MachineNorm
@@ -10,6 +10,11 @@ import uuid
 
 def seed():
     """Seed database with demo data."""
+    # Create all tables
+    print("📦 Creating database tables...")
+    Base.metadata.create_all(bind=engine)
+    print("✅ Tables created")
+    
     db = SessionLocal()
     
     try:
