@@ -296,6 +296,7 @@ export async function loadCurrentUserFromToken(): Promise<User | null> {
     }
     throw error
   }
+}
 
 export async function sendTaskForReview(
   taskId: string,
