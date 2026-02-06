@@ -2,14 +2,6 @@
  * HTTP Data Provider - wraps API client with same interface as localStorage provider
  */
 
-import { apiClient, ApiClientError } from "./api-client"
-import { isApiConfigured as isApiConfiguredEnv } from "./env"
-
-// Helper to check if user is authenticated
-function isAuthenticated(): boolean {
-  return !!apiClient.getAccessToken()
-}
-
 import type {
   User,
   Machine,
@@ -24,6 +16,13 @@ import type {
   MachineNorm,
   TaskAttachment,
 } from "./types"
+import { apiClient, ApiClientError } from "./api-client"
+import { isApiConfigured as isApiConfiguredEnv } from "./env"
+
+// Helper to check if user is authenticated
+function isAuthenticated(): boolean {
+  return !!apiClient.getAccessToken()
+}
 
 // Transform backend response to frontend format
 function transformPart(backendPart: any): Part {

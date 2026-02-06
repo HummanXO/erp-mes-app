@@ -26,11 +26,19 @@ def setup():
     try:
         print("🚀 Setting up production environment...")
         
-        # Check if organization exists
+        # Check if organization exists (create if missing)
         org = db.query(Organization).first()
         if not org:
-            print("❌ Organization not found. Run seed_data.py first to create organization.")
-            return
+            print("⚠️  Organization not found. Creating default organization...")
+            org = Organization(
+                id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                name="Производство",
+                code="MAIN",
+                is_active=True,
+            )
+            db.add(org)
+            db.commit()
+            db.refresh(org)
         
         print(f"✅ Using organization: {org.name}")
         
