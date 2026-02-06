@@ -5,22 +5,34 @@
 import * as localStorageProvider from "./data-provider"
 import * as httpProvider from "./http-data-provider"
 
-// Lazy evaluation to avoid circular dependency
+// Avoid circular dependency by reading env directly here
+function getApiBaseUrl(): string {
+  if (typeof process !== "undefined" && process.env) {
+    return (
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      process.env.VITE_API_BASE_URL ||
+      ""
+    )
+  }
+  return ""
+}
+
+function isApiConfigured(): boolean {
+  return getApiBaseUrl().length > 0
+}
+
 let _USE_API: boolean | undefined = undefined
 let _API_BASE_URL: string | undefined = undefined
 
 function initProvider() {
   if (_USE_API === undefined) {
-    // Import env functions only when needed
-    const { getApiBaseUrl, isApiConfigured } = require("./env")
     _API_BASE_URL = getApiBaseUrl()
     _USE_API = isApiConfigured()
-    
-    // Log which provider is being used
+
     if (typeof window !== "undefined") {
       console.log(
-        _USE_API 
-          ? `🌐 Using HTTP API: ${_API_BASE_URL}` 
+        _USE_API
+          ? `🌐 Using HTTP API: ${_API_BASE_URL}`
           : "💾 Using localStorage (no API base URL configured)"
       )
     }
