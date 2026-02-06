@@ -22,6 +22,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { 
   ArrowLeft,
   Send,
@@ -253,6 +259,38 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
               </div>
             )}
           </div>
+          
+          {/* Read status - visible for task creator */}
+          {isCreator && task.read_by_users && task.read_by_users.length > 0 && (
+            <div className="pt-3 border-t">
+              <span className="text-sm text-muted-foreground">Прочитали задачу:</span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {task.read_by_users.map((readInfo) => (
+                  <TooltipProvider key={readInfo.user.id}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="gap-1 cursor-help">
+                          <Eye className="h-3 w-3" />
+                          {readInfo.user.initials}
+                        </Badge>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-xs">
+                          {new Date(readInfo.read_at).toLocaleString("ru-RU", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ))}
+              </div>
+            </div>
+          )}
           
           {task.review_comment && (
             <div className="p-2 rounded bg-amber-50 border border-amber-200 text-sm">

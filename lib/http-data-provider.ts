@@ -66,7 +66,8 @@ function transformTask(backendTask: any): Task {
     due_date: backendTask.due_date,
     category: backendTask.category,
     created_at: backendTask.created_at,
-    read_by: backendTask.is_read ? [backendTask.creator?.id] : [], // Transform is_read to array
+    read_by: backendTask.read_by_users?.map((r: any) => r.user.id) || [],
+    read_by_users: backendTask.read_by_users || [],
     comments: backendTask.comments || [],
     review_comment: backendTask.review_comment,
     reviewed_by_id: backendTask.reviewed_by?.id,

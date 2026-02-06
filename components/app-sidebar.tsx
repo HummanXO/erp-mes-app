@@ -87,22 +87,24 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
         
         <Separator className="my-4" />
         
-        {/* Demo date control */}
-        <div className="px-2 space-y-2">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            Демо-дата
-          </Label>
-          <Input
-            type="date"
-            value={demoDate}
-            onChange={(e) => setDemoDate(e.target.value)}
-            className="h-8 text-sm"
-          />
-          <p className="text-xs text-muted-foreground">
-            Для тестирования разных сценариев
-          </p>
-        </div>
+        {/* Demo date control - only for admin */}
+        {currentUser?.role === "admin" && (
+          <div className="px-2 space-y-2">
+            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              Демо-дата
+            </Label>
+            <Input
+              type="date"
+              value={demoDate}
+              onChange={(e) => setDemoDate(e.target.value)}
+              className="h-8 text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Для тестирования разных сценариев
+            </p>
+          </div>
+        )}
       </SidebarContent>
       
       <SidebarFooter className="p-4 space-y-3">

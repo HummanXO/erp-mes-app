@@ -230,14 +230,16 @@ const getStatusIcon = (status: TaskStatus) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">Все задачи</h1>
-          <p className="text-sm text-muted-foreground">
-            Управление задачами по всем деталям и этапам
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold">Все задачи</h1>
             {unreadCount > 0 && (
-              <Badge variant="destructive" className="ml-2">
-                {unreadCount} новых
+              <Badge variant="destructive">
+                {unreadCount} непрочитанных
               </Badge>
             )}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Управление задачами по всем деталям и этапам
           </p>
         </div>
         {permissions.canCreateTasks && (

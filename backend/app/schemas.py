@@ -32,6 +32,13 @@ class UserBrief(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class TaskReadInfo(BaseModel):
+    """Info about who read the task and when."""
+    user: UserBrief
+    read_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Auth schemas
 class LoginRequest(BaseModel):
     username: str
@@ -241,6 +248,7 @@ class TaskResponse(BaseModel):
     stage: Optional[str] = None
     part: Optional[PartBrief] = None
     is_read: bool
+    read_by_users: list[TaskReadInfo] = []
     comments: list[TaskCommentResponse] = []
     review_comment: Optional[str] = None
     reviewed_by: Optional[UserBrief] = None

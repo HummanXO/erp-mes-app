@@ -178,6 +178,14 @@ export const ASSIGNEE_ROLE_GROUPS: Record<UserRole, string> = {
   operator: "Операторам",
 }
 
+export interface TaskReadInfo {
+  user: {
+    id: string
+    initials: string
+  }
+  read_at: string
+}
+
 export interface Task {
   id: string
   part_id?: string
@@ -200,6 +208,7 @@ export interface Task {
   category: TaskCategory
   created_at: string
   read_by: string[] // ID пользователей, которые прочитали задачу
+  read_by_users?: TaskReadInfo[] // Детальная информация о прочтении (кто и когда)
   
   // Review/comments system
   comments: TaskComment[] // История комментариев/чата
