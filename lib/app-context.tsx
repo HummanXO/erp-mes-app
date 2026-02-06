@@ -30,20 +30,20 @@ interface AppContextType {
   resetData: () => void
   
   // Part operations
-  createPart: (part: Omit<Part, "id">) => Part
-  updatePart: (part: Part) => void
+  createPart: (part: Omit<Part, "id">) => Promise<Part>
+  updatePart: (part: Part) => Promise<void>
   updatePartDrawing: (partId: string, drawingUrl: string) => void
   updatePartStageStatus: (partId: string, stage: ProductionStage, status: StageStatus["status"], operatorId?: string) => void
   
   // Stage fact operations
-  createStageFact: (fact: Omit<StageFact, "id" | "created_at">) => StageFact
+  createStageFact: (fact: Omit<StageFact, "id" | "created_at">) => Promise<StageFact>
   
   // Task operations
-  createTask: (task: Omit<Task, "id" | "created_at" | "read_by">) => Task
+  createTask: (task: Omit<Task, "id" | "created_at" | "read_by">) => Promise<Task>
   updateTask: (task: Task) => void
-  markTaskAsRead: (taskId: string) => void
-  acceptTask: (taskId: string) => void
-  startTask: (taskId: string) => void
+  markTaskAsRead: (taskId: string) => Promise<void>
+  acceptTask: (taskId: string) => Promise<void>
+  startTask: (taskId: string) => Promise<void>
   getTasksForUser: (userId: string) => Task[]
   getUnreadTasksForUser: (userId: string) => Task[]
   getTasksCreatedByUser: (userId: string) => Task[]
@@ -52,9 +52,9 @@ interface AppContextType {
   getUsersByRole: (role: string) => User[]
   
   // Task comment operations
-  addTaskComment: (taskId: string, message: string, attachments?: TaskComment["attachments"]) => TaskComment | null
-  sendTaskForReview: (taskId: string, comment?: string) => void
-  reviewTask: (taskId: string, approved: boolean, comment?: string) => void
+  addTaskComment: (taskId: string, message: string, attachments?: TaskComment["attachments"]) => Promise<TaskComment | null>
+  sendTaskForReview: (taskId: string, comment?: string) => Promise<void>
+  reviewTask: (taskId: string, approved: boolean, comment?: string) => Promise<void>
   
   // Machine norm operations
   machineNorms: MachineNorm[]
@@ -192,15 +192,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ? ROLE_PERMISSIONS[currentUser.role] 
     : defaultPermissions
 
-  const createPart = useCallback((part: Omit<Part, "id">) => {
-    const newPart = dataProvider.createPart(part)
-    refreshData()
+  const createPart = useCallback(async (part: Omit<Part, "id">) => {
+    const newPart = await dataProvider.createPart(part)
+    await refreshData()
     return newPart
   }, [refreshData])
 
-  const updatePart = useCallback((part: Part) => {
-    dataProvider.updatePart(part)
-    refreshData()
+  const updatePart = useCallback(async (part: Part) => {
+    await dataProvider.updatePart(part)
+    await refreshData()
   }, [refreshData])
 
   const updatePartDrawing = useCallback((partId: string, drawingUrl: string) => {
@@ -213,15 +213,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshData()
   }, [refreshData])
 
-  const createStageFact = useCallback((fact: Omit<StageFact, "id" | "created_at">) => {
-    const newFact = dataProvider.createStageFact(fact)
-    refreshData()
+  const createStageFact = useCallback(async (fact: Omit<StageFact, "id" | "created_at">) => {
+    const newFact = await dataProvider.createStageFact(fact)
+    await refreshData()
     return newFact
   }, [refreshData])
 
-  const createTask = useCallback((task: Omit<Task, "id" | "created_at" | "read_by">) => {
-    const newTask = dataProvider.createTask(task)
-    refreshData()
+  const createTask = useCallback(async (task: Omit<Task, "id" | "created_at" | "read_by">) => {
+    const newTask = await dataProvider.createTask(task)
+    await refreshData()
     return newTask
   }, [refreshData])
 
@@ -230,22 +230,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshData()
   }, [refreshData])
 
-  const markTaskAsRead = useCallback((taskId: string) => {
+  const markTaskAsRead = useCallback(async (taskId: string) => {
     if (!currentUser) return
-    dataProvider.markTaskAsRead(taskId, currentUser.id)
-    refreshData()
+    await dataProvider.markTaskAsRead(taskId, currentUser.id)
+    await refreshData()
   }, [currentUser, refreshData])
 
-  const acceptTask = useCallback((taskId: string) => {
+  const acceptTask = useCallback(async (taskId: string) => {
     if (!currentUser) return
-    dataProvider.acceptTask(taskId, currentUser.id)
-    refreshData()
+    await dataProvider.acceptTask(taskId, currentUser.id)
+    await refreshData()
   }, [currentUser, refreshData])
 
-  const startTask = useCallback((taskId: string) => {
+  const startTask = useCallback(async (taskId: string) => {
     if (!currentUser) return
-    dataProvider.startTask(taskId, currentUser.id)
-    refreshData()
+    await dataProvider.startTask(taskId, currentUser.id)
+    await refreshData()
   }, [currentUser, refreshData])
 
   const getTasksForUserCb = useCallback((userId: string) => {
@@ -274,23 +274,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   // Task comment operations
-  const addTaskCommentCb = useCallback((taskId: string, message: string, attachments?: TaskComment["attachments"]) => {
+  const addTaskCommentCb = useCallback(async (taskId: string, message: string, attachments?: TaskComment["attachments"]) => {
     if (!currentUser) return null
-    const comment = dataProvider.addTaskComment(taskId, currentUser.id, message, attachments)
-    refreshData()
+    const comment = await dataProvider.addTaskComment(taskId, currentUser.id, message, attachments)
+    await refreshData()
     return comment
   }, [currentUser, refreshData])
 
-  const sendTaskForReviewCb = useCallback((taskId: string, comment?: string) => {
+  const sendTaskForReviewCb = useCallback(async (taskId: string, comment?: string) => {
     if (!currentUser) return
-    dataProvider.sendTaskForReview(taskId, currentUser.id, comment)
-    refreshData()
+    await dataProvider.sendTaskForReview(taskId, currentUser.id, comment)
+    await refreshData()
   }, [currentUser, refreshData])
 
-  const reviewTaskCb = useCallback((taskId: string, approved: boolean, comment?: string) => {
+  const reviewTaskCb = useCallback(async (taskId: string, approved: boolean, comment?: string) => {
     if (!currentUser) return
-    dataProvider.reviewTask(taskId, currentUser.id, approved, comment)
-    refreshData()
+    await dataProvider.reviewTask(taskId, currentUser.id, approved, comment)
+    await refreshData()
   }, [currentUser, refreshData])
 
   // Machine norm operations
