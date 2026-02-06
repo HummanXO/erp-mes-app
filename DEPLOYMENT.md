@@ -49,3 +49,45 @@ docker-compose -f docker-compose.prod.yml logs frontend --tail 50
 # Проверьте переменные окружения
 docker-compose -f docker-compose.prod.yml exec frontend env | grep VITE
 ```
+
+## Автодеплой через GitHub Actions (Oracle)
+
+Добавлены файлы:
+- `.github/workflows/deploy-oracle.yml`
+- `scripts/deploy-prod.sh`
+
+Что делает пайплайн:
+1. Триггер на `push` в `main` (или вручную через `workflow_dispatch`)
+2. SSH на Oracle
+3. `git pull --ff-only`
+4. `docker compose -f docker-compose.prod.yml build --pull frontend`
+5. `docker compose -f docker-compose.prod.yml up -d frontend`
+
+### 1) Подготовка сервера (один раз)
+
+```bash
+# На Oracle под пользователем деплоя
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+touch ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+Убедитесь, что проект лежит по пути (пример): `/opt/metrics-bug-analysis`
+
+### 2) GitHub Secrets (Settings -> Secrets and variables -> Actions)
+
+- `ORACLE_HOST` = IP/домен сервера
+- `ORACLE_USER` = SSH user (например `ubuntu`)
+- `ORACLE_SSH_KEY` = приватный ключ (весь `-----BEGIN ...`)
+- `ORACLE_APP_DIR` = полный путь к репозиторию на сервере (например `/opt/metrics-bug-analysis`)
+
+### 3) Первый запуск
+
+```bash
+git add .github/workflows/deploy-oracle.yml scripts/deploy-prod.sh DEPLOYMENT.md
+git commit -m "ci: add oracle ssh deploy workflow"
+git push origin main
+```
+
+После пуша откройте Actions -> `Deploy To Oracle` и проверьте лог шага `Deploy over SSH`.

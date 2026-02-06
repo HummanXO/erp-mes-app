@@ -1,0 +1,40 @@
+name: Deploy To Oracle
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-oracle-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ${{ secrets.ORACLE_USER }}
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script_stop: true
+          envs: APP_DIR,BRANCH,COMPOSE_FILE,SERVICE
+          script: |
+            APP_DIR="${{ secrets.ORACLE_APP_DIR }}"
+            BRANCH="main"
+            COMPOSE_FILE="docker-compose.prod.yml"
+            SERVICE="frontend"
+
+            if [ -z "$APP_DIR" ]; then
+              echo "ORACLE_APP_DIR secret is empty"
+              exit 1
+            fi
+
+            chmod +x "$APP_DIR/scripts/deploy-prod.sh"
+            APP_DIR="$APP_DIR" BRANCH="$BRANCH" COMPOSE_FILE="$COMPOSE_FILE" SERVICE="$SERVICE" \
+              "$APP_DIR/scripts/deploy-prod.sh"
