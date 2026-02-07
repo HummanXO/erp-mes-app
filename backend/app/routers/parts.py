@@ -15,6 +15,10 @@ from ..auth import get_current_user, PermissionChecker
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
+COOP_REQUIRED_STAGES = {"logistics", "qc"}
+SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
+SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding", "logistics"}
+
 
 def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressResponse, list[StageStatusResponse]]:
     """
@@ -234,6 +238,44 @@ def create_part(
     db: Session = Depends(get_db)
 ):
     """Create new part."""
+    requested_stages = set(data.required_stages)
+    if not requested_stages:
+        raise HTTPException(status_code=400, detail="required_stages cannot be empty")
+
+    if data.is_cooperation:
+        if requested_stages != COOP_REQUIRED_STAGES:
+            raise HTTPException(
+                status_code=400,
+                detail="Cooperation part must have stages: logistics and qc",
+            )
+        if not (data.cooperation_partner or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="cooperation_partner is required for cooperation part",
+            )
+        if data.machine_id is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="machine_id must be empty for cooperation part",
+            )
+    else:
+        if not SHOP_REQUIRED_STAGES.issubset(requested_stages):
+            raise HTTPException(
+                status_code=400,
+                detail="Shop part must include machining, fitting and qc stages",
+            )
+        invalid_stages = requested_stages - SHOP_ALLOWED_STAGES
+        if invalid_stages:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported stages for shop part: {', '.join(sorted(invalid_stages))}",
+            )
+        if data.machine_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail="machine_id is required for shop part",
+            )
+
     # Check if code already exists
     existing = db.query(Part).filter(
         Part.org_id == current_user.org_id,
