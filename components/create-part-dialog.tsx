@@ -243,19 +243,25 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           {/* Cooperation toggle - only if user can create both types */}
           {canCreateOwnParts && canCreateCoopParts && (
             <Card className={isCooperation ? "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20" : ""}>
-              <CardContent
-                className="p-4 cursor-pointer transition-colors"
-                onClick={toggleCooperation}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault()
-                    toggleCooperation()
-                  }
-                }}
-              >
-                <div className="flex items-center space-x-3">
+              <CardContent className="p-4">
+                <div
+                  className={`
+                    flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+                    ${isCooperation
+                      ? "bg-primary/10 border-primary"
+                      : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
+                    }
+                  `}
+                  onClick={toggleCooperation}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      toggleCooperation()
+                    }
+                  }}
+                >
                   <Checkbox
                     id="cooperation"
                     checked={isCooperation}
@@ -267,9 +273,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   />
                   <div className="flex items-center gap-2">
                     <Building2 className={`h-5 w-5 ${isCooperation ? "text-blue-600" : "text-muted-foreground"}`} />
-                    <Label htmlFor="cooperation" className="cursor-pointer">
-                      Кооперация (деталь изготавливается на стороне)
-                    </Label>
+                    <span>Кооперация (деталь изготавливается на стороне)</span>
                   </div>
                 </div>
               </CardContent>
