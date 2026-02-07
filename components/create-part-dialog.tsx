@@ -81,6 +81,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       setSelectedOptionalStages([])
     }
   }, [canCreateOwnParts, canCreateCoopParts])
+
+  const toggleCooperation = () => {
+    setIsCooperation((prev) => !prev)
+    setSelectedOptionalStages([])
+  }
   
   const toggleOptionalStage = (stage: ProductionStage) => {
     if (selectedOptionalStages.includes(stage)) {
@@ -238,11 +243,23 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           {/* Cooperation toggle - only if user can create both types */}
           {canCreateOwnParts && canCreateCoopParts && (
             <Card className={isCooperation ? "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20" : ""}>
-              <CardContent className="p-4">
+              <CardContent
+                className="p-4 cursor-pointer transition-colors"
+                onClick={toggleCooperation}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    toggleCooperation()
+                  }
+                }}
+              >
                 <div className="flex items-center space-x-3">
                   <Checkbox
                     id="cooperation"
                     checked={isCooperation}
+                    onClick={(e) => e.stopPropagation()}
                     onCheckedChange={(checked) => {
                       setIsCooperation(checked === true)
                       setSelectedOptionalStages([])
