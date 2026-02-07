@@ -4,8 +4,8 @@ import React from "react"
 
 import { useState, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Priority, ProductionStage, StageStatus } from "@/lib/types"
-import { STAGE_LABELS, PRIORITY_LABELS } from "@/lib/types"
+import type { ProductionStage, StageStatus } from "@/lib/types"
+import { STAGE_LABELS } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -37,7 +37,9 @@ const STAGE_ICONS: Record<ProductionStage, React.ReactNode> = {
   logistics: <Truck className="h-4 w-4" />,
 }
 
-const ALL_STAGES: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc", "logistics"]
+const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
+const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
+const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment", "grinding", "logistics"]
 
 interface CreatePartDialogProps {
   open: boolean
@@ -45,23 +47,23 @@ interface CreatePartDialogProps {
 }
 
 export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) {
-  const { createPart, machines, permissions, currentUser } = useApp()
+  const { createPart, machines, permissions } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [qtyPlan, setQtyPlan] = useState("")
-  const [priority, setPriority] = useState<Priority>("medium")
   const [deadline, setDeadline] = useState("")
   const [customer, setCustomer] = useState("")
+  const [formError, setFormError] = useState("")
   
   // Cooperation
   const [isCooperation, setIsCooperation] = useState(false)
   const [cooperationPartner, setCooperationPartner] = useState("")
   
   // Stages
-  const [selectedStages, setSelectedStages] = useState<ProductionStage[]>(["machining", "qc"])
+  const [selectedOptionalStages, setSelectedOptionalStages] = useState<ProductionStage[]>([])
   
   // Machine (for machining stage)
   const [machineId, setMachineId] = useState("")
@@ -76,23 +78,36 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   useEffect(() => {
     if (!canCreateOwnParts && canCreateCoopParts) {
       setIsCooperation(true)
-      setSelectedStages(["logistics", "qc"])
+      setSelectedOptionalStages([])
     }
   }, [canCreateOwnParts, canCreateCoopParts])
   
-  const toggleStage = (stage: ProductionStage) => {
-    if (selectedStages.includes(stage)) {
-      setSelectedStages(selectedStages.filter(s => s !== stage))
+  const toggleOptionalStage = (stage: ProductionStage) => {
+    if (selectedOptionalStages.includes(stage)) {
+      setSelectedOptionalStages(selectedOptionalStages.filter(s => s !== stage))
     } else {
-      setSelectedStages([...selectedStages, stage])
+      setSelectedOptionalStages([...selectedOptionalStages, stage])
     }
   }
   
   const handleCreate = () => {
+    setFormError("")
     if (!code || !name || !qtyPlan || !deadline) return
+    if (!isCooperation && !machineId) {
+      setFormError("Для цеховой детали нужно выбрать станок")
+      return
+    }
+    if (isCooperation && !cooperationPartner.trim()) {
+      setFormError("Для кооперации укажите партнёра-кооператора")
+      return
+    }
+
+    const requiredStages = isCooperation
+      ? COOP_STAGES
+      : [...SHOP_REQUIRED_STAGES, ...selectedOptionalStages]
     
     // Create stage statuses
-    const stageStatuses: StageStatus[] = selectedStages.map(stage => ({
+    const stageStatuses: StageStatus[] = requiredStages.map(stage => ({
       stage,
       status: "pending" as const,
     }))
@@ -103,14 +118,14 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       description: description || undefined,
       qty_plan: Number.parseInt(qtyPlan, 10),
       qty_done: 0,
-      priority,
+      priority: "medium",
       deadline,
       status: "not_started",
       is_cooperation: isCooperation,
-      cooperation_partner: isCooperation ? cooperationPartner : undefined,
-      required_stages: selectedStages,
+      cooperation_partner: isCooperation ? cooperationPartner.trim() : undefined,
+      required_stages: requiredStages,
       stage_statuses: stageStatuses,
-      machine_id: selectedStages.includes("machining") && !isCooperation ? machineId : undefined,
+      machine_id: !isCooperation ? machineId : undefined,
       customer: customer || undefined,
     })
     
@@ -124,12 +139,12 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
     setName("")
     setDescription("")
     setQtyPlan("")
-    setPriority("medium")
     setDeadline("")
     setCustomer("")
+    setFormError("")
     setIsCooperation(!canCreateOwnParts && canCreateCoopParts)
     setCooperationPartner("")
-    setSelectedStages(canCreateOwnParts ? ["machining", "qc"] : ["logistics", "qc"])
+    setSelectedOptionalStages([])
     setMachineId("")
   }
 
@@ -191,7 +206,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             />
           </div>
           
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Количество *</Label>
               <Input
@@ -200,19 +215,6 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 value={qtyPlan}
                 onChange={(e) => setQtyPlan(e.target.value)}
               />
-            </div>
-            <div className="space-y-2">
-              <Label>Приоритет</Label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(PRIORITY_LABELS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-2">
               <Label>Дедлайн *</Label>
@@ -243,11 +245,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                     checked={isCooperation}
                     onCheckedChange={(checked) => {
                       setIsCooperation(checked === true)
-                      if (checked) {
-                        setSelectedStages(["logistics", "qc"])
-                      } else {
-                        setSelectedStages(["machining", "qc"])
-                      }
+                      setSelectedOptionalStages([])
                     }}
                   />
                   <div className="flex items-center gap-2">
@@ -279,40 +277,79 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
               <CardTitle className="text-sm">Этапы производства</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-xs text-muted-foreground mb-3">
-                Выберите этапы, через которые проходит деталь
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {ALL_STAGES.map(stage => (
-                  <div 
-                    key={stage}
-                    className={`
-                      flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
-                      ${selectedStages.includes(stage) 
-                        ? "bg-primary/10 border-primary" 
-                        : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
-                      }
-                    `}
-                    onClick={() => toggleStage(stage)}
-                  >
-                    <Checkbox
-                      checked={selectedStages.includes(stage)}
-                      onCheckedChange={() => toggleStage(stage)}
-                    />
-                    <div className="flex items-center gap-2">
-                      {STAGE_ICONS[stage]}
-                      <span>{STAGE_LABELS[stage]}</span>
-                    </div>
+              {isCooperation ? (
+                <>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Для кооперации этапы фиксированы
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {COOP_STAGES.map((stage) => (
+                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary">
+                        <Checkbox checked disabled />
+                        <div className="flex items-center gap-2">
+                          {STAGE_ICONS[stage]}
+                          <span>{STAGE_LABELS[stage]}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Базовые этапы цеха фиксированы. Выберите только дополнительные операции.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    {SHOP_REQUIRED_STAGES.map((stage) => (
+                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary">
+                        <Checkbox checked disabled />
+                        <div className="flex items-center gap-2">
+                          {STAGE_ICONS[stage]}
+                          <span>{STAGE_LABELS[stage]}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {SHOP_OPTIONAL_STAGES.map((stage) => (
+                      <div
+                        key={stage}
+                        className={`
+                          flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+                          ${selectedOptionalStages.includes(stage)
+                            ? "bg-primary/10 border-primary"
+                            : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
+                          }
+                        `}
+                        onClick={() => toggleOptionalStage(stage)}
+                      >
+                        <Checkbox
+                          checked={selectedOptionalStages.includes(stage)}
+                          onCheckedChange={() => toggleOptionalStage(stage)}
+                        />
+                        <div className="flex items-center gap-2">
+                          {STAGE_ICONS[stage]}
+                          <span>{STAGE_LABELS[stage]}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
+
+          {formError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
+          )}
           
-          {/* Machine selection - only if machining is selected and not cooperation */}
-          {selectedStages.includes("machining") && !isCooperation && (
+          {/* Machine selection - required for own production */}
+          {!isCooperation && (
             <div className="space-y-2">
-              <Label>Станок для обработки</Label>
+              <Label>Станок для обработки *</Label>
               <Select value={machineId} onValueChange={setMachineId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Выберите станок" />
@@ -331,7 +368,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
             Отмена
           </Button>
-          <Button onClick={handleCreate} disabled={!code || !name || !qtyPlan || !deadline}>
+          <Button onClick={handleCreate} disabled={!code || !name || !qtyPlan || !deadline || (!isCooperation && !machineId)}>
             Создать деталь
           </Button>
         </DialogFooter>
