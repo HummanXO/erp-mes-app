@@ -207,6 +207,12 @@ class ApiClient {
     })
   }
 
+  async deletePart(id: string) {
+    return this.request<void>(`/parts/${id}`, {
+      method: "DELETE",
+    })
+  }
+
   // Stage Facts
   async createStageFact(partId: string, data: any) {
     return this.request<any>(`/parts/${partId}/facts`, {

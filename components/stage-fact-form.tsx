@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Sun, Moon, Plus, TrendingUp, TrendingDown, Minus, CheckCircle, AlertCircle, Paperclip, FileImage, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ApiClientError } from "@/lib/api-client"
 
 // Determine current shift based on time (09:00-21:00 = day, 21:00-09:00 = night)
 function getCurrentShift(): ShiftType {
@@ -59,12 +60,14 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const [shiftType, setShiftType] = useState<ShiftType>(getCurrentShift())
   const [stage, setStage] = useState<ProductionStage>(activeStages[0] || "machining")
   const [machineId, setMachineId] = useState<string>(part.machine_id || "")
-  const [operatorId, setOperatorId] = useState<string>(currentUser?.id || "")
+  const [operatorId, setOperatorId] = useState<string>(currentUser?.role === "operator" ? currentUser.id : "")
   const [qtyGood, setQtyGood] = useState("")
   const [qtyScrap, setQtyScrap] = useState("")
   const [comment, setComment] = useState("")
   const [deviationReason, setDeviationReason] = useState<DeviationReason>(null)
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
+  const [submitError, setSubmitError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Reset shift to current when stage changes and requires shift
@@ -73,6 +76,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
       setShiftType(getCurrentShift())
     }
   }, [stage])
+
+  useEffect(() => {
+    if (stageRequiresOperator(stage) && (!operatorId || operatorId === "none") && operators.length > 0) {
+      setOperatorId(operators[0].id)
+    }
+  }, [stage, operatorId, operators])
   
   // Filter machines for machining stage
   const machiningMachines = machines.filter(m => m.department === "machining")
@@ -106,35 +115,59 @@ export function StageFactForm({ part }: StageFactFormProps) {
     return { status: "bad", percent }
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setSubmitError("")
+
+    const normalizedOperatorId = operatorId === "none" ? "" : operatorId
+
     // For machining, operator is required. For other stages, it's optional
     if (!qtyGood) return
-    if (stageRequiresOperator(stage) && !operatorId) return
-    
-    createStageFact({
-      date: demoDate,
-      // For non-machining stages, shift is "day" by default (no real shift tracking)
-      shift_type: stageRequiresShift(stage) ? shiftType : "day",
-      part_id: part.id,
-      stage,
-      machine_id: stage === "machining" ? machineId : undefined,
-      // For non-machining, operator can be empty string or current user
-      operator_id: operatorId || currentUser?.id || "",
-      qty_good: Number.parseInt(qtyGood, 10),
-      qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
-      qty_expected: expectedQty,
-      comment,
-      deviation_reason: deviationReason,
-      attachments: attachments.length > 0 ? attachments : undefined,
-    })
-  
-  // Reset form
-  setQtyGood("")
-  setQtyScrap("")
-  setAttachments([])
-    setComment("")
-    setDeviationReason(null)
-    setIsOpen(false)
+    if (stageRequiresOperator(stage) && !normalizedOperatorId) {
+      setSubmitError("Выберите оператора")
+      return
+    }
+
+    if (stage === "machining" && !machineId) {
+      setSubmitError("Выберите станок")
+      return
+    }
+
+    try {
+      setIsSubmitting(true)
+      await createStageFact({
+        date: demoDate,
+        shift_type: stageRequiresShift(stage) ? shiftType : "none",
+        part_id: part.id,
+        stage,
+        machine_id: stage === "machining" ? machineId : undefined,
+        operator_id: normalizedOperatorId || currentUser?.id || operators[0]?.id || "",
+        qty_good: Number.parseInt(qtyGood, 10),
+        qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
+        qty_expected: expectedQty,
+        comment,
+        deviation_reason: deviationReason,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      })
+
+      // Reset form
+      setQtyGood("")
+      setQtyScrap("")
+      setAttachments([])
+      setComment("")
+      setDeviationReason(null)
+      setSubmitError("")
+      setIsOpen(false)
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        setSubmitError(error.error?.message || error.message || "Не удалось сохранить факт")
+      } else if (error instanceof Error) {
+        setSubmitError(error.message)
+      } else {
+        setSubmitError("Не удалось сохранить факт")
+      }
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   // Shift summary card component
@@ -285,8 +318,8 @@ export function StageFactForm({ part }: StageFactFormProps) {
           <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5" />
             <div className="text-sm">
-              <span className="font-medium text-amber-700">Норма не настроена</span>
-              <p className="text-amber-600 text-xs">После пусконаладки установите норму выработки для отслеживания эффективности</p>
+              <span className="font-medium text-amber-700">Норма не настроена (это не блокирует ввод факта)</span>
+              <p className="text-amber-600 text-xs">Факт можно сохранить и без нормы. Норма нужна только для анализа эффективности.</p>
             </div>
           </div>
         )}
@@ -557,15 +590,18 @@ export function StageFactForm({ part }: StageFactFormProps) {
           <Button 
             className="flex-1" 
             onClick={handleSubmit} 
-            disabled={
+            disabled={isSubmitting ||
               !qtyGood || 
-              (stageRequiresOperator(stage) && !operatorId) || 
-              (stageRequiresShift(stage) && dayFact && nightFact)
+              (stageRequiresOperator(stage) && (!operatorId || operatorId === "none")) || 
+              (stageRequiresShift(stage) && Boolean(dayFact && nightFact))
             }
           >
-            Сохранить
+            {isSubmitting ? "Сохраняем..." : "Сохранить"}
           </Button>
         </div>
+        {submitError && (
+          <div className="text-sm text-destructive">{submitError}</div>
+        )}
       </CardContent>
     </Card>
   )

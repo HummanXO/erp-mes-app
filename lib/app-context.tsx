@@ -33,6 +33,7 @@ interface AppContextType {
   // Part operations
   createPart: (part: Omit<Part, "id">) => Promise<Part>
   updatePart: (part: Part) => Promise<void>
+  deletePart: (partId: string) => Promise<void>
   updatePartDrawing: (partId: string, drawingUrl: string) => void
   updatePartStageStatus: (partId: string, stage: ProductionStage, status: StageStatus["status"], operatorId?: string) => void
   
@@ -68,7 +69,13 @@ interface AppContextType {
   updateLogisticsEntry: (entry: LogisticsEntry) => void
   
   // Computed
-  getPartProgress: (partId: string) => { qtyDone: number; qtyPlan: number; percent: number; qtyScrap: number }
+  getPartProgress: (partId: string) => {
+    qtyDone: number
+    qtyPlan: number
+    percent: number
+    qtyScrap: number
+    stageProgress: Array<{ stage: ProductionStage; percent: number; qtyDone: number }>
+  }
   getPartForecast: (partId: string) => ReturnType<typeof dataProvider.getPartForecast>
   getMachineTodayProgress: (machineId: string) => ReturnType<typeof dataProvider.getMachineTodayProgress>
   getPartsForMachine: (machineId: string) => Part[]
@@ -227,6 +234,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await refreshData()
   }, [refreshData])
 
+  const deletePart = useCallback(async (partId: string) => {
+    await dataProvider.deletePart(partId)
+    await refreshData()
+  }, [refreshData])
+
   const updatePartDrawing = useCallback((partId: string, drawingUrl: string) => {
     dataProvider.updatePartDrawing(partId, drawingUrl)
     refreshData()
@@ -367,16 +379,153 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const getPartProgress = useCallback((partId: string) => {
-    return dataProvider.getPartProgress(partId)
-  }, [])
+    const part = parts.find(p => p.id === partId)
+    if (!part) return { qtyDone: 0, qtyPlan: 0, percent: 0, qtyScrap: 0, stageProgress: [] }
+
+    const facts = stageFacts.filter(f => f.part_id === partId)
+    const qtyScrap = facts.reduce((sum, f) => sum + f.qty_scrap, 0)
+
+    const stageStatuses = part.stage_statuses || []
+    const activeStages = stageStatuses.filter(s => s.status !== "skipped")
+
+    const stageProgress = activeStages.map(stageStatus => {
+      const stageFactsForStage = facts.filter(f => f.stage === stageStatus.stage)
+      const totalGood = stageFactsForStage.reduce((sum, f) => sum + f.qty_good, 0)
+      const percent = part.qty_plan > 0
+        ? Math.min(100, Math.round((totalGood / part.qty_plan) * 100))
+        : 0
+      return {
+        stage: stageStatus.stage,
+        percent: stageStatus.status === "done" ? 100 : percent,
+        qtyDone: totalGood,
+      }
+    })
+
+    const overallPercent = stageProgress.length > 0
+      ? Math.round(stageProgress.reduce((sum, sp) => sum + sp.percent, 0) / stageProgress.length)
+      : 0
+
+    const qtyDone = Math.round((overallPercent / 100) * part.qty_plan)
+
+    return {
+      qtyDone,
+      qtyPlan: part.qty_plan,
+      percent: overallPercent,
+      qtyScrap,
+      stageProgress,
+    }
+  }, [parts, stageFacts])
 
   const getPartForecast = useCallback((partId: string) => {
-    return dataProvider.getPartForecast(partId, demoDate)
-  }, [demoDate])
+    const part = parts.find(p => p.id === partId)
+    const machine = part?.machine_id ? machines.find(m => m.id === part.machine_id) : undefined
+
+    if (!part) {
+      return {
+        daysRemaining: 0,
+        shiftsRemaining: 0,
+        qtyRemaining: 0,
+        avgPerShift: 0,
+        willFinishOnTime: false,
+        estimatedFinishDate: demoDate,
+        shiftsNeeded: 0,
+        stageForecasts: [],
+      }
+    }
+
+    const facts = stageFacts.filter(f => f.part_id === partId)
+    const stageStatuses = part.stage_statuses || []
+    const activeStages = stageStatuses.filter(s => s.status !== "skipped")
+
+    const deadline = new Date(part.deadline)
+    const today = new Date(demoDate)
+    const daysRemaining = Math.max(0, Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)))
+    const shiftsRemaining = daysRemaining * 2
+
+    const stageForecasts = activeStages.map(stageStatus => {
+      const stageFactsForStage = facts.filter(f => f.stage === stageStatus.stage)
+      const totalDone = stageFactsForStage.reduce((sum, f) => sum + f.qty_good, 0)
+      const qtyRemaining = Math.max(0, part.qty_plan - totalDone)
+
+      const defaultRates: Record<ProductionStage, number> = {
+        machining: machine?.rate_per_shift || 400,
+        fitting: 500,
+        galvanic: 800,
+        heat_treatment: 600,
+        grinding: 400,
+        qc: 1000,
+        logistics: 2000,
+      }
+
+      const avgPerShift = stageFactsForStage.length > 0
+        ? stageFactsForStage.reduce((sum, f) => sum + f.qty_good, 0) / stageFactsForStage.length
+        : defaultRates[stageStatus.stage]
+
+      const shiftsNeeded = avgPerShift > 0 ? Math.ceil(qtyRemaining / avgPerShift) : 999
+
+      return {
+        stage: stageStatus.stage,
+        qtyRemaining,
+        shiftsNeeded,
+        willFinishOnTime: shiftsNeeded <= shiftsRemaining,
+      }
+    })
+
+    // For brand-new parts without any facts, don't show artificial risk
+    if (facts.length === 0) {
+      return {
+        daysRemaining,
+        shiftsRemaining,
+        qtyRemaining: part.qty_plan,
+        avgPerShift: machine?.rate_per_shift || 0,
+        willFinishOnTime: true,
+        estimatedFinishDate: part.deadline,
+        shiftsNeeded: 0,
+        stageForecasts,
+      }
+    }
+
+    const totalShiftsNeeded = stageForecasts.reduce((sum, sf) => sum + sf.shiftsNeeded, 0)
+    const machiningFacts = facts.filter(f => f.stage === "machining")
+    const avgPerShift = machiningFacts.length > 0
+      ? machiningFacts.reduce((sum, f) => sum + f.qty_good, 0) / machiningFacts.length
+      : (machine?.rate_per_shift || 100)
+
+    const currentStage = activeStages.find(s => s.status === "in_progress") || activeStages[0]
+    const currentStageForecast = stageForecasts.find(sf => sf.stage === currentStage?.stage)
+    const qtyRemaining = currentStageForecast?.qtyRemaining || 0
+
+    const daysNeeded = Math.ceil(totalShiftsNeeded / 2)
+    const estimatedFinish = new Date(today)
+    estimatedFinish.setDate(estimatedFinish.getDate() + daysNeeded)
+    const willFinishOnTime = totalShiftsNeeded <= shiftsRemaining
+
+    return {
+      daysRemaining,
+      shiftsRemaining,
+      qtyRemaining,
+      avgPerShift: Math.round(avgPerShift),
+      willFinishOnTime,
+      estimatedFinishDate: estimatedFinish.toISOString().split("T")[0],
+      shiftsNeeded: totalShiftsNeeded,
+      stageForecasts,
+    }
+  }, [parts, machines, stageFacts, demoDate])
 
   const getMachineTodayProgress = useCallback((machineId: string) => {
-    return dataProvider.getMachineTodayProgress(machineId, demoDate)
-  }, [demoDate])
+    const machine = machines.find(m => m.id === machineId)
+    const todayFacts = stageFacts.filter(f => f.date === demoDate && f.machine_id === machineId)
+    const dayShift = todayFacts.find(f => f.shift_type === "day") || null
+    const nightShift = todayFacts.find(f => f.shift_type === "night") || null
+
+    return {
+      dayShift,
+      nightShift,
+      totalGood: (dayShift?.qty_good || 0) + (nightShift?.qty_good || 0),
+      totalScrap: (dayShift?.qty_scrap || 0) + (nightShift?.qty_scrap || 0),
+      targetPerShift: machine?.rate_per_shift || 400,
+    }
+  }, [machines, stageFacts, demoDate])
 
   const getPartsForMachine = useCallback((machineId: string) => {
     return parts.filter(p => p.machine_id === machineId)
@@ -443,16 +592,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [tasks])
 
   const isMissingShiftFact = useCallback((machineId: string, shiftType: ShiftType) => {
-    return dataProvider.isMissingShiftFact(machineId, shiftType, demoDate)
-  }, [demoDate])
+    return stageFacts.filter(
+      f => f.date === demoDate && f.machine_id === machineId && f.shift_type === shiftType
+    ).length === 0
+  }, [stageFacts, demoDate])
 
   const getCurrentStage = useCallback((partId: string) => {
-    return dataProvider.getCurrentStage(partId)
-  }, [])
+    const part = parts.find(p => p.id === partId)
+    if (!part || !part.stage_statuses) return null
+
+    const inProgress = part.stage_statuses.find(s => s.status === "in_progress")
+    if (inProgress) return inProgress.stage
+
+    const pending = part.stage_statuses.find(s => s.status === "pending")
+    if (pending) return pending.stage
+
+    return null
+  }, [parts])
 
   const getStageCompletion = useCallback((partId: string) => {
-    return dataProvider.getStageCompletion(partId)
-  }, [])
+    const part = parts.find(p => p.id === partId)
+    if (!part || !part.stage_statuses) return { completed: 0, total: 0, percent: 0 }
+
+    const completed = part.stage_statuses.filter(s => s.status === "done").length
+    const total = part.stage_statuses.filter(s => s.status !== "skipped").length
+
+    return {
+      completed,
+      total,
+      percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+    }
+  }, [parts])
 
   const getUserById = useCallback((id: string) => {
     return users.find(u => u.id === id)
@@ -494,6 +664,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         resetData,
         createPart,
         updatePart,
+        deletePart,
         updatePartDrawing,
         updatePartStageStatus,
         createStageFact,

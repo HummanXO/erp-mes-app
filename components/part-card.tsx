@@ -44,16 +44,17 @@ interface PartCardProps {
 }
 
 export function PartCard({ part, onClick, isSelected }: PartCardProps) {
-  const { getPartProgress, getPartForecast, getBlockersForPart, demoDate, getMachineById, getCurrentStage } = useApp()
+  const { getPartProgress, getPartForecast, getBlockersForPart, demoDate, getMachineById, getCurrentStage, getStageFactsForPart } = useApp()
   
   const progress = getPartProgress(part.id)
   const forecast = getPartForecast(part.id)
   const blockers = getBlockersForPart(part.id)
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const currentStage = getCurrentStage(part.id)
+  const hasFacts = getStageFactsForPart(part.id).length > 0
   
   const isOverdue = new Date(part.deadline) < new Date(demoDate) && part.status !== "done"
-  const isAtRisk = !forecast.willFinishOnTime && part.status !== "done"
+  const isAtRisk = hasFacts && !forecast.willFinishOnTime && part.status !== "done"
 
   // Calculate stages progress with null safety
   const stageStatuses = part.stage_statuses || []
@@ -178,10 +179,15 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
         {part.status !== "done" && (
           <div className={cn(
             "p-2 rounded-md text-sm",
-            forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
+            !hasFacts ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
           )}>
             <div className="flex items-center gap-2">
-              {forecast.willFinishOnTime ? (
+              {!hasFacts ? (
+                <>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Прогноз появится после 1-го факта</span>
+                </>
+              ) : forecast.willFinishOnTime ? (
                 <>
                   <TrendingUp className="h-4 w-4 text-green-600" />
                   <span className="text-green-700">Успеваем</span>

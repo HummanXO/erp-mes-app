@@ -113,6 +113,10 @@ export function updatePart(part: any) {
   return USE_API ? httpProvider.updatePart(part) : local().updatePart(part)
 }
 
+export function deletePart(partId: string) {
+  return USE_API ? httpProvider.deletePart(partId) : local().deletePart(partId)
+}
+
 export function updatePartDrawing(partId: string, drawingUrl: string) {
   return local().updatePartDrawing(partId, drawingUrl)
 }

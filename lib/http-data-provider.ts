@@ -85,14 +85,18 @@ function transformTask(backendTask: any): Task {
   }
 }
 
-function transformStageFact(backendFact: any): StageFact {
+function transformStageFact(
+  backendFact: any,
+  fallbackPartId?: string,
+  fallbackMachineId?: string
+): StageFact {
   return {
     id: backendFact.id,
     date: backendFact.date,
     shift_type: backendFact.shift_type as ShiftType,
-    part_id: backendFact.part_id,
+    part_id: backendFact.part_id || fallbackPartId || "",
     stage: backendFact.stage as ProductionStage,
-    machine_id: backendFact.machine_id,
+    machine_id: backendFact.machine_id || fallbackMachineId,
     operator_id: backendFact.operator?.id || backendFact.operator_id,
     qty_good: backendFact.qty_good,
     qty_scrap: backendFact.qty_scrap,
@@ -185,6 +189,10 @@ export async function updatePart(part: Part): Promise<void> {
   await apiClient.updatePart(part.id, part)
 }
 
+export async function deletePart(partId: string): Promise<void> {
+  await apiClient.deletePart(partId)
+}
+
 export async function getPartsForMachine(machineId: string): Promise<Part[]> {
   const response = await apiClient.getParts({ machine_id: machineId })
   const parts = response.data || response
@@ -205,21 +213,39 @@ export async function getOwnProductionParts(): Promise<Part[]> {
 
 // Stage Facts
 export async function getStageFacts(): Promise<StageFact[]> {
-  // Would need to aggregate from all parts
-  return []
+  if (!isAuthenticated()) return []
+
+  const parts = await getParts()
+  if (parts.length === 0) return []
+
+  const factsByPart = await Promise.all(
+    parts.map(async (part) => {
+      try {
+        const response = await apiClient.getPartFacts(part.id)
+        const facts = response.data || response
+        return facts.map((fact: any) =>
+          transformStageFact(fact, part.id, part.machine_id)
+        )
+      } catch {
+        return []
+      }
+    })
+  )
+
+  return factsByPart.flat()
 }
 
 export async function getStageFactsForPart(partId: string): Promise<StageFact[]> {
   const response = await apiClient.getPartFacts(partId)
   const facts = response.data || response
-  return facts.map(transformStageFact)
+  return facts.map((fact: any) => transformStageFact(fact, partId))
 }
 
 export async function createStageFact(
   fact: Omit<StageFact, "id" | "created_at">
 ): Promise<StageFact> {
   const response = await apiClient.createStageFact(fact.part_id, fact)
-  return transformStageFact(response)
+  return transformStageFact(response, fact.part_id, fact.machine_id)
 }
 
 // Tasks
