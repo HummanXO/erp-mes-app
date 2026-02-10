@@ -39,6 +39,10 @@ interface AppContextType {
   
   // Stage fact operations
   createStageFact: (fact: Omit<StageFact, "id" | "created_at">) => Promise<StageFact>
+  updateStageFact: (
+    factId: string,
+    data: Omit<StageFact, "id" | "created_at" | "part_id" | "stage" | "date" | "shift_type">
+  ) => Promise<StageFact>
   
   // Task operations
   createTask: (task: Omit<Task, "id" | "created_at" | "read_by">) => Promise<Task>
@@ -62,7 +66,7 @@ interface AppContextType {
   machineNorms: MachineNorm[]
   getMachineNorm: (machineId: string, partId: string, stage: ProductionStage) => MachineNorm | undefined
   getMachineNormsForPart: (partId: string) => MachineNorm[]
-  setMachineNorm: (norm: Omit<MachineNorm, "configured_at">) => MachineNorm
+  setMachineNorm: (norm: Omit<MachineNorm, "configured_at">) => Promise<MachineNorm>
   
   // Logistics operations
   createLogisticsEntry: (entry: Omit<LogisticsEntry, "id">) => LogisticsEntry
@@ -102,6 +106,8 @@ interface AppContextType {
 }
 
 const defaultPermissions = ROLE_PERMISSIONS["operator"]
+const RISK_STAGES: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding"]
+const PROGRESS_STAGES: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
 
 const AppContext = createContext<AppContextType | null>(null)
 
@@ -255,6 +261,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return newFact
   }, [refreshData])
 
+  const updateStageFact = useCallback(async (
+    factId: string,
+    data: Omit<StageFact, "id" | "created_at" | "part_id" | "stage" | "date" | "shift_type">
+  ) => {
+    const updatedFact = await dataProvider.updateStageFact(factId, data)
+    await refreshData()
+    return updatedFact
+  }, [refreshData])
+
   const createTask = useCallback(async (task: Omit<Task, "id" | "created_at" | "read_by">) => {
     // Создаем задачу на сервере
     const newTask = await dataProvider.createTask(task)
@@ -354,16 +369,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Machine norm operations
   const getMachineNormCb = useCallback((machineId: string, partId: string, stage: ProductionStage) => {
-    return dataProvider.getMachineNorm(machineId, partId, stage)
-  }, [])
+    return machineNorms.find(n => n.machine_id === machineId && n.part_id === partId && n.stage === stage)
+  }, [machineNorms])
 
   const getMachineNormsForPartCb = useCallback((partId: string) => {
-    return dataProvider.getMachineNormsForPart(partId)
-  }, [])
+    return machineNorms.filter(n => n.part_id === partId)
+  }, [machineNorms])
 
-  const setMachineNormCb = useCallback((norm: Omit<MachineNorm, "configured_at">) => {
-    const newNorm = dataProvider.setMachineNorm(norm)
-    refreshData()
+  const setMachineNormCb = useCallback(async (norm: Omit<MachineNorm, "configured_at">) => {
+    const newNorm = await dataProvider.setMachineNorm(norm)
+    await refreshData()
     return newNorm
   }, [refreshData])
 
@@ -386,7 +401,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const qtyScrap = facts.reduce((sum, f) => sum + f.qty_scrap, 0)
 
     const stageStatuses = part.stage_statuses || []
-    const activeStages = stageStatuses.filter(s => s.status !== "skipped")
+    const activeStages = stageStatuses.filter(
+      s => s.status !== "skipped" && PROGRESS_STAGES.includes(s.stage)
+    )
 
     const stageProgress = activeStages.map(stageStatus => {
       const stageFactsForStage = facts.filter(f => f.stage === stageStatus.stage)
@@ -401,11 +418,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    const overallPercent = stageProgress.length > 0
-      ? Math.round(stageProgress.reduce((sum, sp) => sum + sp.percent, 0) / stageProgress.length)
+    const qtyDone = stageProgress.length > 0
+      ? Math.min(...stageProgress.map(sp => sp.qtyDone))
       : 0
-
-    const qtyDone = Math.round((overallPercent / 100) * part.qty_plan)
+    const overallPercent = part.qty_plan > 0
+      ? Math.min(100, Math.round((qtyDone / part.qty_plan) * 100))
+      : 0
 
     return {
       qtyDone,
@@ -435,7 +453,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const facts = stageFacts.filter(f => f.part_id === partId)
     const stageStatuses = part.stage_statuses || []
-    const activeStages = stageStatuses.filter(s => s.status !== "skipped")
+    const activeStages = stageStatuses.filter(
+      s => s.status !== "skipped" && RISK_STAGES.includes(s.stage)
+    )
+    const machiningNorm = part.machine_id
+      ? machineNorms.find(
+          n => n.machine_id === part.machine_id && n.part_id === part.id && n.stage === "machining"
+        )
+      : undefined
+    const hasForecastInput = facts.length > 0 || !!machiningNorm?.is_configured
 
     const deadline = new Date(part.deadline)
     const today = new Date(demoDate)
@@ -448,7 +474,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const qtyRemaining = Math.max(0, part.qty_plan - totalDone)
 
       const defaultRates: Record<ProductionStage, number> = {
-        machining: machine?.rate_per_shift || 400,
+        machining: machiningNorm?.qty_per_shift || machine?.rate_per_shift || 400,
         fitting: 500,
         galvanic: 800,
         heat_treatment: 600,
@@ -471,13 +497,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // For brand-new parts without any facts, don't show artificial risk
-    if (facts.length === 0) {
+    // For brand-new parts without facts and norm, don't show artificial risk
+    if (!hasForecastInput) {
       return {
         daysRemaining,
         shiftsRemaining,
         qtyRemaining: part.qty_plan,
-        avgPerShift: machine?.rate_per_shift || 0,
+        avgPerShift: machiningNorm?.qty_per_shift || machine?.rate_per_shift || 0,
         willFinishOnTime: true,
         estimatedFinishDate: part.deadline,
         shiftsNeeded: 0,
@@ -489,7 +515,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const machiningFacts = facts.filter(f => f.stage === "machining")
     const avgPerShift = machiningFacts.length > 0
       ? machiningFacts.reduce((sum, f) => sum + f.qty_good, 0) / machiningFacts.length
-      : (machine?.rate_per_shift || 100)
+      : (machiningNorm?.qty_per_shift || machine?.rate_per_shift || 100)
 
     const currentStage = activeStages.find(s => s.status === "in_progress") || activeStages[0]
     const currentStageForecast = stageForecasts.find(sf => sf.stage === currentStage?.stage)
@@ -510,7 +536,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       shiftsNeeded: totalShiftsNeeded,
       stageForecasts,
     }
-  }, [parts, machines, stageFacts, demoDate])
+  }, [parts, machines, stageFacts, machineNorms, demoDate])
 
   const getMachineTodayProgress = useCallback((machineId: string) => {
     const machine = machines.find(m => m.id === machineId)
@@ -668,6 +694,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatePartDrawing,
         updatePartStageStatus,
         createStageFact,
+        updateStageFact,
         createTask,
         updateTask,
 markTaskAsRead,
