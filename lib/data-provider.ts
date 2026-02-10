@@ -228,6 +228,23 @@ export function updatePart(part: Part): void {
   }
 }
 
+export function deletePart(partId: string): void {
+  const parts = getParts().filter(p => p.id !== partId)
+  saveToStorage(STORAGE_KEYS.parts, parts)
+
+  const facts = getStageFacts().filter(f => f.part_id !== partId)
+  saveToStorage(STORAGE_KEYS.stageFacts, facts)
+
+  const tasks = getTasks().filter(t => t.part_id !== partId)
+  saveToStorage(STORAGE_KEYS.tasks, tasks)
+
+  const logistics = getLogistics().filter(l => l.part_id !== partId)
+  saveToStorage(STORAGE_KEYS.logistics, logistics)
+
+  const norms = getMachineNorms().filter(n => n.part_id !== partId)
+  saveToStorage(STORAGE_KEYS.machineNorms, norms)
+}
+
 export function updatePartDrawing(partId: string, drawingUrl: string): void {
   const parts = getParts()
   const part = parts.find(p => p.id === partId)

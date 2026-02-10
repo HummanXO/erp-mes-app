@@ -6,7 +6,17 @@ from uuid import UUID
 from typing import Optional
 from datetime import date, datetime
 from ..database import get_db
-from ..models import User, Part, PartStageStatus, StageFact, Machine, AuditEvent
+from ..models import (
+    User,
+    Part,
+    PartStageStatus,
+    StageFact,
+    Machine,
+    AuditEvent,
+    Task,
+    LogisticsEntry,
+    MachineNorm,
+)
 from ..schemas import (
     PartCreate, PartUpdate, PartResponse, StageStatusResponse,
     PartProgressResponse, PartForecastResponse, MachineResponse
@@ -380,3 +390,53 @@ def update_part(
     }
     
     return PartResponse(**response_data)
+
+
+@router.delete("/{part_id}", status_code=204, dependencies=[Depends(PermissionChecker("canCreateParts"))])
+def delete_part(
+    part_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete part with dependent records."""
+    part = db.query(Part).filter(
+        Part.id == part_id,
+        Part.org_id == current_user.org_id
+    ).first()
+
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    # Keep audit trail rows but remove FK link to avoid constraint violations
+    db.query(AuditEvent).filter(
+        AuditEvent.org_id == current_user.org_id,
+        AuditEvent.part_id == part_id
+    ).update({"part_id": None}, synchronize_session=False)
+
+    # Delete dependents that don't have ON DELETE CASCADE in schema
+    db.query(MachineNorm).filter(
+        MachineNorm.org_id == current_user.org_id,
+        MachineNorm.part_id == part_id
+    ).delete(synchronize_session=False)
+
+    db.query(LogisticsEntry).filter(
+        LogisticsEntry.org_id == current_user.org_id,
+        LogisticsEntry.part_id == part_id
+    ).delete(synchronize_session=False)
+
+    db.query(Task).filter(
+        Task.org_id == current_user.org_id,
+        Task.part_id == part_id
+    ).delete(synchronize_session=False)
+
+    db.query(StageFact).filter(
+        StageFact.org_id == current_user.org_id,
+        StageFact.part_id == part_id
+    ).delete(synchronize_session=False)
+
+    db.query(PartStageStatus).filter(
+        PartStageStatus.part_id == part_id
+    ).delete(synchronize_session=False)
+
+    db.delete(part)
+    db.commit()

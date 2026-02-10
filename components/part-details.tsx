@@ -17,6 +17,7 @@ import {
   ArrowLeft, 
   TrendingUp, 
   TrendingDown, 
+  Trash2,
   Sun, 
   Moon,
   FileImage,
@@ -66,11 +67,14 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getUserById,
     demoDate,
     permissions,
-    updatePartDrawing
+    updatePartDrawing,
+    deletePart
   } = useApp()
   
   const [activeTab, setActiveTab] = useState("overview")
   const [drawingUrl, setDrawingUrl] = useState(part.drawing_url || "")
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [actionError, setActionError] = useState("")
   
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const progress = getPartProgress(part.id)
@@ -118,10 +122,32 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     if (dateCompare !== 0) return dateCompare
     return a.shift_type === "night" ? -1 : 1
   })
+  const hasFacts = stageFacts.length > 0
+  const canDeletePart = permissions.canCreateParts && (
+    (part.is_cooperation && permissions.canCreateCoopParts) ||
+    (!part.is_cooperation && permissions.canCreateOwnParts)
+  )
 
   const handleSaveDrawing = () => {
     if (drawingUrl) {
       updatePartDrawing(part.id, drawingUrl)
+    }
+  }
+
+  const handleDeletePart = async () => {
+    const confirmed = window.confirm(`Удалить деталь ${part.code}? Это действие необратимо.`)
+    if (!confirmed) return
+
+    setActionError("")
+    setIsDeleting(true)
+    try {
+      await deletePart(part.id)
+      onBack()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось удалить деталь"
+      setActionError(message)
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -145,10 +171,26 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             {part.customer && ` | ${part.customer}`}
           </div>
         </div>
-        <Badge variant={part.priority === "high" ? "destructive" : part.priority === "medium" ? "default" : "secondary"}>
-          {PRIORITY_LABELS[part.priority]}
-        </Badge>
+        <div className="flex items-center gap-2">
+          {canDeletePart && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDeletePart}
+              disabled={isDeleting}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              {isDeleting ? "Удаляем..." : "Удалить"}
+            </Button>
+          )}
+          <Badge variant={part.priority === "high" ? "destructive" : part.priority === "medium" ? "default" : "secondary"}>
+            {PRIORITY_LABELS[part.priority]}
+          </Badge>
+        </div>
       </div>
+      {actionError && (
+        <div className="text-sm text-destructive">{actionError}</div>
+      )}
       
       {/* Cooperation info */}
       {part.is_cooperation && (
@@ -184,10 +226,15 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             </div>
             <div className={cn(
               "p-3 rounded-lg",
-              forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
+              !hasFacts ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
             )}>
               <div className="flex items-center gap-2 mb-1">
-                {forecast.willFinishOnTime ? (
+                {!hasFacts ? (
+                  <>
+                    <Clock className="h-5 w-5 text-muted-foreground" />
+                    <span className="font-medium text-foreground">Прогноз появится после 1-го факта</span>
+                  </>
+                ) : forecast.willFinishOnTime ? (
                   <>
                     <TrendingUp className="h-5 w-5 text-green-600" />
                     <span className="font-medium text-green-700">Успеваем</span>
@@ -199,22 +246,24 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   </>
                 )}
               </div>
-              <div className="text-sm text-muted-foreground space-y-0.5">
-                <div>Нужно смен (все этапы): {forecast.shiftsNeeded}</div>
-                <div>Есть смен до дедлайна: {forecast.shiftsRemaining}</div>
-                {forecast.stageForecasts && forecast.stageForecasts.length > 0 && (
-                  <div className="mt-2 pt-2 border-t border-dashed">
-                    {forecast.stageForecasts.filter(sf => sf.qtyRemaining > 0).map(sf => (
-                      <div key={sf.stage} className="flex justify-between text-xs">
-                        <span>{STAGE_LABELS[sf.stage]}:</span>
-                        <span className={sf.willFinishOnTime ? "text-green-600" : "text-amber-600"}>
-                          {sf.qtyRemaining.toLocaleString()} шт ({sf.shiftsNeeded} смен)
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {hasFacts && (
+                <div className="text-sm text-muted-foreground space-y-0.5">
+                  <div>Нужно смен (все этапы): {forecast.shiftsNeeded}</div>
+                  <div>Есть смен до дедлайна: {forecast.shiftsRemaining}</div>
+                  {forecast.stageForecasts && forecast.stageForecasts.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-dashed">
+                      {forecast.stageForecasts.filter(sf => sf.qtyRemaining > 0).map(sf => (
+                        <div key={sf.stage} className="flex justify-between text-xs">
+                          <span>{STAGE_LABELS[sf.stage]}:</span>
+                          <span className={sf.willFinishOnTime ? "text-green-600" : "text-amber-600"}>
+                            {sf.qtyRemaining.toLocaleString()} шт ({sf.shiftsNeeded} смен)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
           <div className="mt-3 pt-3 border-t flex justify-between text-sm">
