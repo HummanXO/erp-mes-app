@@ -430,8 +430,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
               "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter,opacity] duration-200",
               "absolute bottom-0 left-0 right-0",
               footerHasScroll
-                ? "border-t border-border/60 bg-background/70 backdrop-blur-md"
-                : "border-t border-border/30 bg-background/80 backdrop-blur-sm",
+                ? "border-t border-border/60 bg-background/55 backdrop-blur-lg"
+                : "border-t border-border/30 bg-background/65 backdrop-blur-md",
               footerElevated
                 ? "shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
                 : "shadow-none"
