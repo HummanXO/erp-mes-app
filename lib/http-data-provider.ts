@@ -32,7 +32,6 @@ function transformPart(backendPart: any): Part {
     name: backendPart.name,
     qty_plan: backendPart.qty_plan,
     qty_done: backendPart.qty_ready || backendPart.qty_done, // Use qty_ready (alias)
-    priority: backendPart.priority,
     deadline: backendPart.deadline,
     status: backendPart.status,
     drawing_url: backendPart.drawing_url,

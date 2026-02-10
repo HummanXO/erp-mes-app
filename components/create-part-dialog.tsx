@@ -123,7 +123,6 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       description: description || undefined,
       qty_plan: Number.parseInt(qtyPlan, 10),
       qty_done: 0,
-      priority: "medium",
       deadline,
       status: "not_started",
       is_cooperation: isCooperation,

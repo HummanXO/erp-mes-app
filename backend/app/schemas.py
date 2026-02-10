@@ -69,7 +69,6 @@ class PartCreate(BaseModel):
     name: str
     description: Optional[str] = None
     qty_plan: int = Field(gt=0)
-    priority: str = Field(default="medium", pattern="^(high|medium|low)$")
     deadline: date
     is_cooperation: bool = False
     cooperation_partner: Optional[str] = None
@@ -82,7 +81,6 @@ class PartUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     qty_plan: Optional[int] = Field(None, gt=0)
-    priority: Optional[str] = Field(None, pattern="^(high|medium|low)$")
     deadline: Optional[date] = None
     is_cooperation: Optional[bool] = None
     cooperation_partner: Optional[str] = None
@@ -136,7 +134,6 @@ class PartResponse(BaseModel):
     qty_plan: int
     qty_done: int
     qty_ready: int  # Alias for qty_done (frontend compatibility)
-    priority: str
     deadline: date
     status: str
     drawing_url: Optional[str] = None

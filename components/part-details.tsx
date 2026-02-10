@@ -5,25 +5,18 @@ import React from "react"
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
-import { PRIORITY_LABELS, STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS, LOGISTICS_TYPE_LABELS } from "@/lib/types"
+import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS, LOGISTICS_TYPE_LABELS } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { 
   ArrowLeft, 
   TrendingUp, 
   TrendingDown, 
-  MoreHorizontal,
   Trash2,
   Sun, 
   Moon,
@@ -179,29 +172,12 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             {part.customer && ` | ${part.customer}`}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {canDeletePart && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" disabled={isDeleting}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onClick={handleDeletePart}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  {isDeleting ? "Удаляем..." : "Удалить деталь"}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <Badge variant={part.priority === "high" ? "destructive" : part.priority === "medium" ? "default" : "secondary"}>
-            {PRIORITY_LABELS[part.priority]}
-          </Badge>
-        </div>
+        {canDeletePart && (
+          <Button variant="destructive" onClick={handleDeletePart} disabled={isDeleting}>
+            <Trash2 className="h-4 w-4 mr-2" />
+            {isDeleting ? "Удаляем..." : "Удалить"}
+          </Button>
+        )}
       </div>
       {actionError && (
         <div className="text-sm text-destructive">{actionError}</div>
