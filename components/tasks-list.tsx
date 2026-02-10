@@ -6,6 +6,7 @@ import { TASK_CATEGORY_LABELS, STAGE_LABELS, ROLE_LABELS, ASSIGNEE_ROLE_GROUPS }
 import type { TaskStatus, TaskCategory, ProductionStage, UserRole, TaskAssigneeType } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -210,20 +211,21 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   
   {/* Create button */}
   {permissions.canCreateTasks && (
-  <Button
-  variant={showForm ? "secondary" : "default"}
-  className="w-full"
-  onClick={() => setShowForm(!showForm)}
-  >
-  <Plus className="h-4 w-4 mr-2" />
-  {showForm ? "Отмена" : "Создать задачу"}
-  </Button>
-  )}
-      
-      {/* Create form */}
-      {showForm && (
-        <Card>
-          <CardContent className="p-4 space-y-4">
+    <>
+      <Button
+        variant="default"
+        className="w-full"
+        onClick={() => setShowForm(true)}
+      >
+        <Plus className="h-4 w-4 mr-2" />
+        Создать задачу
+      </Button>
+      <Dialog open={showForm} onOpenChange={setShowForm}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Новая задача</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label htmlFor="task-title">Название</Label>
               <Input
@@ -354,16 +356,22 @@ export function TasksList({ partId, machineId }: TasksListProps) {
               </Label>
             </div>
             
-            <Button 
-              className="w-full" 
-              onClick={handleCreateTask} 
-              disabled={!title || (assigneeType === "user" && !assigneeId)}
-            >
-              Создать задачу
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+            <DialogFooter className="gap-2">
+              <Button variant="outline" className="bg-transparent" onClick={() => setShowForm(false)}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleCreateTask} 
+                disabled={!title || (assigneeType === "user" && !assigneeId)}
+              >
+                Создать задачу
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  )}
       
       {/* Active tasks */}
       {activeTasks.length > 0 && (

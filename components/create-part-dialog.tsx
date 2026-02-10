@@ -396,8 +396,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           )}
         </div>
         
-        <div className="h-4" />
-        <DialogFooter className="sticky bottom-0 left-0 right-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-3 gap-2">
+        <DialogFooter className="gap-2">
           <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
             Отмена
           </Button>
