@@ -242,14 +242,14 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           
           {/* Cooperation toggle - only if user can create both types */}
           {canCreateOwnParts && canCreateCoopParts && (
-            <Card className={isCooperation ? "border-blue-200 bg-blue-50/50 dark:bg-blue-950/20" : ""}>
+            <Card>
               <CardContent className="p-4">
                 <div
                   className={`
                     flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
                     ${isCooperation
-                      ? "bg-primary/10 border-primary"
-                      : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
+                      ? "bg-muted border-foreground"
+                      : "bg-muted/50 border-border hover:border-muted-foreground/30"
                     }
                   `}
                   onClick={toggleCooperation}
@@ -272,7 +272,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                     }}
                   />
                   <div className="flex items-center gap-2">
-                    <Building2 className={`h-5 w-5 ${isCooperation ? "text-blue-600" : "text-muted-foreground"}`} />
+                    <Building2 className={`h-5 w-5 ${isCooperation ? "text-foreground" : "text-muted-foreground"}`} />
                     <span>Кооперация (деталь изготавливается на стороне)</span>
                   </div>
                 </div>
