@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useId } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ShiftType, ProductionStage, DeviationReason, TaskAttachment } from "@/lib/types"
 import { STAGE_LABELS, DEVIATION_REASON_LABELS } from "@/lib/types"
@@ -59,6 +59,15 @@ export function StageFactForm({ part }: StageFactFormProps) {
   } = useApp()
   
   const operators = getOperators()
+  const formId = useId()
+  const stageFieldId = `${formId}-stage`
+  const machineFieldId = `${formId}-machine`
+  const operatorFieldId = `${formId}-operator`
+  const qtyGoodId = `${formId}-qty-good`
+  const qtyScrapId = `${formId}-qty-scrap`
+  const deviationId = `${formId}-deviation`
+  const commentId = `${formId}-comment`
+  const attachmentId = `${formId}-attachment`
   
   // Get active stages (not done and not skipped) with null safety
   const stageStatuses = part.stage_statuses || []
@@ -503,9 +512,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
         
         {/* Stage selection */}
         <div className="space-y-2">
-          <Label>Этап</Label>
+          <Label htmlFor={stageFieldId}>Этап</Label>
           <Select value={stage} onValueChange={(v) => setStage(v as ProductionStage)}>
-            <SelectTrigger>
+            <SelectTrigger id={stageFieldId}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -521,9 +530,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {/* Machine selection - only for machining */}
         {stage === "machining" && (
           <div className="space-y-2">
-            <Label>Станок</Label>
+            <Label htmlFor={machineFieldId}>Станок</Label>
             <Select value={machineId} onValueChange={setMachineId}>
-              <SelectTrigger>
+              <SelectTrigger id={machineFieldId}>
                 <SelectValue placeholder="Выберите станок" />
               </SelectTrigger>
               <SelectContent>
@@ -540,9 +549,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {/* Operator selection - only for machining */}
         {stageRequiresOperator(stage) && (
           <div className="space-y-2">
-            <Label>Оператор</Label>
+            <Label htmlFor={operatorFieldId}>Оператор</Label>
             <Select value={operatorId} onValueChange={setOperatorId}>
-              <SelectTrigger>
+              <SelectTrigger id={operatorFieldId}>
                 <SelectValue placeholder="Выберите оператора" />
               </SelectTrigger>
               <SelectContent>
@@ -570,8 +579,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {/* Quantities */}
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label>Годные, шт</Label>
+            <Label htmlFor={qtyGoodId}>Годные, шт</Label>
             <Input
+              id={qtyGoodId}
               type="number"
               placeholder="0"
               value={qtyGood}
@@ -589,8 +599,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
             )}
           </div>
           <div className="space-y-2">
-            <Label>Брак, шт</Label>
+            <Label htmlFor={qtyScrapId}>Брак, шт</Label>
             <Input
+              id={qtyScrapId}
               type="number"
               placeholder="0"
               value={qtyScrap}
@@ -601,12 +612,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
         
         {/* Deviation reason */}
         <div className="space-y-2">
-          <Label>Причина отклонения (если есть)</Label>
+          <Label htmlFor={deviationId}>Причина отклонения (если есть)</Label>
           <Select 
             value={deviationReason || "none"} 
             onValueChange={(v) => setDeviationReason(v === "none" ? null : v as DeviationReason)}
           >
-            <SelectTrigger>
+            <SelectTrigger id={deviationId}>
               <SelectValue placeholder="Нет отклонения" />
             </SelectTrigger>
             <SelectContent>
@@ -622,8 +633,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
         
         {/* Comment */}
         <div className="space-y-2">
-          <Label>Комментарий</Label>
+          <Label htmlFor={commentId}>Комментарий</Label>
           <Textarea
+            id={commentId}
             placeholder="Примечания к смене..."
             value={comment}
             onChange={(e) => setComment(e.target.value)}
@@ -632,8 +644,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
         
         {/* Attachments */}
         <div className="space-y-2">
-          <Label>Прикрепить фото/файл</Label>
+          <Label htmlFor={attachmentId}>Прикрепить фото/файл</Label>
           <input
+            id={attachmentId}
             type="file"
             ref={fileInputRef}
             onChange={(e) => {

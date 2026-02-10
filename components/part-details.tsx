@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS, LOGISTICS_TYPE_LABELS } from "@/lib/types"
@@ -75,6 +75,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [drawingUrl, setDrawingUrl] = useState(part.drawing_url || "")
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState("")
+  const [drawingError, setDrawingError] = useState(false)
+
+  useEffect(() => {
+    setDrawingError(false)
+  }, [drawingUrl, part.drawing_url])
   
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const progress = getPartProgress(part.id)
@@ -156,7 +161,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Назад к списку деталей"
+          className="h-11 w-11"
+          onClick={onBack}
+        >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1">
@@ -180,7 +191,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         )}
       </div>
       {actionError && (
-        <div className="text-sm text-destructive">{actionError}</div>
+        <div className="text-sm text-destructive" role="status" aria-live="polite">{actionError}</div>
       )}
       
       {/* Cooperation info */}
@@ -427,17 +438,19 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
               {part.drawing_url ? (
                 <div className="space-y-3">
                   <div className="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-                    <img 
-                      src={part.drawing_url || "/placeholder.svg"} 
-                      alt={`Чертёж ${part.code}`}
-                      className="max-w-full max-h-full object-contain"
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none"
-                        if (e.currentTarget.parentElement) {
-                          e.currentTarget.parentElement.innerHTML = `<div class="text-center text-muted-foreground"><p>Не удалось загрузить изображение</p></div>`
-                        }
-                      }}
-                    />
+                    {!drawingError ? (
+                      <img 
+                        src={part.drawing_url || "/placeholder.svg"} 
+                        alt={`Чертёж ${part.code}`}
+                        className="max-w-full max-h-full object-contain"
+                        onError={() => setDrawingError(true)}
+                      />
+                    ) : (
+                      <div className="text-center text-muted-foreground p-6">
+                        <FileImage className="h-10 w-10 mx-auto mb-2 opacity-60" />
+                        <p>Не удалось загрузить изображение</p>
+                      </div>
+                    )}
                   </div>
                   <Button variant="outline" className="w-full bg-transparent" asChild>
                     <a href={part.drawing_url} target="_blank" rel="noopener noreferrer">

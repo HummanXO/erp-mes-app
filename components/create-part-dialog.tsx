@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useId } from "react"
 import { useApp } from "@/lib/app-context"
 import type { ProductionStage, StageStatus } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
@@ -48,6 +48,15 @@ interface CreatePartDialogProps {
 
 export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) {
   const { createPart, machines, permissions } = useApp()
+  const formId = useId()
+  const codeId = `${formId}-code`
+  const nameId = `${formId}-name`
+  const descriptionId = `${formId}-description`
+  const qtyPlanId = `${formId}-qty`
+  const deadlineId = `${formId}-deadline`
+  const customerId = `${formId}-customer`
+  const partnerId = `${formId}-partner`
+  const machineIdField = `${formId}-machine`
   
   // Form state
   const [code, setCode] = useState("")
@@ -184,16 +193,18 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           {/* Basic info */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Код детали *</Label>
+              <Label htmlFor={codeId}>Код детали *</Label>
               <Input
+                id={codeId}
                 placeholder="01488.900.725"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Название *</Label>
+              <Label htmlFor={nameId}>Название *</Label>
               <Input
+                id={nameId}
                 placeholder="Корпус основной"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -202,8 +213,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           
           <div className="space-y-2">
-            <Label>Описание</Label>
+            <Label htmlFor={descriptionId}>Описание</Label>
             <Textarea
+              id={descriptionId}
               placeholder="Описание детали..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -212,8 +224,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Количество *</Label>
+              <Label htmlFor={qtyPlanId}>Количество *</Label>
               <Input
+                id={qtyPlanId}
                 type="number"
                 placeholder="1000"
                 value={qtyPlan}
@@ -221,8 +234,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
               />
             </div>
             <div className="space-y-2">
-              <Label>Дедлайн *</Label>
+              <Label htmlFor={deadlineId}>Дедлайн *</Label>
               <Input
+                id={deadlineId}
                 type="date"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
@@ -231,8 +245,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           
           <div className="space-y-2">
-            <Label>Заказчик</Label>
+            <Label htmlFor={customerId}>Заказчик</Label>
             <Input
+              id={customerId}
               placeholder="ООО Компания"
               value={customer}
               onChange={(e) => setCustomer(e.target.value)}
@@ -267,6 +282,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   setIsCooperation(checked === true)
                   setSelectedOptionalStages([])
                 }}
+                aria-label="Переключить кооперацию"
               />
               <div className="flex items-center gap-2">
                 <Building2 className={`h-5 w-5 ${isCooperation ? "text-foreground" : "text-muted-foreground"}`} />
@@ -278,8 +294,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           {/* Cooperation partner input */}
           {isCooperation && (
             <div className="space-y-2">
-              <Label>Партнёр-кооператор</Label>
+              <Label htmlFor={partnerId}>Партнёр-кооператор</Label>
               <Input
+                id={partnerId}
                 placeholder="ООО Литейщик"
                 value={cooperationPartner}
                 onChange={(e) => setCooperationPartner(e.target.value)}
@@ -356,7 +373,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </Card>
 
           {formError && (
-            <Alert variant="destructive">
+            <Alert variant="destructive" role="status" aria-live="polite">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{formError}</AlertDescription>
             </Alert>
@@ -365,9 +382,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           {/* Machine selection - required for own production */}
           {!isCooperation && (
             <div className="space-y-2">
-              <Label>Станок для обработки *</Label>
+              <Label htmlFor={machineIdField}>Станок для обработки *</Label>
               <Select value={machineId} onValueChange={setMachineId}>
-                <SelectTrigger>
+                <SelectTrigger id={machineIdField}>
                   <SelectValue placeholder="Выберите станок" />
                 </SelectTrigger>
                 <SelectContent>
