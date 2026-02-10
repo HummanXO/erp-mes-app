@@ -148,14 +148,15 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {isCooperation ? "Новая деталь (Кооперация)" : "Новая деталь (Цех)"}
-          </DialogTitle>
-        </DialogHeader>
-        
-        <div className="space-y-6 py-4">
+      <DialogContent className="max-w-2xl p-0">
+        <div className="flex flex-col max-h-[90vh]">
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>
+              {isCooperation ? "Новая деталь (Кооперация)" : "Новая деталь (Цех)"}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-6 px-6 pb-6 pt-4 overflow-y-auto">
           {/* Role-based info alert */}
           {!canCreateOwnParts && canCreateCoopParts && (
             <Alert>
@@ -394,16 +395,16 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
               </Select>
             </div>
           )}
+          </div>
+          <DialogFooter className="gap-2 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-3">
+            <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
+              Отмена
+            </Button>
+            <Button onClick={handleCreate} disabled={!code || !name || !qtyPlan || !deadline || (!isCooperation && !machineId)}>
+              Создать деталь
+            </Button>
+          </DialogFooter>
         </div>
-        
-        <DialogFooter className="gap-2">
-          <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
-            Отмена
-          </Button>
-          <Button onClick={handleCreate} disabled={!code || !name || !qtyPlan || !deadline || (!isCooperation && !machineId)}>
-            Создать деталь
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
