@@ -3,8 +3,9 @@
 import React from "react"
 
 import { useApp } from "@/lib/app-context"
-import type { Part, ProductionStage } from "@/lib/types"
+import type { Part } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
+import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -17,25 +18,8 @@ import {
   FileImage,
   ChevronRight,
   Building2,
-  Cog,
-  Wrench,
-  Zap,
-  Flame,
-  CircleDot,
-  CheckSquare,
-  Truck
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-const STAGE_ICONS: Record<ProductionStage, React.ReactNode> = {
-  machining: <Cog className="h-3 w-3" />,
-  fitting: <Wrench className="h-3 w-3" />,
-  galvanic: <Zap className="h-3 w-3" />,
-  heat_treatment: <Flame className="h-3 w-3" />,
-  grinding: <CircleDot className="h-3 w-3" />,
-  qc: <CheckSquare className="h-3 w-3" />,
-  logistics: <Truck className="h-3 w-3" />,
-}
 
 interface PartCardProps {
   part: Part

@@ -6,6 +6,7 @@ import { useMemo } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
+import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -14,29 +15,12 @@ import {
   CheckCircle, 
   Clock, 
   Pause,
-  Cog,
-  Wrench,
-  Zap,
-  Flame,
-  CircleDot,
-  CheckSquare,
-  Truck,
   TrendingUp,
   TrendingDown,
   Minus,
   Users
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-
-const STAGE_ICONS: Record<ProductionStage, React.ReactNode> = {
-  machining: <Cog className="h-4 w-4" />,
-  fitting: <Wrench className="h-4 w-4" />,
-  galvanic: <Zap className="h-4 w-4" />,
-  heat_treatment: <Flame className="h-4 w-4" />,
-  grinding: <CircleDot className="h-4 w-4" />,
-  qc: <CheckSquare className="h-4 w-4" />,
-  logistics: <Truck className="h-4 w-4" />,
-}
 
 // Fixed order of stages for consistent display
 const STAGE_ORDER: ProductionStage[] = [

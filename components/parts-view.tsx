@@ -6,6 +6,7 @@ import { useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
+import { STAGE_ICONS } from "@/lib/stage-icons"
 import { PartCard } from "./part-card"
 import { PartDetails } from "./part-details"
 import { CreatePartDialog } from "./create-part-dialog"
@@ -14,29 +15,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Plus, 
-  Search,
-  Filter,
-  Cog,
-  Wrench,
-  Zap,
-  Flame,
-  CircleDot,
-  CheckSquare,
-  Truck,
-  Building2
-} from "lucide-react"
-
-const STAGE_ICONS: Record<ProductionStage, React.ReactNode> = {
-  machining: <Cog className="h-4 w-4" />,
-  fitting: <Wrench className="h-4 w-4" />,
-  galvanic: <Zap className="h-4 w-4" />,
-  heat_treatment: <Flame className="h-4 w-4" />,
-  grinding: <CircleDot className="h-4 w-4" />,
-  qc: <CheckSquare className="h-4 w-4" />,
-  logistics: <Truck className="h-4 w-4" />,
-}
+import { Plus, Search, Filter, Building2 } from "lucide-react"
 
 export function PartsView() {
   const { parts, machines, permissions } = useApp()
