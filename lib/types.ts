@@ -257,7 +257,7 @@ export const SHIFT_LABELS: Record<ShiftType, string> = {
 }
 
 export const STAGE_LABELS: Record<ProductionStage, string> = {
-  machining: "Механообработка",
+  machining: "Мехобработка",
   fitting: "Слесарка",
   galvanic: "Гальваника",
   heat_treatment: "Термообработка",
