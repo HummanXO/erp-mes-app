@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useEffect, useId } from "react"
+import { useState, useEffect, useId, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import type { ProductionStage, StageStatus } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { cn } from "@/lib/utils"
 import { Building2, AlertCircle } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
@@ -58,6 +59,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   
   // Machine (for machining stage)
   const [machineId, setMachineId] = useState("")
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [footerElevated, setFooterElevated] = useState(false)
   
   const machiningMachines = machines.filter(m => m.department === "machining")
   
@@ -72,6 +75,30 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       setSelectedOptionalStages([])
     }
   }, [canCreateOwnParts, canCreateCoopParts])
+
+  useEffect(() => {
+    if (!open) return
+    const el = scrollRef.current
+    if (!el) return
+    const update = () => {
+      const maxScroll = el.scrollHeight - el.clientHeight
+      const hasScroll = maxScroll > 2
+      const atBottom = el.scrollTop >= maxScroll - 2
+      setFooterElevated(hasScroll && !atBottom)
+    }
+    update()
+    const onScroll = () => update()
+    const onResize = () => update()
+    el.addEventListener("scroll", onScroll, { passive: true })
+    window.addEventListener("resize", onResize)
+    const ro = new ResizeObserver(() => update())
+    ro.observe(el)
+    return () => {
+      el.removeEventListener("scroll", onScroll)
+      window.removeEventListener("resize", onResize)
+      ro.disconnect()
+    }
+  }, [open])
 
   const toggleCooperation = () => {
     setIsCooperation((prev) => !prev)
@@ -156,7 +183,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             </DialogTitle>
           </DialogHeader>
           
-          <div className="space-y-6 px-6 pb-6 pt-4 overflow-y-auto">
+          <div ref={scrollRef} className="space-y-6 px-6 pb-6 pt-4 overflow-y-auto scroll-modal-body">
           {/* Role-based info alert */}
           {!canCreateOwnParts && canCreateCoopParts && (
             <Alert>
@@ -313,11 +340,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     {COOP_STAGES.map((stage) => (
-                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary">
+                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary overflow-hidden">
                         <Checkbox checked disabled />
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
-                          <span>{STAGE_LABELS[stage]}</span>
+                          <span className="truncate">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
                     ))}
@@ -330,11 +357,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   </p>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {SHOP_REQUIRED_STAGES.map((stage) => (
-                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary">
+                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary overflow-hidden">
                         <Checkbox checked disabled />
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
-                          <span>{STAGE_LABELS[stage]}</span>
+                          <span className="truncate">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
                     ))}
@@ -344,7 +371,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                       <div
                         key={stage}
                         className={`
-                          flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+                          flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors overflow-hidden
                           ${selectedOptionalStages.includes(stage)
                             ? "bg-primary/10 border-primary"
                             : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
@@ -356,9 +383,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                           checked={selectedOptionalStages.includes(stage)}
                           onCheckedChange={() => toggleOptionalStage(stage)}
                         />
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
-                          <span>{STAGE_LABELS[stage]}</span>
+                          <span className="truncate">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
                     ))}
@@ -396,7 +423,15 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             </div>
           )}
           </div>
-          <DialogFooter className="gap-2 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-3">
+          <DialogFooter
+            className={cn(
+              "gap-2 px-6 py-3 transition-all",
+              "sticky bottom-0 left-0 right-0",
+              footerElevated
+                ? "border-t bg-background/80 backdrop-blur-md shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
+                : "border-transparent bg-background"
+            )}
+          >
             <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
               Отмена
             </Button>

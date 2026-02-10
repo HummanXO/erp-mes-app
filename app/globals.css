@@ -218,3 +218,26 @@
     border-radius: 6px;
   }
 }
+
+@layer utilities {
+  .scroll-modal-body {
+    scrollbar-gutter: stable;
+  }
+
+  .scroll-modal-body::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scroll-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scroll-modal-body::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--border) 70%, transparent);
+    border-radius: 999px;
+  }
+
+  .scroll-modal-body:not(:hover)::-webkit-scrollbar-thumb {
+    background-color: transparent;
+  }
+}
