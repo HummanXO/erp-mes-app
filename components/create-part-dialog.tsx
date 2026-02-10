@@ -61,6 +61,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   const [machineId, setMachineId] = useState("")
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [footerElevated, setFooterElevated] = useState(false)
+  const [footerHasScroll, setFooterHasScroll] = useState(false)
   
   const machiningMachines = machines.filter(m => m.department === "machining")
   
@@ -84,6 +85,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       const maxScroll = el.scrollHeight - el.clientHeight
       const hasScroll = maxScroll > 2
       const atBottom = el.scrollTop >= maxScroll - 2
+      setFooterHasScroll(hasScroll)
       setFooterElevated(hasScroll && !atBottom)
     }
     update()
@@ -175,7 +177,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0">
+      <DialogContent className="max-w-2xl p-0 overflow-hidden">
         <div className="flex flex-col max-h-[90vh]">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>
@@ -183,7 +185,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             </DialogTitle>
           </DialogHeader>
           
-          <div ref={scrollRef} className="space-y-6 px-6 pb-6 pt-4 overflow-y-auto scroll-modal-body flex-1 min-h-0">
+          <div ref={scrollRef} className="space-y-6 px-6 pb-24 pt-4 overflow-y-auto scroll-modal-body flex-1 min-h-0">
           {/* Role-based info alert */}
           {!canCreateOwnParts && canCreateCoopParts && (
             <Alert>
@@ -425,12 +427,21 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           <DialogFooter
             className={cn(
-              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter] duration-200 shrink-0",
+              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter,opacity] duration-200 shrink-0 relative",
+              footerHasScroll
+                ? "border-t border-border/60 bg-background/70 backdrop-blur-md"
+                : "border-transparent bg-background",
               footerElevated
-                ? "border-t bg-background/70 backdrop-blur-md shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
-                : "border-transparent bg-transparent backdrop-blur-0 shadow-none"
+                ? "shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
+                : "shadow-none"
             )}
           >
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-background/70 to-transparent transition-opacity duration-200",
+                footerElevated ? "opacity-100" : "opacity-0"
+              )}
+            />
             <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
               Отмена
             </Button>
