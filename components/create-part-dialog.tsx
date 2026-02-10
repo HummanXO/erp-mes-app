@@ -178,7 +178,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl p-0 overflow-hidden">
-        <div className="flex flex-col max-h-[90vh]">
+        <div className="flex flex-col max-h-[90vh] relative">
           <DialogHeader className="px-6 pt-6">
             <DialogTitle>
               {isCooperation ? "Новая деталь (Кооперация)" : "Новая деталь (Цех)"}
@@ -427,10 +427,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           <DialogFooter
             className={cn(
-              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter,opacity] duration-200 shrink-0 relative",
+              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter,opacity] duration-200",
+              "absolute bottom-0 left-0 right-0",
               footerHasScroll
                 ? "border-t border-border/60 bg-background/70 backdrop-blur-md"
-                : "border-transparent bg-background",
+                : "border-t border-border/30 bg-background/80 backdrop-blur-sm",
               footerElevated
                 ? "shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
                 : "shadow-none"
