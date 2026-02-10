@@ -438,7 +438,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
                 Текущая норма: {norm.qty_per_shift} шт/смена
               </div>
             )}
-            {normError && <div className="text-xs text-destructive">{normError}</div>}
+            {normError && <div className="text-xs text-destructive" role="status" aria-live="polite">{normError}</div>}
           </div>
         )}
         
@@ -586,6 +586,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               placeholder="0"
               value={qtyGood}
               onChange={(e) => setQtyGood(e.target.value)}
+              aria-invalid={!!submitError && !qtyGood}
             />
             {expectedQty > 0 && qtyGood && (
               <div className={cn(
@@ -606,6 +607,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               placeholder="0"
               value={qtyScrap}
               onChange={(e) => setQtyScrap(e.target.value)}
+              aria-invalid={!!submitError && qtyScrap === ""}
             />
           </div>
         </div>
@@ -715,7 +717,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           </Button>
         </div>
         {submitError && (
-          <div className="text-sm text-destructive">{submitError}</div>
+          <div className="text-sm text-destructive" role="status" aria-live="polite">{submitError}</div>
         )}
       </CardContent>
     </Card>

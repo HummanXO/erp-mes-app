@@ -247,9 +247,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
             
             {/* Assignee type selection */}
             <div className="space-y-2">
-              <Label>Кому назначить</Label>
+              <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
               <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
-                <TabsList className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
+                <TabsList id="assignee-type-tabs" className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
                   <TabsTrigger value="user">
                     <User className="h-4 w-4 mr-1" />
                     Человеку
@@ -288,9 +288,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
             
             {assigneeType === "role" && (
               <div className="space-y-2">
-                <Label>Группа</Label>
+                <Label htmlFor="assignee-role">Группа</Label>
                 <Select value={assigneeRole} onValueChange={(v) => setAssigneeRole(v as UserRole)}>
-                  <SelectTrigger>
+                  <SelectTrigger id="assignee-role">
                     <SelectValue placeholder="Выберите группу" />
                   </SelectTrigger>
                   <SelectContent>
@@ -314,9 +314,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
               </div>
               
               <div className="space-y-2">
-                <Label>Категория</Label>
+                <Label htmlFor="task-category">Категория</Label>
                 <Select value={category} onValueChange={(v) => setCategory(v as TaskCategory)}>
-                  <SelectTrigger>
+                  <SelectTrigger id="task-category">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -329,9 +329,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
             </div>
             
             <div className="space-y-2">
-              <Label>Этап (опционально)</Label>
+              <Label htmlFor="task-stage">Этап (опционально)</Label>
               <Select value={stage} onValueChange={(v) => setStage(v as ProductionStage | "none")}>
-                <SelectTrigger>
+                <SelectTrigger id="task-stage">
                   <SelectValue placeholder="Любой этап" />
                 </SelectTrigger>
                 <SelectContent>

@@ -48,15 +48,6 @@ interface CreatePartDialogProps {
 
 export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) {
   const { createPart, machines, permissions } = useApp()
-  const formId = useId()
-  const codeId = `${formId}-code`
-  const nameId = `${formId}-name`
-  const descriptionId = `${formId}-description`
-  const qtyPlanId = `${formId}-qty`
-  const deadlineId = `${formId}-deadline`
-  const customerId = `${formId}-customer`
-  const partnerId = `${formId}-partner`
-  const machineIdField = `${formId}-machine`
   
   // Form state
   const [code, setCode] = useState("")
@@ -66,6 +57,16 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   const [deadline, setDeadline] = useState("")
   const [customer, setCustomer] = useState("")
   const [formError, setFormError] = useState("")
+  const formId = useId()
+  const codeId = `${formId}-code`
+  const nameId = `${formId}-name`
+  const descriptionId = `${formId}-description`
+  const qtyPlanId = `${formId}-qty`
+  const deadlineId = `${formId}-deadline`
+  const customerId = `${formId}-customer`
+  const partnerId = `${formId}-partner`
+  const machineIdField = `${formId}-machine`
+  const formErrorId = `${formId}-error`
   
   // Cooperation
   const [isCooperation, setIsCooperation] = useState(false)
@@ -106,7 +107,10 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   
   const handleCreate = () => {
     setFormError("")
-    if (!code || !name || !qtyPlan || !deadline) return
+    if (!code || !name || !qtyPlan || !deadline) {
+      setFormError("Заполните обязательные поля")
+      return
+    }
     if (!isCooperation && !machineId) {
       setFormError("Для цеховой детали нужно выбрать станок")
       return
@@ -182,11 +186,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           )}
           
           {canCreateOwnParts && !canCreateCoopParts && (
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Вы можете создавать только цеховые детали
-              </AlertDescription>
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              Вы можете создавать только цеховые детали
+            </AlertDescription>
             </Alert>
           )}
           
@@ -199,6 +203,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 placeholder="01488.900.725"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
+                aria-invalid={!!formError && !code}
+                aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
             <div className="space-y-2">
@@ -208,6 +214,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 placeholder="Корпус основной"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                aria-invalid={!!formError && !name}
+                aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
           </div>
@@ -231,6 +239,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 placeholder="1000"
                 value={qtyPlan}
                 onChange={(e) => setQtyPlan(e.target.value)}
+                aria-invalid={!!formError && !qtyPlan}
+                aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
             <div className="space-y-2">
@@ -240,6 +250,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 type="date"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
+                aria-invalid={!!formError && !deadline}
+                aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
           </div>
@@ -300,6 +312,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 placeholder="ООО Литейщик"
                 value={cooperationPartner}
                 onChange={(e) => setCooperationPartner(e.target.value)}
+                aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
+                aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
           )}
@@ -373,7 +387,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </Card>
 
           {formError && (
-            <Alert variant="destructive" role="status" aria-live="polite">
+            <Alert variant="destructive" role="status" aria-live="polite" id={formErrorId}>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>{formError}</AlertDescription>
             </Alert>
@@ -384,7 +398,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             <div className="space-y-2">
               <Label htmlFor={machineIdField}>Станок для обработки *</Label>
               <Select value={machineId} onValueChange={setMachineId}>
-                <SelectTrigger id={machineIdField}>
+                <SelectTrigger
+                  id={machineIdField}
+                  aria-invalid={!!formError && !isCooperation && !machineId}
+                  aria-describedby={formError ? formErrorId : undefined}
+                >
                   <SelectValue placeholder="Выберите станок" />
                 </SelectTrigger>
                 <SelectContent>
