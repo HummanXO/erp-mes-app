@@ -18,6 +18,7 @@ import {
   FileImage,
   ChevronRight,
   Building2,
+  Cog,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
