@@ -17,7 +17,7 @@ import type {
   TaskAttachment,
 } from "./types"
 import { apiClient, ApiClientError } from "./api-client"
-import { isApiConfigured as isApiConfiguredEnv } from "./env"
+import { getApiBaseUrl, isApiConfigured as isApiConfiguredEnv } from "./env"
 
 // Helper to check if user is authenticated
 function isAuthenticated(): boolean {
@@ -119,6 +119,17 @@ function transformMachineNorm(backendNorm: any): MachineNorm {
   }
 }
 
+function resolveUploadUrl(url: string): string {
+  if (!url || !url.startsWith("/")) return url
+  const apiBase = getApiBaseUrl()
+  if (!apiBase || apiBase.startsWith("/")) return url
+  try {
+    return new URL(url, apiBase).toString()
+  } catch {
+    return url
+  }
+}
+
 // Users
 export async function getUsers(): Promise<User[]> {
   if (!isAuthenticated()) return []
@@ -200,8 +211,23 @@ export async function updatePart(part: Part): Promise<void> {
   await apiClient.updatePart(part.id, part)
 }
 
+export async function updatePartDrawing(partId: string, drawingUrl: string): Promise<void> {
+  await apiClient.updatePart(partId, { drawing_url: drawingUrl })
+}
+
 export async function deletePart(partId: string): Promise<void> {
   await apiClient.deletePart(partId)
+}
+
+export async function uploadAttachment(file: File): Promise<TaskAttachment> {
+  const response = await apiClient.uploadAttachment(file)
+  return {
+    id: response.id,
+    name: response.name,
+    url: resolveUploadUrl(response.url),
+    type: response.type,
+    size: response.size,
+  }
 }
 
 export async function getPartsForMachine(machineId: string): Promise<Part[]> {

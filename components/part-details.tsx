@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS, LOGISTICS_TYPE_LABELS } from "@/lib/types"
@@ -22,11 +22,14 @@ import {
   Sun, 
   Moon,
   FileImage,
+  FileText,
   ExternalLink,
   Building2,
   CheckCircle,
   Clock,
-  Package
+  Package,
+  Upload,
+  Link
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { StageFactForm } from "./stage-fact-form"
@@ -52,6 +55,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     demoDate,
     permissions,
     updatePartDrawing,
+    uploadAttachment,
     deletePart
   } = useApp()
   
@@ -60,6 +64,19 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState("")
   const [drawingError, setDrawingError] = useState(false)
+  const [drawingActionError, setDrawingActionError] = useState("")
+  const [isUploadingDrawing, setIsUploadingDrawing] = useState(false)
+  const [isSavingDrawing, setIsSavingDrawing] = useState(false)
+  const [showLinkInput, setShowLinkInput] = useState(false)
+  const drawingInputRef = useRef<HTMLInputElement | null>(null)
+
+  const drawingUrlValue = part.drawing_url || ""
+  const drawingUrlLower = drawingUrlValue.toLowerCase()
+  const isPdfDrawing =
+    drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
+  const isImageDrawing =
+    drawingUrlLower.startsWith("data:image/") ||
+    /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
 
   useEffect(() => {
     setDrawingError(false)
@@ -118,9 +135,38 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     (!part.is_cooperation && permissions.canCreateOwnParts)
   )
 
-  const handleSaveDrawing = () => {
-    if (drawingUrl) {
-      updatePartDrawing(part.id, drawingUrl)
+  const handleSaveDrawing = async () => {
+    if (!drawingUrl) return
+    setDrawingActionError("")
+    setIsSavingDrawing(true)
+    try {
+      await updatePartDrawing(part.id, drawingUrl)
+      setDrawingError(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось сохранить ссылку"
+      setDrawingActionError(message)
+    } finally {
+      setIsSavingDrawing(false)
+    }
+  }
+
+  const handleUploadDrawing = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setDrawingActionError("")
+    setIsUploadingDrawing(true)
+    try {
+      const uploaded = await uploadAttachment(file)
+      setDrawingUrl(uploaded.url)
+      setShowLinkInput(false)
+      await updatePartDrawing(part.id, uploaded.url)
+      setDrawingError(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить файл"
+      setDrawingActionError(message)
+    } finally {
+      setIsUploadingDrawing(false)
+      event.target.value = ""
     }
   }
 
@@ -419,25 +465,35 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
               <CardTitle className="text-sm">Чертёж детали</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {part.drawing_url ? (
+              {drawingUrlValue ? (
                 <div className="space-y-3">
                   <div className="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-                    {!drawingError ? (
-                      <img 
-                        src={part.drawing_url || "/placeholder.svg"} 
+                    {isImageDrawing && !drawingError ? (
+                      <img
+                        src={drawingUrlValue || "/placeholder.svg"}
                         alt={`Чертёж ${part.code}`}
                         className="max-w-full max-h-full object-contain"
                         onError={() => setDrawingError(true)}
                       />
                     ) : (
                       <div className="text-center text-muted-foreground p-6">
-                        <FileImage className="h-10 w-10 mx-auto mb-2 opacity-60" />
-                        <p>Не удалось загрузить изображение</p>
+                        {isPdfDrawing ? (
+                          <FileText className="h-10 w-10 mx-auto mb-2 opacity-60" />
+                        ) : (
+                          <FileImage className="h-10 w-10 mx-auto mb-2 opacity-60" />
+                        )}
+                        <p>
+                          {isPdfDrawing
+                            ? "PDF-чертёж"
+                            : drawingError
+                            ? "Не удалось загрузить изображение"
+                            : "Чертёж доступен"}
+                        </p>
                       </div>
                     )}
                   </div>
                   <Button variant="outline" className="w-full bg-transparent" asChild>
-                    <a href={part.drawing_url} target="_blank" rel="noopener noreferrer">
+                    <a href={drawingUrlValue} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="h-4 w-4 mr-2" />
                       Открыть в новой вкладке
                     </a>
@@ -451,23 +507,75 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   </div>
                 </div>
               )}
-              
+
               {permissions.canEditFacts && (
                 <div className="space-y-3 pt-3 border-t">
-                  <Label>Ссылка на чертёж</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="https://example.com/drawing.pdf"
-                      value={drawingUrl}
-                      onChange={(e) => setDrawingUrl(e.target.value)}
-                    />
-                    <Button onClick={handleSaveDrawing} disabled={!drawingUrl}>
-                      Сохранить
-                    </Button>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="drawing-file" className="text-sm">
+                      Загрузка файла
+                    </Label>
+                    {isUploadingDrawing && (
+                      <span className="text-xs text-muted-foreground">Загрузка...</span>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Вставьте ссылку на изображение или PDF-файл чертежа
-                  </p>
+                  <Input
+                    id="drawing-file"
+                    ref={drawingInputRef}
+                    type="file"
+                    accept="image/*,application/pdf"
+                    className="sr-only"
+                    onChange={handleUploadDrawing}
+                  />
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                    <Button
+                      type="button"
+                      onClick={() => drawingInputRef.current?.click()}
+                      disabled={isUploadingDrawing}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      {isUploadingDrawing ? "Загрузка..." : "Загрузить файл"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      PDF или изображение (PNG, JPG, WebP).
+                    </span>
+                  </div>
+
+                  {drawingActionError && (
+                    <div className="text-sm text-destructive" role="status" aria-live="polite">
+                      {drawingActionError}
+                    </div>
+                  )}
+
+                  <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-auto px-2 py-1 text-sm"
+                      onClick={() => setShowLinkInput((prev) => !prev)}
+                    >
+                      <Link className="h-4 w-4 mr-2" />
+                      {showLinkInput ? "Скрыть ссылку" : "Ссылка (резервный вариант)"}
+                    </Button>
+                    {showLinkInput && (
+                      <div className="space-y-2">
+                        <Label htmlFor="drawing-url">Ссылка на чертёж</Label>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Input
+                            id="drawing-url"
+                            placeholder="https://example.com/drawing.pdf"
+                            value={drawingUrl}
+                            onChange={(e) => setDrawingUrl(e.target.value)}
+                          />
+                          <Button onClick={handleSaveDrawing} disabled={!drawingUrl || isSavingDrawing}>
+                            {isSavingDrawing ? "Сохраняем..." : "Сохранить"}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Вставьте ссылку на изображение или PDF-файл чертежа.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>

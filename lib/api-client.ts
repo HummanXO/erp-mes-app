@@ -207,6 +207,46 @@ class ApiClient {
     })
   }
 
+  async uploadAttachment(file: File) {
+    const url = `${this.baseUrl}/attachments/upload`
+    const headers: HeadersInit = {}
+
+    if (this.accessToken) {
+      headers["Authorization"] = `Bearer ${this.accessToken}`
+    }
+
+    const formData = new FormData()
+    formData.append("file", file)
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: formData,
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({
+          error: {
+            code: "UNKNOWN_ERROR",
+            message: response.statusText,
+          },
+        }))
+        throw new ApiClientError(response.status, errorData.error || errorData)
+      }
+
+      return await response.json()
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        throw error
+      }
+      throw new ApiClientError(0, {
+        code: "NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "Network error",
+      })
+    }
+  }
+
   async deletePart(id: string) {
     return this.request<void>(`/parts/${id}`, {
       method: "DELETE",
