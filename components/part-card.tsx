@@ -63,14 +63,17 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
   const stagesDone = stageStatuses.filter(s => s.status === "done").length
 
   return (
-    <Card 
-      className={cn(
-        "cursor-pointer transition-all hover:shadow-md",
-        isSelected && "ring-2 ring-primary",
-        (isOverdue || blockers.length > 0) && "border-destructive/50",
-        isAtRisk && !isOverdue && blockers.length === 0 && "border-amber-500/50"
-      )}
+    <button
+      type="button"
       onClick={onClick}
+      aria-label={`Открыть деталь ${part.code}`}
+      className={cn(
+        "w-full text-left transition-all hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 rounded-lg border border-border",
+        "bg-background",
+        isSelected && "ring-2 ring-primary",
+        (isOverdue || blockers.length > 0) && "border border-destructive/50",
+        isAtRisk && !isOverdue && blockers.length === 0 && "border border-amber-500/50"
+      )}
     >
       <CardContent className="p-4 space-y-3">
         {/* Header */}
@@ -203,6 +206,6 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
           </div>
         )}
       </CardContent>
-    </Card>
+    </button>
   )
 }

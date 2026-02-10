@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState } from "react"
+import { useState, useId } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, LogisticsType, LogisticsEntry } from "@/lib/types"
 import { LOGISTICS_TYPE_LABELS } from "@/lib/types"
@@ -57,6 +57,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
   const [counterparty, setCounterparty] = useState("")
   const [trackingNumber, setTrackingNumber] = useState("")
   const [notes, setNotes] = useState("")
+  const formId = useId()
+  const typeId = `${formId}-type`
+  const descriptionId = `${formId}-description`
+  const quantityId = `${formId}-quantity`
+  const counterpartyId = `${formId}-counterparty`
+  const trackingId = `${formId}-tracking`
+  const notesId = `${formId}-notes`
   
   const handleCreate = () => {
     createLogisticsEntry({
@@ -109,9 +116,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label>Тип</Label>
+              <Label htmlFor={typeId}>Тип</Label>
               <Select value={type} onValueChange={(v) => setType(v as LogisticsType)}>
-                <SelectTrigger>
+                <SelectTrigger id={typeId}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -128,8 +135,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
             </div>
             
             <div className="space-y-2">
-              <Label>Описание *</Label>
+              <Label htmlFor={descriptionId}>Описание *</Label>
               <Input
+                id={descriptionId}
                 placeholder="Что перемещается..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -138,8 +146,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
             
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Количество</Label>
+                <Label htmlFor={quantityId}>Количество</Label>
                 <Input
+                  id={quantityId}
                   type="number"
                   placeholder="шт"
                   value={quantity}
@@ -147,8 +156,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Контрагент</Label>
+                <Label htmlFor={counterpartyId}>Контрагент</Label>
                 <Input
+                  id={counterpartyId}
                   placeholder="Поставщик/Получатель"
                   value={counterparty}
                   onChange={(e) => setCounterparty(e.target.value)}
@@ -157,8 +167,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
             </div>
             
             <div className="space-y-2">
-              <Label>Трек-номер / Накладная</Label>
+              <Label htmlFor={trackingId}>Трек-номер / Накладная</Label>
               <Input
+                id={trackingId}
                 placeholder="Номер для отслеживания"
                 value={trackingNumber}
                 onChange={(e) => setTrackingNumber(e.target.value)}
@@ -166,8 +177,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
             </div>
             
             <div className="space-y-2">
-              <Label>Примечания</Label>
+              <Label htmlFor={notesId}>Примечания</Label>
               <Textarea
+                id={notesId}
                 placeholder="Дополнительная информация..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

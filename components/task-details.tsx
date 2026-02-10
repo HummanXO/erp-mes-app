@@ -183,7 +183,13 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
     <div className="flex flex-col h-full max-h-[calc(100vh-120px)]">
       {/* Header */}
       <div className="flex items-start gap-4 pb-4 border-b">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Назад к списку задач"
+          className="h-11 w-11"
+          onClick={onBack}
+        >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -422,6 +428,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
                     type="button"
                     onClick={() => removePendingAttachment(att.id)}
                     className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Удалить вложение ${att.name}`}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -442,8 +449,9 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
             <Button 
               variant="outline" 
               size="icon" 
+              aria-label="Прикрепить файл"
               onClick={() => fileInputRef.current?.click()}
-              className="bg-transparent shrink-0"
+              className="bg-transparent shrink-0 h-11 w-11"
               title="Прикрепить файл"
             >
               <Paperclip className="h-4 w-4" />
@@ -457,6 +465,8 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
             />
             <Button 
               size="icon" 
+              aria-label="Отправить сообщение"
+              className="h-11 w-11"
               onClick={handleSendMessage} 
               disabled={!newMessage.trim() && pendingAttachments.length === 0}
             >

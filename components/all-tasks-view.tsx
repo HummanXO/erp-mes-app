@@ -580,107 +580,128 @@ const getStatusIcon = (status: TaskStatus) => {
               const mine = isMyTask(task)
               const isGroupTask = task.assignee_type === "role" || task.assignee_type === "all"
               
+              const openTask = () => setSelectedTask(task)
+              const handleKeyOpen = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  openTask()
+                }
+              }
+
               return (
                 <div 
                   key={task.id} 
                   className={cn(
-                    "p-3 rounded-md border transition-colors cursor-pointer hover:shadow-md",
+                    "p-3 rounded-md border transition-colors",
                     task.is_blocker && "border-destructive bg-destructive/5",
                     isOverdue && !task.is_blocker && "border-amber-500 bg-amber-500/5",
-                    unread && mine && !task.is_blocker && !isOverdue && "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                    unread && mine && !task.is_blocker && !isOverdue && "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20",
+                    !task.is_blocker && !isOverdue && !(unread && mine) && "hover:shadow-md"
                   )}
-                  onClick={() => setSelectedTask(task)}
                 >
                   <div className="flex items-start gap-3">
-                    <button 
+                    <button
                       type="button"
-                      className="mt-0.5"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")
-                      }}
+                      onClick={openTask}
+                      onKeyDown={handleKeyOpen}
+                      className="flex-1 text-left flex items-start gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 rounded-md"
+                      aria-label={`Открыть задачу ${task.title}`}
                     >
-                      {getStatusIcon(task.status)}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {unread && mine && (
-                          <Badge variant="default" className="gap-1 bg-blue-500">
-                            <EyeOff className="h-3 w-3" />
-                            Новое
-                          </Badge>
+                      <span className="mt-0.5" aria-hidden>
+                        {getStatusIcon(task.status)}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {unread && mine && (
+                            <Badge variant="default" className="gap-1 bg-blue-500">
+                              <EyeOff className="h-3 w-3" />
+                              Новое
+                            </Badge>
+                          )}
+                          <span className="font-medium">{task.title}</span>
+                          {task.is_blocker && (
+                            <Badge variant="destructive" className="gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              Блокер
+                            </Badge>
+                          )}
+                          {isOverdue && (
+                            <Badge variant="outline" className="text-amber-600 border-amber-600 gap-1">
+                              <Clock className="h-3 w-3" />
+                              Просрочено
+                            </Badge>
+                          )}
+                          {isGroupTask && (
+                            <Badge variant="outline" className="gap-1">
+                              <Users className="h-3 w-3" />
+                              {getAssigneeDisplay(task)}
+                            </Badge>
+                          )}
+                          {task.stage && (
+                            <Badge variant="outline" className="text-xs">
+                              {STAGE_LABELS[task.stage]}
+                            </Badge>
+                          )}
+                          {task.accepted_by_id && (
+                            <Badge variant="secondary" className="gap-1 text-green-600">
+                              <UserCheck className="h-3 w-3" />
+                              Принято: {acceptedBy?.initials}
+                            </Badge>
+                          )}
+                        </div>
+                        {task.description && (
+                          <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
                         )}
-                        <span className="font-medium">{task.title}</span>
-                        {task.is_blocker && (
-                          <Badge variant="destructive" className="gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Блокер
-                          </Badge>
-                        )}
-                        {isOverdue && (
-                          <Badge variant="outline" className="text-amber-600 border-amber-600 gap-1">
-                            <Clock className="h-3 w-3" />
-                            Просрочено
-                          </Badge>
-                        )}
-                        {isGroupTask && (
-                          <Badge variant="outline" className="gap-1">
-                            <Users className="h-3 w-3" />
-                            {getAssigneeDisplay(task)}
-                          </Badge>
-                        )}
-                        {task.stage && (
-                          <Badge variant="outline" className="text-xs">
-                            {STAGE_LABELS[task.stage]}
-                          </Badge>
-                        )}
-                        {task.accepted_by_id ? (
-                          <Badge variant="secondary" className="gap-1 text-green-600">
-                            <UserCheck className="h-3 w-3" />
-                            Принято: {acceptedBy?.initials}
-                          </Badge>
-                        ) : mine && task.status === "open" ? (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="h-6 text-xs bg-transparent"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleAcceptTask(task.id)
-                            }}
-                          >
-                            <UserCheck className="h-3 w-3 mr-1" />
-                            Принять
-                          </Button>
-                        ) : null}
-                      </div>
-                      {task.description && (
-                        <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                      )}
-                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
-                        {machine && <Badge variant="secondary">{machine.name}</Badge>}
-                        {part && <span className="font-mono">{part.code}</span>}
-                        <span className="flex items-center gap-1">
-                          <User className="h-3 w-3" />
-                          От: {creator?.initials}
-                        </span>
-                        {!isGroupTask && (
+                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground flex-wrap">
+                          {machine && <Badge variant="secondary">{machine.name}</Badge>}
+                          {part && <span className="font-mono">{part.code}</span>}
                           <span className="flex items-center gap-1">
-                            Кому: {getAssigneeDisplay(task)}
+                            <User className="h-3 w-3" />
+                            От: {creator?.initials}
                           </span>
-                        )}
-                        <span>до {new Date(task.due_date).toLocaleDateString("ru-RU")}</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {TASK_CATEGORY_LABELS[task.category]}
-                        </Badge>
+                          {!isGroupTask && (
+                            <span className="flex items-center gap-1">
+                              Кому: {getAssigneeDisplay(task)}
+                            </span>
+                          )}
+                          <span>до {new Date(task.due_date).toLocaleDateString("ru-RU")}</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {TASK_CATEGORY_LABELS[task.category]}
+                          </Badge>
+                        </div>
                       </div>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        aria-label={task.status === "open" ? "Отметить как в работе" : "Отметить как выполнено"}
+                        className="rounded-md h-10 w-10 flex items-center justify-center hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")
+                        }}
+                      >
+                        {getStatusIcon(task.status)}
+                      </button>
+                      {mine && task.status === "open" && !task.accepted_by_id && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-8 text-xs bg-transparent"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAcceptTask(task.id)
+                          }}
+                        >
+                          <UserCheck className="h-3 w-3 mr-1" />
+                          Принять
+                        </Button>
+                      )}
                       <Select 
                         value={task.status} 
                         onValueChange={(v) => handleStatusChange(task.id, v as TaskStatus)}
                       >
-                        <SelectTrigger className="w-28 h-8 text-xs">
+                        <SelectTrigger className="w-28 h-10 text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -691,7 +712,7 @@ const getStatusIcon = (status: TaskStatus) => {
                           <SelectItem value="done">Готово</SelectItem>
                         </SelectContent>
                       </Select>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                      <ChevronRight className="h-5 w-5 text-muted-foreground" aria-hidden />
                     </div>
                   </div>
                 </div>
@@ -711,15 +732,17 @@ const getStatusIcon = (status: TaskStatus) => {
           </CardHeader>
           <CardContent className="space-y-2">
             {tasks.filter(t => t.status === "done").slice(0, 5).map(task => (
-              <div 
-                key={task.id} 
-                className="p-2 rounded-md bg-muted/50 flex items-center gap-3 cursor-pointer hover:bg-muted transition-colors"
+              <button
+                key={task.id}
+                type="button"
                 onClick={() => setSelectedTask(task)}
+                aria-label={`Открыть выполненную задачу ${task.title}`}
+                className="w-full text-left p-2 rounded-md bg-muted/50 flex items-center gap-3 hover:bg-muted transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
               >
-                <CheckCircle className="h-4 w-4 text-green-500" />
+                <CheckCircle className="h-4 w-4 text-green-500" aria-hidden />
                 <span className="text-sm line-through text-muted-foreground flex-1">{task.title}</span>
-                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              </div>
+                <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+              </button>
             ))}
           </CardContent>
         </Card>

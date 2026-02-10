@@ -384,93 +384,120 @@ export function TasksList({ partId, machineId }: TasksListProps) {
               const isUnread = currentUser && !task.read_by.includes(currentUser.id)
               const isGroupTask = task.assignee_type === "role" || task.assignee_type === "all"
               
+              const openTask = () => setSelectedTaskId(task.id)
+              const handleKeyOpen = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  openTask()
+                }
+              }
+
               return (
                 <div 
                   key={task.id} 
                   className={cn(
-                    "p-3 rounded-md border cursor-pointer transition-colors hover:bg-muted/50",
+                    "p-3 rounded-md border transition-colors",
                     task.is_blocker && "border-destructive bg-destructive/5",
                     isOverdue && !task.is_blocker && "border-amber-500 bg-amber-500/5",
-                    isUnread && isMyTask && !task.is_blocker && !isOverdue && "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20"
+                    isUnread && isMyTask && !task.is_blocker && !isOverdue && "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20",
+                    !task.is_blocker && !isOverdue && !(isUnread && isMyTask) && "hover:bg-muted/50"
                   )}
-                  onClick={() => setSelectedTaskId(task.id)}
                 >
                   <div className="flex items-start gap-3">
-                    <button 
+                    <button
                       type="button"
-                      className="mt-0.5"
-                      onClick={() => handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")}
+                      onClick={openTask}
+                      onKeyDown={handleKeyOpen}
+                      className="flex-1 text-left flex items-start gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 rounded-md"
+                      aria-label={`Открыть задачу ${task.title}`}
                     >
-                      {getStatusIcon(task.status)}
+                      <span className="mt-0.5" aria-hidden>
+                        {getStatusIcon(task.status)}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {isUnread && isMyTask && (
+                            <Badge variant="default" className="gap-1 bg-blue-500">
+                              <EyeOff className="h-3 w-3" />
+                              Новое
+                            </Badge>
+                          )}
+                          <span className="font-medium">{task.title}</span>
+                          {task.is_blocker && (
+                            <Badge variant="destructive" className="gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              Блокер
+                            </Badge>
+                          )}
+                          {isOverdue && (
+                            <Badge variant="outline" className="text-amber-600 border-amber-600 gap-1">
+                              <Clock className="h-3 w-3" />
+                              Просрочено
+                            </Badge>
+                          )}
+                          {isGroupTask && (
+                            <Badge variant="outline" className="gap-1">
+                              <Users className="h-3 w-3" />
+                              {getAssigneeDisplay(task)}
+                            </Badge>
+                          )}
+                          {task.stage && (
+                            <Badge variant="outline" className="text-xs">
+                              {STAGE_LABELS[task.stage]}
+                            </Badge>
+                          )}
+                          {task.accepted_by_id && (
+                            <Badge variant="secondary" className="gap-1 text-green-600">
+                              <UserCheck className="h-3 w-3" />
+                              Принято: {acceptedBy?.initials}
+                            </Badge>
+                          )}
+                        </div>
+                        {task.description && (
+                          <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                          {part && <span className="font-mono">{part.code}</span>}
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" />
+                            {creator?.initials}
+                          </span>
+                          {!isGroupTask && <span>Кому: {getAssigneeDisplay(task)}</span>}
+                          <span>до {new Date(task.due_date).toLocaleDateString("ru-RU")}</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {TASK_CATEGORY_LABELS[task.category]}
+                          </Badge>
+                        </div>
+                      </div>
                     </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {isUnread && isMyTask && (
-                          <Badge variant="default" className="gap-1 bg-blue-500">
-                            <EyeOff className="h-3 w-3" />
-                            Новое
-                          </Badge>
-                        )}
-                        <span className="font-medium">{task.title}</span>
-                        {task.is_blocker && (
-                          <Badge variant="destructive" className="gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Блокер
-                          </Badge>
-                        )}
-                        {isOverdue && (
-                          <Badge variant="outline" className="text-amber-600 border-amber-600 gap-1">
-                            <Clock className="h-3 w-3" />
-                            Просрочено
-                          </Badge>
-                        )}
-                        {isGroupTask && (
-                          <Badge variant="outline" className="gap-1">
-                            <Users className="h-3 w-3" />
-                            {getAssigneeDisplay(task)}
-                          </Badge>
-                        )}
-                        {task.stage && (
-                          <Badge variant="outline" className="text-xs">
-                            {STAGE_LABELS[task.stage]}
-                          </Badge>
-                        )}
-                        {task.accepted_by_id ? (
-                          <Badge variant="secondary" className="gap-1 text-green-600">
-                            <UserCheck className="h-3 w-3" />
-                            Принято: {acceptedBy?.initials}
-                          </Badge>
-                        ) : isMyTask && task.status === "open" ? (
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="h-6 text-xs bg-transparent"
-                            onClick={() => handleAcceptTask(task.id)}
-                          >
-                            <UserCheck className="h-3 w-3 mr-1" />
-                            Принять
-                          </Button>
-                        ) : null}
-                      </div>
-                      {task.description && (
-                        <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                      )}
-                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                        {part && <span className="font-mono">{part.code}</span>}
-                        <span className="flex items-center gap-1">
-                          <User className="h-3 w-3" />
-                          {creator?.initials}
-                        </span>
-                        {!isGroupTask && <span>Кому: {getAssigneeDisplay(task)}</span>}
-                        <span>до {new Date(task.due_date).toLocaleDateString("ru-RU")}</span>
-                        <Badge variant="secondary" className="text-xs">
-                          {TASK_CATEGORY_LABELS[task.category]}
-                        </Badge>
-                      </div>
-                    </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label={task.status === "open" ? "Отметить как в работе" : "Отметить как выполнено"}
+                        className="rounded-md h-10 w-10 flex items-center justify-center hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")
+                        }}
+                      >
+                        {getStatusIcon(task.status)}
+                      </button>
+                      {isMyTask && task.status === "open" && !task.accepted_by_id && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-8 text-xs bg-transparent"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAcceptTask(task.id)
+                          }}
+                        >
+                          <UserCheck className="h-3 w-3 mr-1" />
+                          Принять
+                        </Button>
+                      )}
                       {task.comments && task.comments.length > 0 && (
-                        <div className="flex items-center gap-1 text-muted-foreground">
+                        <div className="flex items-center gap-1 text-muted-foreground" aria-label={`Комментариев: ${task.comments.length}`}>
                           <MessageSquare className="h-3 w-3" />
                           <span className="text-xs">{task.comments.length}</span>
                         </div>
@@ -481,18 +508,18 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                           v && handleStatusChange(task.id, v as TaskStatus)
                         }}
                       >
-                        <SelectTrigger className="w-32 h-8 text-xs" onClick={(e) => e.stopPropagation()}>
+                        <SelectTrigger className="w-32 h-10 text-xs" onClick={(e) => e.stopPropagation()}>
                           <SelectValue />
                         </SelectTrigger>
-<SelectContent>
-  <SelectItem value="open">Открыта</SelectItem>
-  <SelectItem value="accepted">Принята</SelectItem>
-  <SelectItem value="in_progress">В работе</SelectItem>
-  <SelectItem value="review">На проверке</SelectItem>
-  <SelectItem value="done">Готово</SelectItem>
-  </SelectContent>
+                        <SelectContent>
+                          <SelectItem value="open">Открыта</SelectItem>
+                          <SelectItem value="accepted">Принята</SelectItem>
+                          <SelectItem value="in_progress">В работе</SelectItem>
+                          <SelectItem value="review">На проверке</SelectItem>
+                          <SelectItem value="done">Готово</SelectItem>
+                        </SelectContent>
                       </Select>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
                     </div>
                   </div>
                 </div>
@@ -517,14 +544,16 @@ export function TasksList({ partId, machineId }: TasksListProps) {
               const part = task.part_id ? getPartById(task.part_id) : null
               
               return (
-                <div 
-                  key={task.id} 
-                  className="p-3 rounded-md border border-amber-200 bg-amber-50/50 cursor-pointer hover:bg-amber-100/50 transition-colors"
+                <button
+                  key={task.id}
+                  type="button"
                   onClick={() => setSelectedTaskId(task.id)}
+                  aria-label={`Открыть задачу ${task.title}`}
+                  className="w-full text-left p-3 rounded-md border border-amber-200 bg-amber-50/50 hover:bg-amber-100/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Eye className="h-4 w-4 text-amber-500" />
+                      <Eye className="h-4 w-4 text-amber-500" aria-hidden />
                       <span className="font-medium">{task.title}</span>
                       {task.is_blocker && (
                         <Badge variant="destructive" className="gap-1 text-xs">
@@ -534,12 +563,12 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                     </div>
                     <div className="flex items-center gap-2">
                       {task.comments && task.comments.length > 0 && (
-                        <div className="flex items-center gap-1 text-muted-foreground">
+                        <div className="flex items-center gap-1 text-muted-foreground" aria-label={`Комментариев: ${task.comments.length}`}>
                           <MessageSquare className="h-3 w-3" />
                           <span className="text-xs">{task.comments.length}</span>
                         </div>
                       )}
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
                     </div>
                   </div>
                   <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
@@ -549,7 +578,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                       <span className="italic">"{task.review_comment.slice(0, 30)}..."</span>
                     )}
                   </div>
-                </div>
+                </button>
               )
             })}
           </CardContent>
