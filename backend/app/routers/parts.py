@@ -410,28 +410,23 @@ def delete_part(
 
     # Keep audit trail rows but remove FK link to avoid constraint violations
     db.query(AuditEvent).filter(
-        AuditEvent.org_id == current_user.org_id,
         AuditEvent.part_id == part_id
     ).update({"part_id": None}, synchronize_session=False)
 
     # Delete dependents that don't have ON DELETE CASCADE in schema
     db.query(MachineNorm).filter(
-        MachineNorm.org_id == current_user.org_id,
         MachineNorm.part_id == part_id
     ).delete(synchronize_session=False)
 
     db.query(LogisticsEntry).filter(
-        LogisticsEntry.org_id == current_user.org_id,
         LogisticsEntry.part_id == part_id
     ).delete(synchronize_session=False)
 
     db.query(Task).filter(
-        Task.org_id == current_user.org_id,
         Task.part_id == part_id
     ).delete(synchronize_session=False)
 
     db.query(StageFact).filter(
-        StageFact.org_id == current_user.org_id,
         StageFact.part_id == part_id
     ).delete(synchronize_session=False)
 
@@ -458,7 +453,6 @@ def get_part_norms(
         raise HTTPException(status_code=404, detail="Part not found")
 
     norms = db.query(MachineNorm).filter(
-        MachineNorm.org_id == current_user.org_id,
         MachineNorm.part_id == part_id
     ).all()
     return norms
@@ -487,13 +481,13 @@ def upsert_part_norm(
         raise HTTPException(status_code=404, detail="Machine not found")
 
     existing = db.query(MachineNorm).filter(
-        MachineNorm.org_id == current_user.org_id,
         MachineNorm.part_id == part_id,
         MachineNorm.machine_id == data.machine_id,
         MachineNorm.stage == data.stage
     ).first()
 
     if existing:
+        existing.org_id = current_user.org_id
         existing.qty_per_shift = data.qty_per_shift
         existing.is_configured = data.is_configured
         existing.configured_by_id = current_user.id
