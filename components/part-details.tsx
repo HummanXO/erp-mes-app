@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS, LOGISTICS_TYPE_LABELS } from "@/lib/types"
+import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -25,13 +26,6 @@ import {
   Building2,
   CheckCircle,
   Clock,
-  Cog,
-  Wrench,
-  Zap,
-  Flame,
-  CircleDot,
-  CheckSquare,
-  Truck,
   Package
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -41,16 +35,6 @@ import { LogisticsList } from "./logistics-list"
 import { FactJournal } from "./fact-journal"
 import { StageProgressSummary } from "./stage-progress-summary"
 import { AuditLogView } from "./audit-log-view"
-
-const STAGE_ICONS: Record<ProductionStage, React.ReactNode> = {
-  machining: <Cog className="h-4 w-4" />,
-  fitting: <Wrench className="h-4 w-4" />,
-  galvanic: <Zap className="h-4 w-4" />,
-  heat_treatment: <Flame className="h-4 w-4" />,
-  grinding: <CircleDot className="h-4 w-4" />,
-  qc: <CheckSquare className="h-4 w-4" />,
-  logistics: <Truck className="h-4 w-4" />,
-}
 
 interface PartDetailsProps {
   part: Part

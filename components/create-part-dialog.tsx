@@ -6,6 +6,7 @@ import { useState, useEffect, useId } from "react"
 import { useApp } from "@/lib/app-context"
 import type { ProductionStage, StageStatus } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
+import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -15,27 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { 
-  Cog,
-  Wrench,
-  Zap,
-  Flame,
-  CircleDot,
-  CheckSquare,
-  Truck,
-  Building2,
-  AlertCircle
-} from "lucide-react"
-
-const STAGE_ICONS: Record<ProductionStage, React.ReactNode> = {
-  machining: <Cog className="h-4 w-4" />,
-  fitting: <Wrench className="h-4 w-4" />,
-  galvanic: <Zap className="h-4 w-4" />,
-  heat_treatment: <Flame className="h-4 w-4" />,
-  grinding: <CircleDot className="h-4 w-4" />,
-  qc: <CheckSquare className="h-4 w-4" />,
-  logistics: <Truck className="h-4 w-4" />,
-}
+import { Building2, AlertCircle } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]

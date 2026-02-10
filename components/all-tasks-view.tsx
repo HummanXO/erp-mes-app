@@ -309,9 +309,9 @@ const getStatusIcon = (status: TaskStatus) => {
             
             {/* Assignee type selection */}
             <div className="space-y-2">
-              <Label>Кому назначить</Label>
+              <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
               <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
-                <TabsList className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
+                <TabsList id="assignee-type-tabs" className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
                   <TabsTrigger value="user">
                     <User className="h-4 w-4 mr-1" />
                     Человеку
@@ -333,9 +333,9 @@ const getStatusIcon = (status: TaskStatus) => {
             <div className="grid grid-cols-2 gap-4">
               {assigneeType === "user" && (
                 <div className="space-y-2">
-                  <Label>Исполнитель</Label>
+                  <Label htmlFor="assignee-user-all">Исполнитель</Label>
                   <Select value={assigneeId} onValueChange={setAssigneeId}>
-                    <SelectTrigger>
+                    <SelectTrigger id="assignee-user-all">
                       <SelectValue placeholder="Выберите человека" />
                     </SelectTrigger>
                     <SelectContent>
@@ -351,9 +351,9 @@ const getStatusIcon = (status: TaskStatus) => {
               
               {assigneeType === "role" && (
                 <div className="space-y-2">
-                  <Label>Группа</Label>
+                  <Label htmlFor="assignee-role-all">Группа</Label>
                   <Select value={assigneeRole} onValueChange={(v) => setAssigneeRole(v as UserRole)}>
-                    <SelectTrigger>
+                    <SelectTrigger id="assignee-role-all">
                       <SelectValue placeholder="Выберите группу" />
                     </SelectTrigger>
                     <SelectContent>
@@ -366,9 +366,9 @@ const getStatusIcon = (status: TaskStatus) => {
               )}
               
               <div className="space-y-2">
-                <Label>Категория</Label>
+                <Label htmlFor="task-category-all">Категория</Label>
                 <Select value={category} onValueChange={(v) => setCategory(v as typeof category)}>
-                  <SelectTrigger>
+                  <SelectTrigger id="task-category-all">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
