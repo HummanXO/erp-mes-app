@@ -242,42 +242,38 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           
           {/* Cooperation toggle - only if user can create both types */}
           {canCreateOwnParts && canCreateCoopParts && (
-            <Card>
-              <CardContent className="p-4">
-                <div
-                  className={`
-                    flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
-                    ${isCooperation
-                      ? "bg-muted border-foreground"
-                      : "bg-muted/50 border-border hover:border-muted-foreground/30"
-                    }
-                  `}
-                  onClick={toggleCooperation}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault()
-                      toggleCooperation()
-                    }
-                  }}
-                >
-                  <Checkbox
-                    id="cooperation"
-                    checked={isCooperation}
-                    onClick={(e) => e.stopPropagation()}
-                    onCheckedChange={(checked) => {
-                      setIsCooperation(checked === true)
-                      setSelectedOptionalStages([])
-                    }}
-                  />
-                  <div className="flex items-center gap-2">
-                    <Building2 className={`h-5 w-5 ${isCooperation ? "text-foreground" : "text-muted-foreground"}`} />
-                    <span>Кооперация (деталь изготавливается на стороне)</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <div
+              className={`
+                flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors
+                ${isCooperation
+                  ? "bg-muted border-foreground"
+                  : "bg-muted/50 border-border hover:border-muted-foreground/30"
+                }
+              `}
+              onClick={toggleCooperation}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  toggleCooperation()
+                }
+              }}
+            >
+              <Checkbox
+                id="cooperation"
+                checked={isCooperation}
+                onClick={(e) => e.stopPropagation()}
+                onCheckedChange={(checked) => {
+                  setIsCooperation(checked === true)
+                  setSelectedOptionalStages([])
+                }}
+              />
+              <div className="flex items-center gap-2">
+                <Building2 className={`h-5 w-5 ${isCooperation ? "text-foreground" : "text-muted-foreground"}`} />
+                <span>Кооперация (деталь изготавливается на стороне)</span>
+              </div>
+            </div>
           )}
           
           {/* Cooperation partner input */}
