@@ -6,6 +6,7 @@ import { STAGE_LABELS, TASK_CATEGORY_LABELS, ASSIGNEE_ROLE_GROUPS, ROLE_LABELS }
 import type { TaskStatus, ProductionStage, Task, UserRole, TaskAssigneeType } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -259,128 +260,127 @@ const getStatusIcon = (status: TaskStatus) => {
         </div>
         {permissions.canCreateTasks && (
           <Button 
-            onClick={() => setShowForm(!showForm)}
-            variant={showForm ? "secondary" : "default"}
+            onClick={() => setShowForm(true)}
+            variant="default"
           >
             <Plus className="h-4 w-4 mr-2" />
-            {showForm ? "Отмена" : "Создать задачу"}
+            Создать задачу
           </Button>
         )}
       </div>
       
-      {/* Create task form */}
-      {showForm && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Новая задача</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+      {permissions.canCreateTasks && (
+        <Dialog open={showForm} onOpenChange={setShowForm}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Новая задача</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="task-title">Название</Label>
+                  <Input
+                    id="task-title"
+                    placeholder="Что нужно сделать?"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="task-due">Срок</Label>
+                  <Input
+                    id="task-due"
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                  />
+                </div>
+              </div>
+              
               <div className="space-y-2">
-                <Label htmlFor="task-title">Название</Label>
-                <Input
-                  id="task-title"
-                  placeholder="Что нужно сделать?"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                <Label htmlFor="task-desc">Описание</Label>
+                <Textarea
+                  id="task-desc"
+                  placeholder="Подробности..."
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={2}
                 />
               </div>
+              
+              {/* Assignee type selection */}
               <div className="space-y-2">
-                <Label htmlFor="task-due">Срок</Label>
-                <Input
-                  id="task-due"
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="task-desc">Описание</Label>
-              <Textarea
-                id="task-desc"
-                placeholder="Подробности..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={2}
-              />
-            </div>
-            
-            {/* Assignee type selection */}
-            <div className="space-y-2">
-              <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
-              <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
-                <TabsList id="assignee-type-tabs" className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
-                  <TabsTrigger value="user">
-                    <User className="h-4 w-4 mr-1" />
-                    Человеку
-                  </TabsTrigger>
-                  <TabsTrigger value="role">
-                    <Users className="h-4 w-4 mr-1" />
-                    Группе
-                  </TabsTrigger>
-                  {!isMaster && !isShopHead && (
-                    <TabsTrigger value="all">
-                      <Users className="h-4 w-4 mr-1" />
-                      Всем
+                <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
+                <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
+                  <TabsList id="assignee-type-tabs" className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
+                    <TabsTrigger value="user">
+                      <User className="h-4 w-4 mr-1" />
+                      Человеку
                     </TabsTrigger>
-                  )}
-                </TabsList>
-              </Tabs>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              {assigneeType === "user" && (
-                <div className="space-y-2">
-                  <Label htmlFor="assignee-user-all">Исполнитель</Label>
-                  <Select value={assigneeId} onValueChange={setAssigneeId}>
-                    <SelectTrigger id="assignee-user-all">
-                      <SelectValue placeholder="Выберите человека" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allowedUsers.map(user => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.initials} ({ROLE_LABELS[user.role]})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              
-              {assigneeType === "role" && (
-                <div className="space-y-2">
-                  <Label htmlFor="assignee-role-all">Группа</Label>
-                  <Select value={assigneeRole} onValueChange={(v) => setAssigneeRole(v as UserRole)}>
-                    <SelectTrigger id="assignee-role-all">
-                      <SelectValue placeholder="Выберите группу" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allowedRoleEntries.map(([role, label]) => (
-                        <SelectItem key={role} value={role}>{label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              
-              <div className="space-y-2">
-                <Label htmlFor="task-category-all">Категория</Label>
-                <Select value={category} onValueChange={(v) => setCategory(v as typeof category)}>
-                  <SelectTrigger id="task-category-all">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(TASK_CATEGORY_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <TabsTrigger value="role">
+                      <Users className="h-4 w-4 mr-1" />
+                      Группе
+                    </TabsTrigger>
+                    {!isMaster && !isShopHead && (
+                      <TabsTrigger value="all">
+                        <Users className="h-4 w-4 mr-1" />
+                        Всем
+                      </TabsTrigger>
+                    )}
+                  </TabsList>
+                </Tabs>
               </div>
-            </div>
-            
-            <div className="flex items-center justify-between">
+              
+              <div className="grid grid-cols-2 gap-4">
+                {assigneeType === "user" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="assignee-user-all">Исполнитель</Label>
+                    <Select value={assigneeId} onValueChange={setAssigneeId}>
+                      <SelectTrigger id="assignee-user-all">
+                        <SelectValue placeholder="Выберите человека" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allowedUsers.map(user => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.initials} ({ROLE_LABELS[user.role]})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
+                {assigneeType === "role" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="assignee-role-all">Группа</Label>
+                    <Select value={assigneeRole} onValueChange={(v) => setAssigneeRole(v as UserRole)}>
+                      <SelectTrigger id="assignee-role-all">
+                        <SelectValue placeholder="Выберите группу" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allowedRoleEntries.map(([role, label]) => (
+                          <SelectItem key={role} value={role}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
+                <div className="space-y-2">
+                  <Label htmlFor="task-category-all">Категория</Label>
+                  <Select value={category} onValueChange={(v) => setCategory(v as typeof category)}>
+                    <SelectTrigger id="task-category-all">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(TASK_CATEGORY_LABELS).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="is-blocker"
@@ -392,15 +392,20 @@ const getStatusIcon = (status: TaskStatus) => {
                 </Label>
               </div>
               
-              <Button 
-                onClick={handleCreateTask} 
-                disabled={!title || (assigneeType === "user" && !assigneeId)}
-              >
-                Создать задачу
-              </Button>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" className="bg-transparent" onClick={() => setShowForm(false)}>
+                  Отмена
+                </Button>
+                <Button 
+                  onClick={handleCreateTask} 
+                  disabled={!title || (assigneeType === "user" && !assigneeId)}
+                >
+                  Создать задачу
+                </Button>
+              </DialogFooter>
             </div>
-          </CardContent>
-        </Card>
+          </DialogContent>
+        </Dialog>
       )}
       
       {/* Filters */}
