@@ -247,7 +247,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors
                 ${isCooperation
                   ? "bg-muted border-foreground"
-                  : "bg-muted/50 border-border hover:border-muted-foreground/30"
+                  : "bg-background border-border hover:bg-muted/30 hover:border-muted-foreground/30"
                 }
               `}
               onClick={toggleCooperation}
