@@ -80,6 +80,7 @@ class PartCreate(BaseModel):
 class PartUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    drawing_url: Optional[str] = None
     qty_plan: Optional[int] = Field(None, gt=0)
     deadline: Optional[date] = None
     is_cooperation: Optional[bool] = None

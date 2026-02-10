@@ -30,6 +30,37 @@ function saveToStorage<T>(key: string, data: T): void {
   localStorage.setItem(key, JSON.stringify(data))
 }
 
+function generateAttachmentId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+  return `file_${Date.now()}_${Math.random().toString(16).slice(2)}`
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "")
+    reader.onerror = () => reject(new Error("Failed to read file"))
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function uploadAttachment(file: File): Promise<TaskAttachment> {
+  const id = generateAttachmentId()
+  const name = file.name || `file-${id}`
+  const type: TaskAttachment["type"] = file.type.startsWith("image/") ? "image" : "file"
+  const url = await readFileAsDataUrl(file)
+
+  return {
+    id,
+    name,
+    url,
+    type,
+    size: file.size,
+  }
+}
+
 // Initialize data from localStorage or mock data
 export function initializeData(): void {
   if (typeof window === "undefined") return

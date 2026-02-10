@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
-import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm } from "./types"
+import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm, TaskAttachment } from "./types"
 import { ROLE_PERMISSIONS } from "./types"
 import * as dataProvider from "./data-provider-adapter"
 import { ApiClientError } from "./api-client"
@@ -34,7 +34,8 @@ interface AppContextType {
   createPart: (part: Omit<Part, "id">) => Promise<Part>
   updatePart: (part: Part) => Promise<void>
   deletePart: (partId: string) => Promise<void>
-  updatePartDrawing: (partId: string, drawingUrl: string) => void
+  updatePartDrawing: (partId: string, drawingUrl: string) => Promise<void>
+  uploadAttachment: (file: File) => Promise<TaskAttachment>
   updatePartStageStatus: (partId: string, stage: ProductionStage, status: StageStatus["status"], operatorId?: string) => void
   
   // Stage fact operations
@@ -245,10 +246,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await refreshData()
   }, [refreshData])
 
-  const updatePartDrawing = useCallback((partId: string, drawingUrl: string) => {
-    dataProvider.updatePartDrawing(partId, drawingUrl)
-    refreshData()
+  const updatePartDrawing = useCallback(async (partId: string, drawingUrl: string) => {
+    await dataProvider.updatePartDrawing(partId, drawingUrl)
+    await refreshData()
   }, [refreshData])
+
+  const uploadAttachment = useCallback(async (file: File) => {
+    return dataProvider.uploadAttachment(file)
+  }, [])
 
   const updatePartStageStatus = useCallback((partId: string, stage: ProductionStage, status: StageStatus["status"], operatorId?: string) => {
     dataProvider.updatePartStageStatus(partId, stage, status, operatorId)
@@ -692,6 +697,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatePart,
         deletePart,
         updatePartDrawing,
+        uploadAttachment,
         updatePartStageStatus,
         createStageFact,
         updateStageFact,

@@ -118,11 +118,18 @@ export function deletePart(partId: string) {
 }
 
 export function updatePartDrawing(partId: string, drawingUrl: string) {
-  return local().updatePartDrawing(partId, drawingUrl)
+  if (USE_API) {
+    return httpProvider.updatePartDrawing(partId, drawingUrl)
+  }
+  return Promise.resolve(local().updatePartDrawing(partId, drawingUrl))
 }
 
 export function updatePartStageStatus(partId: string, stage: any, status: any, operatorId?: string) {
   return local().updatePartStageStatus(partId, stage, status, operatorId)
+}
+
+export function uploadAttachment(file: File) {
+  return USE_API ? httpProvider.uploadAttachment(file) : local().uploadAttachment(file)
 }
 
 export function getStageFacts() {
