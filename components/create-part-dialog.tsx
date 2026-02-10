@@ -183,7 +183,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             </DialogTitle>
           </DialogHeader>
           
-          <div ref={scrollRef} className="space-y-6 px-6 pb-20 pt-4 overflow-y-auto scroll-modal-body">
+          <div ref={scrollRef} className="space-y-6 px-6 pb-6 pt-4 overflow-y-auto scroll-modal-body flex-1 min-h-0">
           {/* Role-based info alert */}
           {!canCreateOwnParts && canCreateCoopParts && (
             <Alert>
@@ -425,8 +425,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           <DialogFooter
             className={cn(
-              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter] duration-200",
-              "sticky bottom-0 left-0 right-0",
+              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter] duration-200 shrink-0",
               footerElevated
                 ? "border-t bg-background/70 backdrop-blur-md shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
                 : "border-transparent bg-transparent backdrop-blur-0 shadow-none"
