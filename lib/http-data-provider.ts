@@ -108,6 +108,18 @@ function transformStageFact(
   }
 }
 
+function transformMachineNorm(backendNorm: any): MachineNorm {
+  return {
+    machine_id: backendNorm.machine_id,
+    part_id: backendNorm.part_id,
+    stage: backendNorm.stage as ProductionStage,
+    qty_per_shift: backendNorm.qty_per_shift,
+    is_configured: backendNorm.is_configured,
+    configured_at: backendNorm.configured_at,
+    configured_by_id: backendNorm.configured_by_id,
+  }
+}
+
 // Users
 export async function getUsers(): Promise<User[]> {
   if (!isAuthenticated()) return []
@@ -246,6 +258,43 @@ export async function createStageFact(
 ): Promise<StageFact> {
   const response = await apiClient.createStageFact(fact.part_id, fact)
   return transformStageFact(response, fact.part_id, fact.machine_id)
+}
+
+export async function updateStageFact(
+  factId: string,
+  data: Omit<StageFact, "id" | "created_at" | "part_id" | "stage" | "date" | "shift_type">
+): Promise<StageFact> {
+  const response = await apiClient.updateStageFact(factId, data)
+  return transformStageFact(response)
+}
+
+// Machine norms
+export async function getMachineNorms(): Promise<MachineNorm[]> {
+  if (!isAuthenticated()) return []
+
+  const parts = await getParts()
+  if (parts.length === 0) return []
+
+  const normsByPart = await Promise.all(
+    parts.map(async (part) => {
+      try {
+        const response = await apiClient.getPartNorms(part.id)
+        const norms = response.data || response
+        return norms.map((norm: any) => transformMachineNorm(norm))
+      } catch {
+        return []
+      }
+    })
+  )
+
+  return normsByPart.flat()
+}
+
+export async function setMachineNorm(
+  norm: Omit<MachineNorm, "configured_at">
+): Promise<MachineNorm> {
+  const response = await apiClient.upsertPartNorm(norm.part_id, norm)
+  return transformMachineNorm(response)
 }
 
 // Tasks

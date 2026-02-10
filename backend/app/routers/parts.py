@@ -19,7 +19,8 @@ from ..models import (
 )
 from ..schemas import (
     PartCreate, PartUpdate, PartResponse, StageStatusResponse,
-    PartProgressResponse, PartForecastResponse, MachineResponse
+    PartProgressResponse, PartForecastResponse, MachineResponse,
+    MachineNormUpsert, MachineNormResponse
 )
 from ..auth import get_current_user, PermissionChecker
 
@@ -440,3 +441,96 @@ def delete_part(
 
     db.delete(part)
     db.commit()
+
+
+@router.get("/{part_id}/norms", response_model=list[MachineNormResponse])
+def get_part_norms(
+    part_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get machine norms for part."""
+    part = db.query(Part).filter(
+        Part.id == part_id,
+        Part.org_id == current_user.org_id
+    ).first()
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    norms = db.query(MachineNorm).filter(
+        MachineNorm.org_id == current_user.org_id,
+        MachineNorm.part_id == part_id
+    ).all()
+    return norms
+
+
+@router.put("/{part_id}/norms", response_model=MachineNormResponse, dependencies=[Depends(PermissionChecker("canEditFacts"))])
+def upsert_part_norm(
+    part_id: UUID,
+    data: MachineNormUpsert,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create or update machine norm for part."""
+    part = db.query(Part).filter(
+        Part.id == part_id,
+        Part.org_id == current_user.org_id
+    ).first()
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    machine = db.query(Machine).filter(
+        Machine.id == data.machine_id,
+        Machine.org_id == current_user.org_id
+    ).first()
+    if not machine:
+        raise HTTPException(status_code=404, detail="Machine not found")
+
+    existing = db.query(MachineNorm).filter(
+        MachineNorm.org_id == current_user.org_id,
+        MachineNorm.part_id == part_id,
+        MachineNorm.machine_id == data.machine_id,
+        MachineNorm.stage == data.stage
+    ).first()
+
+    if existing:
+        existing.qty_per_shift = data.qty_per_shift
+        existing.is_configured = data.is_configured
+        existing.configured_by_id = current_user.id
+        norm = existing
+    else:
+        norm = MachineNorm(
+            org_id=current_user.org_id,
+            machine_id=data.machine_id,
+            part_id=part_id,
+            stage=data.stage,
+            qty_per_shift=data.qty_per_shift,
+            is_configured=data.is_configured,
+            configured_by_id=current_user.id
+        )
+        db.add(norm)
+        db.flush()
+
+    audit = AuditEvent(
+        org_id=current_user.org_id,
+        action="norm_configured",
+        entity_type="norm",
+        entity_id=norm.id,
+        entity_name=f"{part.code} / {data.stage}",
+        user_id=current_user.id,
+        user_name=current_user.initials,
+        part_id=part.id,
+        part_code=part.code,
+        details={
+            "stage": data.stage,
+            "machine_id": str(data.machine_id),
+            "qty_per_shift": data.qty_per_shift,
+            "is_configured": data.is_configured
+        }
+    )
+    db.add(audit)
+
+    db.commit()
+    db.refresh(norm)
+
+    return norm

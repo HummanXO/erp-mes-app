@@ -221,8 +221,26 @@ class ApiClient {
     })
   }
 
+  async updateStageFact(factId: string, data: any) {
+    return this.request<any>(`/facts/${factId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  }
+
   async getPartFacts(partId: string) {
     return this.request<any>(`/parts/${partId}/facts`)
+  }
+
+  async getPartNorms(partId: string) {
+    return this.request<any>(`/parts/${partId}/norms`)
+  }
+
+  async upsertPartNorm(partId: string, data: any) {
+    return this.request<any>(`/parts/${partId}/norms`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
   }
 
   // Tasks
@@ -290,6 +308,20 @@ class ApiClient {
 
   async markTaskAsRead(id: string) {
     return this.request<any>(`/tasks/${id}/read`, { method: "POST" })
+  }
+
+  // Audit
+  async getAuditEvents(filters?: { part_id?: string; limit?: number }) {
+    const params = new URLSearchParams()
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value))
+        }
+      })
+    }
+    const query = params.toString()
+    return this.request<any>(`/audit-events${query ? `?${query}` : ""}`)
   }
 
   // System

@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from .config import settings
-from .routers import auth, users, parts, facts, tasks, uploads, telegram, machines
+from .routers import auth, users, parts, facts, tasks, uploads, telegram, machines, audit
 
 # Create app
 app = FastAPI(
@@ -31,6 +31,7 @@ app.include_router(tasks.router, prefix="/api/v1")
 app.include_router(uploads.router, prefix="/api/v1")
 app.include_router(telegram.router, prefix="/api/v1")
 app.include_router(machines.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
 
 # Serve uploaded files
 upload_dir = Path(settings.UPLOAD_DIR)

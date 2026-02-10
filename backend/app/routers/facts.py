@@ -5,7 +5,7 @@ from sqlalchemy.sql import func
 from uuid import UUID
 from ..database import get_db
 from ..models import User, Part, StageFact, StageFactAttachment, PartStageStatus, AuditEvent
-from ..schemas import StageFactCreate, StageFactResponse, UserBrief, AttachmentBase
+from ..schemas import StageFactCreate, StageFactUpdate, StageFactResponse, UserBrief, AttachmentBase
 from ..auth import get_current_user, PermissionChecker
 
 router = APIRouter(tags=["facts"])
@@ -27,6 +27,15 @@ def create_stage_fact(
     
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
+
+    if data.stage == "logistics":
+        raise HTTPException(
+            status_code=400,
+            detail="Для этапа логистика факты производства не ведутся"
+        )
+
+    if data.stage not in (part.required_stages or []):
+        raise HTTPException(status_code=400, detail="Stage is not enabled for this part")
     
     # Validate and auto-set shift_type based on stage
     if data.stage == 'machining':
@@ -183,3 +192,108 @@ def get_part_facts(
         ))
     
     return responses
+
+
+@router.put("/facts/{fact_id}", response_model=StageFactResponse, dependencies=[Depends(PermissionChecker("canEditFacts"))])
+def update_stage_fact(
+    fact_id: UUID,
+    data: StageFactUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update existing stage fact."""
+    fact = db.query(StageFact).filter(
+        StageFact.id == fact_id,
+        StageFact.org_id == current_user.org_id
+    ).first()
+
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found")
+
+    if fact.stage == "logistics":
+        raise HTTPException(
+            status_code=400,
+            detail="Для этапа логистика факты производства не ведутся"
+        )
+
+    part = db.query(Part).filter(
+        Part.id == fact.part_id,
+        Part.org_id == current_user.org_id
+    ).first()
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    old_qty_good = fact.qty_good
+
+    if fact.stage == "machining":
+        if not data.operator_id:
+            raise HTTPException(status_code=400, detail="operator_id is required for machining stage")
+    else:
+        data.operator_id = None
+
+    fact.operator_id = data.operator_id
+    fact.qty_good = data.qty_good
+    fact.qty_scrap = data.qty_scrap
+    fact.comment = data.comment
+    fact.deviation_reason = data.deviation_reason
+
+    # Replace attachments
+    db.query(StageFactAttachment).filter(
+        StageFactAttachment.stage_fact_id == fact.id
+    ).delete(synchronize_session=False)
+    for att_data in data.attachments:
+        attachment = StageFactAttachment(
+            stage_fact_id=fact.id,
+            **att_data.model_dump()
+        )
+        db.add(attachment)
+
+    delta_good = fact.qty_good - old_qty_good
+    part.qty_done = max(0, part.qty_done + delta_good)
+    part_facts_count = db.query(StageFact).filter(StageFact.part_id == part.id).count()
+    if part.qty_done >= part.qty_plan:
+        part.status = "done"
+    elif part_facts_count > 0:
+        part.status = "in_progress"
+    else:
+        part.status = "not_started"
+
+    # Audit log
+    audit = AuditEvent(
+        org_id=current_user.org_id,
+        action="fact_updated",
+        entity_type="fact",
+        entity_id=fact.id,
+        user_id=current_user.id,
+        user_name=current_user.initials,
+        part_id=part.id,
+        part_code=part.code,
+        details={
+            "stage": fact.stage,
+            "shift": fact.shift_type,
+            "qtyGoodOld": old_qty_good,
+            "qtyGoodNew": fact.qty_good,
+            "qtyScrap": fact.qty_scrap,
+            "date": str(fact.date)
+        }
+    )
+    db.add(audit)
+
+    db.commit()
+    db.refresh(fact)
+
+    operator = db.query(User).filter(User.id == fact.operator_id).first() if fact.operator_id else None
+    return StageFactResponse(
+        id=fact.id,
+        stage=fact.stage,
+        date=fact.date,
+        shift_type=fact.shift_type,
+        qty_good=fact.qty_good,
+        qty_scrap=fact.qty_scrap,
+        qty_expected=fact.qty_expected,
+        comment=fact.comment,
+        deviation_reason=fact.deviation_reason,
+        operator=UserBrief.model_validate(operator) if operator else None,
+        attachments=[AttachmentBase.model_validate(a) for a in fact.attachments],
+        created_at=fact.created_at
+    )

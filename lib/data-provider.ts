@@ -357,6 +357,44 @@ export function createStageFact(fact: Omit<StageFact, "id" | "created_at">): Sta
   return newFact
 }
 
+export function updateStageFact(
+  factId: string,
+  data: Omit<StageFact, "id" | "created_at" | "part_id" | "stage" | "date" | "shift_type">
+): StageFact {
+  const facts = getStageFacts()
+  const factIndex = facts.findIndex(f => f.id === factId)
+  if (factIndex === -1) {
+    throw new Error("Факт не найден")
+  }
+
+  const existing = facts[factIndex]
+  const updated: StageFact = {
+    ...existing,
+    ...data,
+  }
+  facts[factIndex] = updated
+  saveToStorage(STORAGE_KEYS.stageFacts, facts)
+
+  const parts = getParts()
+  const part = parts.find(p => p.id === existing.part_id)
+  if (part) {
+    const deltaGood = updated.qty_good - existing.qty_good
+    part.qty_done = Math.max(0, part.qty_done + deltaGood)
+
+    const factsForPart = facts.filter(f => f.part_id === part.id)
+    if (part.qty_done >= part.qty_plan) {
+      part.status = "done"
+    } else if (factsForPart.length > 0) {
+      part.status = "in_progress"
+    } else {
+      part.status = "not_started"
+    }
+    saveToStorage(STORAGE_KEYS.parts, parts)
+  }
+
+  return updated
+}
+
 // Logistics
 export function getLogistics(): LogisticsEntry[] {
   return safeJsonParse(STORAGE_KEYS.logistics, MOCK_LOGISTICS)

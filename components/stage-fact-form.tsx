@@ -16,6 +16,15 @@ import { Sun, Moon, Plus, TrendingUp, TrendingDown, Minus, CheckCircle, AlertCir
 import { cn } from "@/lib/utils"
 import { ApiClientError } from "@/lib/api-client"
 
+const STAGE_ORDER: ProductionStage[] = [
+  "machining",
+  "fitting",
+  "galvanic",
+  "heat_treatment",
+  "grinding",
+  "qc",
+]
+
 // Determine current shift based on time (09:00-21:00 = day, 21:00-09:00 = night)
 function getCurrentShift(): ShiftType {
   const hour = new Date().getHours()
@@ -39,12 +48,13 @@ interface StageFactFormProps {
 export function StageFactForm({ part }: StageFactFormProps) {
   const { 
     createStageFact, 
+    updateStageFact,
     currentUser, 
     demoDate, 
     machines, 
     getOperators,
     getMachineNorm,
-    getStageFactsForPart,
+    setMachineNorm,
     stageFacts
   } = useApp()
   
@@ -53,12 +63,16 @@ export function StageFactForm({ part }: StageFactFormProps) {
   // Get active stages (not done and not skipped) with null safety
   const stageStatuses = part.stage_statuses || []
   const activeStages = stageStatuses
-    .filter(s => s.status === "pending" || s.status === "in_progress")
+    .filter(s => (s.status === "pending" || s.status === "in_progress") && s.stage !== "logistics")
     .map(s => s.stage)
+    .sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b))
   
   const [isOpen, setIsOpen] = useState(false)
   const [shiftType, setShiftType] = useState<ShiftType>(getCurrentShift())
-  const [stage, setStage] = useState<ProductionStage>(activeStages[0] || "machining")
+  const [stage, setStage] = useState<ProductionStage>(() => {
+    const inProgressStage = stageStatuses.find(s => s.status === "in_progress" && s.stage !== "logistics")?.stage
+    return inProgressStage || activeStages[0] || "machining"
+  })
   const [machineId, setMachineId] = useState<string>(part.machine_id || "")
   const [operatorId, setOperatorId] = useState<string>(currentUser?.role === "operator" ? currentUser.id : "")
   const [qtyGood, setQtyGood] = useState("")
@@ -68,6 +82,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [submitError, setSubmitError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [normQty, setNormQty] = useState("")
+  const [isSavingNorm, setIsSavingNorm] = useState(false)
+  const [normError, setNormError] = useState("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   // Reset shift to current when stage changes and requires shift
@@ -76,6 +93,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
       setShiftType(getCurrentShift())
     }
   }, [stage])
+
+  useEffect(() => {
+    if (!activeStages.includes(stage)) {
+      setStage(activeStages[0] || "machining")
+    }
+  }, [activeStages, stage])
 
   useEffect(() => {
     if (stageRequiresOperator(stage) && (!operatorId || operatorId === "none") && operators.length > 0) {
@@ -99,6 +122,10 @@ export function StageFactForm({ part }: StageFactFormProps) {
   )
   const dayFact = todayFacts.find(f => f.shift_type === "day")
   const nightFact = todayFacts.find(f => f.shift_type === "night")
+  const nonMachiningFact = todayFacts.find(f => f.shift_type === "none")
+  const currentFact = stageRequiresShift(stage)
+    ? (shiftType === "day" ? dayFact : nightFact)
+    : nonMachiningFact
   
   // Calculate day totals
   const dayTotal = dayFact?.qty_good || 0
@@ -114,6 +141,27 @@ export function StageFactForm({ part }: StageFactFormProps) {
     if (percent >= 80) return { status: "warning", percent }
     return { status: "bad", percent }
   }
+
+  useEffect(() => {
+    if (!isOpen) return
+    if (!currentFact) {
+      setQtyGood("")
+      setQtyScrap("")
+      setComment("")
+      setDeviationReason(null)
+      setAttachments([])
+      return
+    }
+
+    setQtyGood(String(currentFact.qty_good || ""))
+    setQtyScrap(String(currentFact.qty_scrap || ""))
+    setComment(currentFact.comment || "")
+    setDeviationReason(currentFact.deviation_reason ?? null)
+    setAttachments(currentFact.attachments || [])
+    if (currentFact.operator_id) {
+      setOperatorId(currentFact.operator_id)
+    }
+  }, [isOpen, currentFact])
 
   const handleSubmit = async () => {
     setSubmitError("")
@@ -134,20 +182,37 @@ export function StageFactForm({ part }: StageFactFormProps) {
 
     try {
       setIsSubmitting(true)
-      await createStageFact({
-        date: demoDate,
-        shift_type: stageRequiresShift(stage) ? shiftType : "none",
-        part_id: part.id,
-        stage,
-        machine_id: stage === "machining" ? machineId : undefined,
-        operator_id: normalizedOperatorId || currentUser?.id || operators[0]?.id || "",
-        qty_good: Number.parseInt(qtyGood, 10),
-        qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
-        qty_expected: expectedQty,
-        comment,
-        deviation_reason: deviationReason,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      })
+      if (currentFact) {
+        await updateStageFact(currentFact.id, {
+          machine_id: stage === "machining" ? machineId : undefined,
+          operator_id: stageRequiresOperator(stage)
+            ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
+            : undefined,
+          qty_good: Number.parseInt(qtyGood, 10),
+          qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
+          qty_expected: expectedQty,
+          comment,
+          deviation_reason: deviationReason,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        })
+      } else {
+        await createStageFact({
+          date: demoDate,
+          shift_type: stageRequiresShift(stage) ? shiftType : "none",
+          part_id: part.id,
+          stage,
+          machine_id: stage === "machining" ? machineId : undefined,
+          operator_id: stageRequiresOperator(stage)
+            ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
+            : undefined,
+          qty_good: Number.parseInt(qtyGood, 10),
+          qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
+          qty_expected: expectedQty,
+          comment,
+          deviation_reason: deviationReason,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        })
+      }
 
       // Reset form
       setQtyGood("")
@@ -167,6 +232,27 @@ export function StageFactForm({ part }: StageFactFormProps) {
       }
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleSaveNorm = async () => {
+    if (!machineId || !normQty) return
+    setNormError("")
+    try {
+      setIsSavingNorm(true)
+      await setMachineNorm({
+        machine_id: machineId,
+        part_id: part.id,
+        stage: "machining",
+        qty_per_shift: Number(normQty),
+        is_configured: true,
+        configured_by_id: currentUser?.id,
+      })
+      setNormQty("")
+    } catch (error) {
+      setNormError(error instanceof Error ? error.message : "Не удалось сохранить норму")
+    } finally {
+      setIsSavingNorm(false)
     }
   }
 
@@ -323,6 +409,29 @@ export function StageFactForm({ part }: StageFactFormProps) {
             </div>
           </div>
         )}
+
+        {stage === "machining" && machineId && (
+          <div className="p-3 rounded-lg border space-y-2">
+            <div className="text-sm font-medium">Пусконаладочная норма (шт/смена)</div>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                placeholder={norm?.qty_per_shift ? String(norm.qty_per_shift) : "Например 420"}
+                value={normQty}
+                onChange={(e) => setNormQty(e.target.value)}
+              />
+              <Button onClick={handleSaveNorm} disabled={!normQty || isSavingNorm}>
+                {isSavingNorm ? "Сохраняем..." : "Сохранить норму"}
+              </Button>
+            </div>
+            {norm?.qty_per_shift && (
+              <div className="text-xs text-muted-foreground">
+                Текущая норма: {norm.qty_per_shift} шт/смена
+              </div>
+            )}
+            {normError && <div className="text-xs text-destructive">{normError}</div>}
+          </div>
+        )}
         
         <Button onClick={() => setIsOpen(true)} className="w-full">
           <Plus className="h-4 w-4 mr-2" />
@@ -366,7 +475,6 @@ export function StageFactForm({ part }: StageFactFormProps) {
               variant={shiftType === "day" ? "default" : "outline"}
               className={shiftType === "day" ? "" : "bg-transparent"}
               onClick={() => setShiftType("day")}
-              disabled={!!dayFact}
             >
               <Sun className="h-4 w-4 mr-2" />
               Дневная
@@ -377,7 +485,6 @@ export function StageFactForm({ part }: StageFactFormProps) {
               variant={shiftType === "night" ? "default" : "outline"}
               className={shiftType === "night" ? "" : "bg-transparent"}
               onClick={() => setShiftType("night")}
-              disabled={!!nightFact}
             >
               <Moon className="h-4 w-4 mr-2" />
               Ночная
@@ -390,7 +497,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {stageRequiresShift(stage) && dayFact && nightFact && (
           <div className="p-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">
             <CheckCircle className="h-4 w-4 inline mr-2" />
-            Факт за обе смены уже внесён на сегодня
+            Обе смены заполнены — можно выбрать любую и отредактировать
           </div>
         )}
         
@@ -430,28 +537,24 @@ export function StageFactForm({ part }: StageFactFormProps) {
           </div>
         )}
         
-        {/* Operator selection - required only for machining */}
-        <div className="space-y-2">
-          <Label>
-            Оператор
-            {!stageRequiresOperator(stage) && <span className="text-muted-foreground text-xs ml-1">(необязательно)</span>}
-          </Label>
-          <Select value={operatorId} onValueChange={setOperatorId}>
-            <SelectTrigger>
-              <SelectValue placeholder={stageRequiresOperator(stage) ? "Выберите оператора" : "Не указан"} />
-            </SelectTrigger>
-            <SelectContent>
-              {!stageRequiresOperator(stage) && (
-                <SelectItem value="none">Не указан</SelectItem>
-              )}
-              {operators.map(op => (
-                <SelectItem key={op.id} value={op.id}>
-                  {op.initials}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Operator selection - only for machining */}
+        {stageRequiresOperator(stage) && (
+          <div className="space-y-2">
+            <Label>Оператор</Label>
+            <Select value={operatorId} onValueChange={setOperatorId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Выберите оператора" />
+              </SelectTrigger>
+              <SelectContent>
+                {operators.map(op => (
+                  <SelectItem key={op.id} value={op.id}>
+                    {op.initials}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         
         {/* Expected quantity info */}
         {expectedQty > 0 && (
@@ -592,11 +695,10 @@ export function StageFactForm({ part }: StageFactFormProps) {
             onClick={handleSubmit} 
             disabled={isSubmitting ||
               !qtyGood || 
-              (stageRequiresOperator(stage) && (!operatorId || operatorId === "none")) || 
-              (stageRequiresShift(stage) && Boolean(dayFact && nightFact))
+              (stageRequiresOperator(stage) && (!operatorId || operatorId === "none"))
             }
           >
-            {isSubmitting ? "Сохраняем..." : "Сохранить"}
+            {isSubmitting ? "Сохраняем..." : currentFact ? "Сохранить изменения" : "Сохранить"}
           </Button>
         </div>
         {submitError && (

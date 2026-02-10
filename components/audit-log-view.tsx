@@ -4,6 +4,8 @@ import React from "react"
 
 import { useState, useEffect } from "react"
 import { getAllAuditEntries, getAuditEntriesForPart, AUDIT_ACTION_LABELS, type AuditEntry, type AuditAction, type AuditEntityType } from "@/lib/audit-log"
+import { isUsingApi } from "@/lib/data-provider-adapter"
+import { apiClient } from "@/lib/api-client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -75,12 +77,26 @@ export function AuditLogView({ partId, compact = false }: AuditLogViewProps) {
   const [actionFilter, setActionFilter] = useState<"all" | "tasks" | "facts" | "comments">("all")
   
   useEffect(() => {
-    loadEntries()
+    void loadEntries()
   }, [partId])
   
-  const loadEntries = () => {
-    const allEntries = partId ? getAuditEntriesForPart(partId) : getAllAuditEntries()
-    setEntries(allEntries)
+  const loadEntries = async () => {
+    if (isUsingApi()) {
+      try {
+        const response = await apiClient.getAuditEvents({
+          part_id: partId,
+          limit: 500,
+        })
+        const apiEntries = (response.data || response || []) as AuditEntry[]
+        setEntries(apiEntries.filter(e => !!e.timestamp))
+        return
+      } catch (error) {
+        console.error("Failed to load audit events from API", error)
+      }
+    }
+
+    const localEntries = partId ? getAuditEntriesForPart(partId) : getAllAuditEntries()
+    setEntries(localEntries)
   }
   
   // Filter entries
@@ -204,7 +220,7 @@ export function AuditLogView({ partId, compact = false }: AuditLogViewProps) {
           </SelectContent>
         </Select>
         
-        <Button variant="outline" size="sm" onClick={loadEntries} className="bg-transparent">
+        <Button variant="outline" size="sm" onClick={() => void loadEntries()} className="bg-transparent">
           <RefreshCw className="h-4 w-4 mr-2" />
           Обновить
         </Button>

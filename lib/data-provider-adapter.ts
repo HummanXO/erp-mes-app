@@ -153,6 +153,10 @@ export function createStageFact(fact: any) {
   return USE_API ? httpProvider.createStageFact(fact) : local().createStageFact(fact)
 }
 
+export function updateStageFact(factId: string, data: any) {
+  return USE_API ? httpProvider.updateStageFact(factId, data) : local().updateStageFact(factId, data)
+}
+
 export function getLogistics() {
   return local().getLogistics()
 }
@@ -252,7 +256,7 @@ export function reviewTask(taskId: string, reviewerId: string, approved: boolean
 }
 
 export function getMachineNorms() {
-  return USE_API ? [] : local().getMachineNorms()
+  return USE_API ? httpProvider.getMachineNorms() : local().getMachineNorms()
 }
 
 export function getMachineNorm(machineId: string, partId: string, stage: any) {
@@ -264,7 +268,7 @@ export function getMachineNormsForPart(partId: string) {
 }
 
 export function setMachineNorm(norm: any) {
-  return USE_API ? norm : local().setMachineNorm(norm)
+  return USE_API ? httpProvider.setMachineNorm(norm) : local().setMachineNorm(norm)
 }
 
 export function getPartProgress(partId: string) {

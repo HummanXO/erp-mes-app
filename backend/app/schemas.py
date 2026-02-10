@@ -188,6 +188,15 @@ class StageFactCreate(BaseModel):
     attachments: list[AttachmentBase] = []
 
 
+class StageFactUpdate(BaseModel):
+    operator_id: Optional[UUID] = None
+    qty_good: int = Field(ge=0)
+    qty_scrap: int = Field(default=0, ge=0)
+    comment: Optional[str] = None
+    deviation_reason: Optional[str] = None
+    attachments: list[AttachmentBase] = []
+
+
 class StageFactResponse(BaseModel):
     id: UUID
     stage: str
@@ -202,6 +211,25 @@ class StageFactResponse(BaseModel):
     attachments: list[AttachmentBase] = []
     created_at: datetime
     
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MachineNormUpsert(BaseModel):
+    machine_id: UUID
+    stage: str = Field(pattern="^(machining)$")
+    qty_per_shift: int = Field(gt=0)
+    is_configured: bool = True
+
+
+class MachineNormResponse(BaseModel):
+    machine_id: UUID
+    part_id: UUID
+    stage: str
+    qty_per_shift: int
+    is_configured: bool
+    configured_at: Optional[datetime] = None
+    configured_by_id: Optional[UUID] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 

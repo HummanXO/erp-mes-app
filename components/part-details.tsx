@@ -123,6 +123,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     return a.shift_type === "night" ? -1 : 1
   })
   const hasFacts = stageFacts.length > 0
+  const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
   const canDeletePart = permissions.canCreateParts && (
     (part.is_cooperation && permissions.canCreateCoopParts) ||
     (!part.is_cooperation && permissions.canCreateOwnParts)
@@ -174,8 +175,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         <div className="flex items-center gap-2">
           {canDeletePart && (
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
+              className="text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
               onClick={handleDeletePart}
               disabled={isDeleting}
             >
@@ -226,13 +228,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             </div>
             <div className={cn(
               "p-3 rounded-lg",
-              !hasFacts ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
+              !hasForecastInput ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
             )}>
               <div className="flex items-center gap-2 mb-1">
-                {!hasFacts ? (
+                {!hasForecastInput ? (
                   <>
                     <Clock className="h-5 w-5 text-muted-foreground" />
-                    <span className="font-medium text-foreground">Прогноз появится после 1-го факта</span>
+                    <span className="font-medium text-foreground">Прогноз появится после 1-го факта или установки нормы</span>
                   </>
                 ) : forecast.willFinishOnTime ? (
                   <>
@@ -246,7 +248,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   </>
                 )}
               </div>
-              {hasFacts && (
+              {hasForecastInput && (
                 <div className="text-sm text-muted-foreground space-y-0.5">
                   <div>Нужно смен (все этапы): {forecast.shiftsNeeded}</div>
                   <div>Есть смен до дедлайна: {forecast.shiftsRemaining}</div>
