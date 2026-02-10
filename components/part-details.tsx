@@ -14,6 +14,17 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { 
   ArrowLeft, 
   TrendingUp, 
@@ -167,6 +178,21 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     } finally {
       setIsUploadingDrawing(false)
       event.target.value = ""
+    }
+  }
+
+  const handleDeleteDrawing = async () => {
+    setDrawingActionError("")
+    setIsSavingDrawing(true)
+    try {
+      await updatePartDrawing(part.id, "")
+      setDrawingUrl("")
+      setDrawingError(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось удалить чертёж"
+      setDrawingActionError(message)
+    } finally {
+      setIsSavingDrawing(false)
     }
   }
 
@@ -492,12 +518,37 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                       </div>
                     )}
                   </div>
-                  <Button variant="outline" className="w-full bg-transparent" asChild>
-                    <a href={drawingUrlValue} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      Открыть в новой вкладке
-                    </a>
-                  </Button>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Button variant="outline" className="w-full bg-transparent" asChild>
+                      <a href={drawingUrlValue} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Открыть в новой вкладке
+                      </a>
+                    </Button>
+                    {permissions.canEditFacts && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="destructive" className="w-full" disabled={isSavingDrawing}>
+                            Удалить чертёж
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Удалить чертёж?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Ссылка и файл будут отвязаны от детали. Это действие можно отменить, загрузив новый файл.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Отмена</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteDrawing}>
+                              Удалить
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">

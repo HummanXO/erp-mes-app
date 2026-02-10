@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState, useEffect, useId, useRef } from "react"
+import { useMemo, useState, useEffect, useId, useRef } from "react"
 import { useApp } from "@/lib/app-context"
 import type { ProductionStage, StageStatus } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
@@ -17,11 +17,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
-import { Building2, AlertCircle } from "lucide-react"
+import { Building2, AlertCircle, X } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
 const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment", "grinding", "logistics"]
+const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 
 interface CreatePartDialogProps {
   open: boolean
@@ -29,7 +30,7 @@ interface CreatePartDialogProps {
 }
 
 export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) {
-  const { createPart, machines, permissions } = useApp()
+  const { createPart, machines, permissions, parts } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -38,6 +39,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   const [qtyPlan, setQtyPlan] = useState("")
   const [deadline, setDeadline] = useState("")
   const [customer, setCustomer] = useState("")
+  const [customerList, setCustomerList] = useState<string[]>([])
+  const [isCustomerFocused, setIsCustomerFocused] = useState(false)
   const [formError, setFormError] = useState("")
   const formId = useId()
   const codeId = `${formId}-code`
@@ -64,6 +67,13 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   const [footerHasScroll, setFooterHasScroll] = useState(false)
   
   const machiningMachines = machines.filter(m => m.department === "machining")
+
+  const existingCustomers = useMemo(() => {
+    const fromParts = parts
+      .map((part) => part.customer?.trim())
+      .filter((value): value is string => !!value && value.length > 0)
+    return Array.from(new Set(fromParts))
+  }, [parts])
   
   // Determine what the user can create based on permissions
   const canCreateOwnParts = permissions.canCreateOwnParts
@@ -102,6 +112,17 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
     }
   }, [open])
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const stored = JSON.parse(localStorage.getItem(CUSTOMER_STORAGE_KEY) || "[]")
+      const merged = Array.from(new Set([...(Array.isArray(stored) ? stored : []), ...existingCustomers]))
+      setCustomerList(merged)
+    } catch {
+      setCustomerList(existingCustomers)
+    }
+  }, [existingCustomers, open])
+
   const toggleCooperation = () => {
     setIsCooperation((prev) => !prev)
     setSelectedOptionalStages([])
@@ -114,6 +135,36 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       setSelectedOptionalStages([...selectedOptionalStages, stage])
     }
   }
+
+  const persistCustomerList = (list: string[]) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(list))
+  }
+
+  const addCustomerToList = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    const normalized = trimmed.replace(/\s+/g, " ")
+    const merged = Array.from(new Set([normalized, ...customerList]))
+    setCustomerList(merged)
+    persistCustomerList(merged)
+  }
+
+  const removeCustomerFromList = (value: string) => {
+    const filtered = customerList.filter((item) => item !== value)
+    setCustomerList(filtered)
+    persistCustomerList(filtered)
+  }
+
+  const filteredCustomers = useMemo(() => {
+    const query = customer.trim().toLowerCase()
+    if (!query) return customerList.slice(0, 8)
+    return customerList
+      .filter((item) => item.toLowerCase().includes(query))
+      .slice(0, 8)
+  }, [customer, customerList])
+
+  const showCustomerSuggestions = isCustomerFocused && filteredCustomers.length > 0
   
   const handleCreate = () => {
     setFormError("")
@@ -155,6 +206,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       machine_id: !isCooperation ? machineId : undefined,
       customer: customer || undefined,
     })
+    addCustomerToList(customer)
     
     // Reset and close
     resetForm()
@@ -269,12 +321,50 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           
           <div className="space-y-2">
             <Label htmlFor={customerId}>Заказчик</Label>
-            <Input
-              id={customerId}
-              placeholder="ООО Компания"
-              value={customer}
-              onChange={(e) => setCustomer(e.target.value)}
-            />
+            <div className="relative">
+              <Input
+                id={customerId}
+                placeholder="ООО Компания"
+                value={customer}
+                onChange={(e) => setCustomer(e.target.value)}
+                onFocus={() => setIsCustomerFocused(true)}
+                onBlur={() => setIsCustomerFocused(false)}
+                autoComplete="off"
+              />
+              {showCustomerSuggestions && (
+                <div className="absolute left-0 right-0 mt-2 z-30 rounded-lg border bg-background shadow-sm">
+                  <div className="max-h-48 overflow-auto py-1">
+                    {filteredCustomers.map((item) => (
+                      <div key={item} className="flex items-center justify-between gap-2 px-2">
+                        <button
+                          type="button"
+                          className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setCustomer(item)
+                            setIsCustomerFocused(false)
+                          }}
+                        >
+                          <span className="text-sm">{item}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                          aria-label={`Удалить заказчика ${item}`}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => removeCustomerFromList(item)}
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t px-3 py-1 text-xs text-muted-foreground">
+                    Нажмите на заказчика, чтобы выбрать. Можно удалить из списка.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           
           {/* Cooperation toggle - only if user can create both types */}

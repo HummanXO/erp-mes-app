@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
-import { apiClient } from "@/lib/api-client"
+import { apiClient, ApiClientError } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -38,7 +38,15 @@ export function LoginPageApi() {
         await loginWithCredentials(username, password)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка авторизации")
+      if (err instanceof ApiClientError) {
+        if (err.statusCode === 401 || err.statusCode === 403) {
+          setError("Неверный логин или пароль")
+        } else {
+          setError(err.error?.message || "Ошибка авторизации")
+        }
+      } else {
+        setError(err instanceof Error ? err.message : "Ошибка авторизации")
+      }
       setLoading(false)
     }
   }
@@ -69,7 +77,7 @@ export function LoginPageApi() {
               <Input
                 id="username"
                 type="text"
-                placeholder="admin"
+                placeholder="Логин"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
@@ -81,7 +89,7 @@ export function LoginPageApi() {
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder="Пароль"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
