@@ -183,7 +183,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             </DialogTitle>
           </DialogHeader>
           
-          <div ref={scrollRef} className="space-y-6 px-6 pb-6 pt-4 overflow-y-auto scroll-modal-body">
+          <div ref={scrollRef} className="space-y-6 px-6 pb-20 pt-4 overflow-y-auto scroll-modal-body">
           {/* Role-based info alert */}
           {!canCreateOwnParts && canCreateCoopParts && (
             <Alert>
@@ -338,13 +338,13 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   <p className="text-xs text-muted-foreground mb-3">
                     Для кооперации этапы фиксированы
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {COOP_STAGES.map((stage) => (
-                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary overflow-hidden">
+                      <div key={stage} className="flex items-center gap-2 p-2.5 rounded-lg border bg-primary/10 border-primary overflow-hidden min-h-11">
                         <Checkbox checked disabled />
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
-                          <span className="truncate">{STAGE_LABELS[stage]}</span>
+                          <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
                     ))}
@@ -355,23 +355,23 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   <p className="text-xs text-muted-foreground mb-3">
                     Базовые этапы цеха фиксированы. Выберите только дополнительные операции.
                   </p>
-                  <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                     {SHOP_REQUIRED_STAGES.map((stage) => (
-                      <div key={stage} className="flex items-center gap-3 p-3 rounded-lg border bg-primary/10 border-primary overflow-hidden">
+                      <div key={stage} className="flex items-center gap-2 p-2.5 rounded-lg border bg-primary/10 border-primary overflow-hidden min-h-11">
                         <Checkbox checked disabled />
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
-                          <span className="truncate">{STAGE_LABELS[stage]}</span>
+                          <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
                     ))}
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {SHOP_OPTIONAL_STAGES.map((stage) => (
                       <div
                         key={stage}
                         className={`
-                          flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors overflow-hidden
+                          flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors overflow-hidden min-h-11
                           ${selectedOptionalStages.includes(stage)
                             ? "bg-primary/10 border-primary"
                             : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
@@ -385,7 +385,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                         />
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
-                          <span className="truncate">{STAGE_LABELS[stage]}</span>
+                          <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
                     ))}
@@ -425,11 +425,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           <DialogFooter
             className={cn(
-              "gap-2 px-6 py-3 transition-all",
+              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter] duration-200",
               "sticky bottom-0 left-0 right-0",
               footerElevated
-                ? "border-t bg-background/80 backdrop-blur-md shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
-                : "border-transparent bg-background"
+                ? "border-t bg-background/70 backdrop-blur-md shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
+                : "border-transparent bg-transparent backdrop-blur-0 shadow-none"
             )}
           >
             <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
