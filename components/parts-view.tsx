@@ -105,11 +105,8 @@ export function PartsView() {
     })
   }
   
-  // Sort by priority, then deadline
+  // Sort by deadline
   filteredParts.sort((a, b) => {
-    const priorityOrder = { high: 0, medium: 1, low: 2 }
-    const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority]
-    if (priorityDiff !== 0) return priorityDiff
     return new Date(a.deadline).getTime() - new Date(b.deadline).getTime()
   })
 

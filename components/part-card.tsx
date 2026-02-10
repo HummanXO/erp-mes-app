@@ -4,7 +4,7 @@ import React from "react"
 
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
-import { PRIORITY_LABELS, STAGE_LABELS } from "@/lib/types"
+import { STAGE_LABELS } from "@/lib/types"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
@@ -95,9 +95,6 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
         
         {/* Badges */}
         <div className="flex flex-wrap gap-1">
-          <Badge variant={part.priority === "high" ? "destructive" : part.priority === "medium" ? "default" : "secondary"}>
-            {PRIORITY_LABELS[part.priority]}
-          </Badge>
           {part.is_cooperation && (
             <Badge variant="outline" className="gap-1 text-blue-600 border-blue-600">
               <Building2 className="h-3 w-3" />

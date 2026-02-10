@@ -20,8 +20,6 @@ export function getInitials(fullName: string): string {
   return `${parts[0]} ${parts[1][0]}.${parts[2][0]}.`
 }
 
-export type Priority = "high" | "medium" | "low"
-
 export type PartStatus = "not_started" | "in_progress" | "done"
 
 // Production stages/departments
@@ -79,7 +77,6 @@ export interface Part {
   name: string
   qty_plan: number
   qty_done: number
-  priority: Priority
   deadline: string
   status: PartStatus
   drawing_url?: string // URL to drawing/blueprint
@@ -230,12 +227,6 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   in_progress: "В работе",
   review: "На проверке",
   done: "Завершено",
-}
-
-export const PRIORITY_LABELS: Record<Priority, string> = {
-  high: "Высокий",
-  medium: "Средний",
-  low: "Низкий",
 }
 
 export const DEVIATION_REASON_LABELS: Record<string, string> = {
