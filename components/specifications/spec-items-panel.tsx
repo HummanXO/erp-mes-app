@@ -1,39 +1,32 @@
 "use client"
 
-import type { SpecItem, WorkOrder } from "@/lib/types"
-import { PART_STATUS_LABELS, SPEC_ITEM_STATUS_LABELS, SPEC_ITEM_TYPE_LABELS } from "@/lib/types"
+import { useMemo, useState } from "react"
+import type { Part, ProductionStage, SpecItem } from "@/lib/types"
+import { STAGE_LABELS } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { StatusBadge } from "@/components/inventory/status-badge"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PartCard } from "@/components/part-card"
 import { EmptyStateCard } from "@/components/specifications/empty-state-card"
 import { useApp } from "@/lib/app-context"
-import { PackagePlus } from "lucide-react"
-
-const ITEM_STATUS_TONES = {
-  open: "info",
-  partial: "warning",
-  fulfilled: "success",
-  blocked: "danger",
-  canceled: "warning",
-} as const
-
-const PART_STATUS_TONES = {
-  not_started: "info",
-  in_progress: "warning",
-  done: "success",
-} as const
+import { STAGE_ICONS } from "@/lib/stage-icons"
+import { Building2, Filter, PackagePlus, Search } from "lucide-react"
 
 interface SpecItemsPanelProps {
   items: SpecItem[]
-  workOrders: WorkOrder[]
   onAddItem: () => void
   onHelp: () => void
   onOpenPart: (partId: string) => void
 }
 
-export function SpecItemsPanel({ items, workOrders, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
-  const { getPartById, getPartProgress } = useApp()
+export function SpecItemsPanel({ items, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
+  const { getPartById, machines, permissions } = useApp()
+  const [searchQuery, setSearchQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "not_started" | "done">("all")
+  const [typeFilter, setTypeFilter] = useState<"all" | "own" | "cooperation">("all")
+  const [machineFilter, setMachineFilter] = useState<string>("all")
+  const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
 
   if (items.length === 0) {
     return (
@@ -48,59 +41,145 @@ export function SpecItemsPanel({ items, workOrders, onAddItem, onHelp, onOpenPar
     )
   }
 
+  const linkedParts = useMemo(() => {
+    const result: Part[] = []
+    for (const item of items) {
+      if (!item.part_id) continue
+      const part = getPartById(item.part_id)
+      if (part) result.push(part)
+    }
+    return result
+  }, [getPartById, items])
+
+  let visibleParts = [...linkedParts]
+  if (!permissions.canViewCooperation) {
+    visibleParts = visibleParts.filter((part) => !part.is_cooperation)
+  }
+
+  let filteredParts = [...visibleParts]
+
+  if (searchQuery) {
+    const query = searchQuery.toLowerCase()
+    filteredParts = filteredParts.filter((part) =>
+      part.code.toLowerCase().includes(query)
+      || part.name.toLowerCase().includes(query)
+      || part.customer?.toLowerCase().includes(query)
+    )
+  }
+
+  if (statusFilter !== "all") {
+    filteredParts = filteredParts.filter((part) => part.status === statusFilter)
+  }
+
+  if (typeFilter === "own") {
+    filteredParts = filteredParts.filter((part) => !part.is_cooperation)
+  } else if (typeFilter === "cooperation") {
+    filteredParts = filteredParts.filter((part) => part.is_cooperation)
+  }
+
+  if (machineFilter !== "all") {
+    filteredParts = filteredParts.filter((part) => part.machine_id === machineFilter)
+  }
+
+  if (stageFilter !== "all") {
+    filteredParts = filteredParts.filter((part) => {
+      const stageStatuses = part.stage_statuses || []
+      const stageStatus = stageStatuses.find((status) => status.stage === stageFilter)
+      return Boolean(stageStatus && (stageStatus.status === "in_progress" || stageStatus.status === "pending"))
+    })
+  }
+
+  filteredParts.sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
+
+  const cooperationCount = visibleParts.filter((part) => part.is_cooperation).length
+  const ownCount = visibleParts.filter((part) => !part.is_cooperation).length
+
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Позиции спецификации ({items.length})</CardTitle>
+        <CardTitle className="text-sm">Позиции спецификации ({visibleParts.length})</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {items.map((item) => {
-          const part = item.part_id ? getPartById(item.part_id) : undefined
-          const partProgress = part && item.item_type === "make" ? getPartProgress(part.id) : null
-          const effectiveDone = partProgress ? partProgress.qtyDone : item.qty_done
-          const effectivePlan = partProgress && part ? part.qty_plan : item.qty_required
-          const progress = effectivePlan > 0 ? Math.min(100, Math.round((effectiveDone / effectivePlan) * 100)) : 0
-          const hasOrder = workOrders.some((order) => order.spec_item_id === item.id && order.status !== "canceled")
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <Input
+              placeholder="Поиск по коду, названию или заказчику..."
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="h-11 pl-10"
+            />
+          </div>
 
-          return (
-            <div key={item.id} className="rounded-lg border p-3 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="font-medium">#{item.line_no} {item.description}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {part ? `${part.code} • ${part.name}` : "Без связанной детали"}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge tone={ITEM_STATUS_TONES[item.status]}>
-                    {SPEC_ITEM_STATUS_LABELS[item.status]}
-                  </StatusBadge>
-                  {part && item.item_type === "make" && (
-                    <StatusBadge tone={PART_STATUS_TONES[part.status]}>
-                      Деталь: {PART_STATUS_LABELS[part.status]}
-                    </StatusBadge>
-                  )}
-                  <StatusBadge tone="info">{SPEC_ITEM_TYPE_LABELS[item.item_type]}</StatusBadge>
-                  {hasOrder && <StatusBadge tone="success">Есть задание</StatusBadge>}
-                </div>
-              </div>
+          <div className="flex flex-wrap gap-3">
+            {permissions.canViewCooperation && (
+              <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as typeof typeFilter)}>
+                <TabsList>
+                  <TabsTrigger value="all">Все</TabsTrigger>
+                  <TabsTrigger value="own">Своё ({ownCount})</TabsTrigger>
+                  <TabsTrigger value="cooperation" className="gap-1">
+                    <Building2 className="h-3 w-3" aria-hidden="true" />
+                    Кооперация ({cooperationCount})
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
 
-              {part && (
-                <div className="space-y-2">
-                  <PartCard part={part} onClick={() => onOpenPart(part.id)} />
-                </div>
-              )}
+            <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
+              <TabsList>
+                <TabsTrigger value="all">Все</TabsTrigger>
+                <TabsTrigger value="in_progress">В работе</TabsTrigger>
+                <TabsTrigger value="not_started">Ожидают</TabsTrigger>
+                <TabsTrigger value="done">Готовы</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                <div>
-                  Выполнено: <span className="font-medium">{effectiveDone} / {effectivePlan} {item.uom}</span>
-                </div>
-                <div className="text-muted-foreground">{progress}%</div>
-              </div>
-              <Progress value={progress} />
-            </div>
-          )
-        })}
+          <div className="flex flex-wrap gap-3">
+            <Select value={machineFilter} onValueChange={setMachineFilter}>
+              <SelectTrigger className="h-11 w-[220px]">
+                <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
+                <SelectValue placeholder="Станок" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все станки</SelectItem>
+                {machines.map((machine) => (
+                  <SelectItem key={machine.id} value={machine.id}>
+                    {machine.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={stageFilter} onValueChange={(value) => setStageFilter(value as ProductionStage | "all")}>
+              <SelectTrigger className="h-11 w-[220px]">
+                <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
+                <SelectValue placeholder="Этап" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все этапы</SelectItem>
+                {(Object.keys(STAGE_LABELS) as ProductionStage[]).map((stage) => (
+                  <SelectItem key={stage} value={stage}>
+                    <span className="flex items-center gap-2">
+                      {STAGE_ICONS[stage]}
+                      {STAGE_LABELS[stage]}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {filteredParts.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Нет деталей по заданным фильтрам
+          </div>
+        ) : (
+          filteredParts.map((part) => (
+            <PartCard key={part.id} part={part} onClick={() => onOpenPart(part.id)} />
+          ))
+        )}
       </CardContent>
     </Card>
   )
