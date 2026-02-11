@@ -74,6 +74,9 @@ export interface Machine {
 export interface Part {
   id: string
   code: string // e.g. "01488.900.725"
+  base_code?: string // базовый код семейства детали
+  variant_suffix?: string // исполнение: 01/02/...
+  variant_params?: Record<string, string | number> // параметры исполнения, например L=120
   name: string
   qty_plan: number
   qty_done: number
@@ -95,6 +98,69 @@ export interface Part {
   
   // Customer info
   customer?: string
+}
+
+// Specification/BOM-like entities
+export type SpecificationStatus = "draft" | "active" | "closed"
+export type SpecItemType = "make" | "buy" | "coop"
+export type SpecItemStatus = "open" | "partial" | "fulfilled" | "blocked" | "canceled"
+export type WorkOrderStatus = "backlog" | "queued" | "in_progress" | "blocked" | "done" | "canceled"
+export type WorkOrderPriority = "low" | "normal" | "high"
+export type AccessEntityType = "specification" | "work_order" | "part"
+export type AccessPermission = "view" | "report" | "manage"
+
+export interface Specification {
+  id: string
+  number: string
+  customer?: string
+  note?: string
+  status: SpecificationStatus
+  published_to_operators: boolean
+  created_by: string
+  created_at: string
+}
+
+export interface SpecItem {
+  id: string
+  specification_id: string
+  line_no: number
+  item_type: SpecItemType
+  part_id?: string
+  description: string
+  qty_required: number
+  qty_done: number
+  uom: string
+  status: SpecItemStatus
+}
+
+export interface WorkOrder {
+  id: string
+  specification_id: string
+  spec_item_id: string
+  part_id: string
+  machine_id?: string
+  assigned_operator_id?: string
+  status: WorkOrderStatus
+  queue_pos?: number
+  qty_plan: number
+  qty_done: number
+  qty_scrap: number
+  priority: WorkOrderPriority
+  block_reason?: string
+  started_at?: string
+  completed_at?: string
+  created_by: string
+  created_at: string
+}
+
+export interface AccessGrant {
+  id: string
+  entity_type: AccessEntityType
+  entity_id: string
+  user_id: string
+  permission: AccessPermission
+  created_by: string
+  created_at: string
 }
 
 // Shift types
@@ -229,6 +295,35 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   done: "Завершено",
 }
 
+export const SPEC_STATUS_LABELS: Record<SpecificationStatus, string> = {
+  draft: "Черновик",
+  active: "Активна",
+  closed: "Закрыта",
+}
+
+export const SPEC_ITEM_TYPE_LABELS: Record<SpecItemType, string> = {
+  make: "Собственное производство",
+  buy: "Покупка",
+  coop: "Кооперация",
+}
+
+export const SPEC_ITEM_STATUS_LABELS: Record<SpecItemStatus, string> = {
+  open: "Открыта",
+  partial: "Частично",
+  fulfilled: "Выполнена",
+  blocked: "Заблокирована",
+  canceled: "Отменена",
+}
+
+export const WORK_ORDER_STATUS_LABELS: Record<WorkOrderStatus, string> = {
+  backlog: "Бэклог",
+  queued: "В очереди",
+  in_progress: "В работе",
+  blocked: "Блок",
+  done: "Готово",
+  canceled: "Отменено",
+}
+
 export const DEVIATION_REASON_LABELS: Record<string, string> = {
   setup: "Наладка",
   quality: "Качество",
@@ -309,6 +404,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   canManageLogistics: boolean // Управление логистикой, материалами, оснасткой
   canViewInventory: boolean // Может видеть вкладку Склад
   canManageInventory: boolean // Может изменять склад (движения/редактирование)
+  canViewSpecifications: boolean // Может видеть спецификации и задания
+  canManageSpecifications: boolean // Может создавать/редактировать спецификации
+  canManageWorkOrders: boolean // Может управлять очередью и запуском заданий
 }> = {
   admin: {
     canViewAll: true,
@@ -325,6 +423,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: true,
     canViewInventory: true,
     canManageInventory: true,
+    canViewSpecifications: true,
+    canManageSpecifications: true,
+    canManageWorkOrders: true,
   },
   director: {
     canViewAll: true,
@@ -341,6 +442,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: true,
     canViewInventory: true,
     canManageInventory: true,
+    canViewSpecifications: true,
+    canManageSpecifications: true,
+    canManageWorkOrders: true,
   },
   chief_engineer: {
     canViewAll: true,
@@ -357,6 +461,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: false,
     canViewInventory: true,
     canManageInventory: false,
+    canViewSpecifications: true,
+    canManageSpecifications: true,
+    canManageWorkOrders: true,
   },
   shop_head: {
     canViewAll: true,
@@ -373,6 +480,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: true,
     canViewInventory: true,
     canManageInventory: true,
+    canViewSpecifications: true,
+    canManageSpecifications: true,
+    canManageWorkOrders: true,
   },
   supply: {
     canViewAll: true,
@@ -389,6 +499,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: true, // Основная задача - логистика, материалы, снабжение
     canViewInventory: true,
     canManageInventory: true,
+    canViewSpecifications: true,
+    canManageSpecifications: true,
+    canManageWorkOrders: false,
   },
   master: {
     canViewAll: true,
@@ -405,6 +518,9 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: false,
     canViewInventory: true,
     canManageInventory: false,
+    canViewSpecifications: true,
+    canManageSpecifications: true,
+    canManageWorkOrders: true,
   },
   operator: {
     canViewAll: false,
@@ -421,5 +537,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageLogistics: false,
     canViewInventory: false,
     canManageInventory: false,
+    canViewSpecifications: true,
+    canManageSpecifications: false,
+    canManageWorkOrders: false,
   },
 }

@@ -15,6 +15,13 @@ import type {
   TaskComment,
   MachineNorm,
   TaskAttachment,
+  Specification,
+  SpecItem,
+  WorkOrder,
+  AccessGrant,
+  AccessEntityType,
+  AccessPermission,
+  SpecItemStatus,
 } from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { apiClient, ApiClientError } from "./api-client"
@@ -458,6 +465,114 @@ export async function logout(): Promise<void> {
 // Check if API is configured
 export function isApiConfigured(): boolean {
   return isApiConfiguredEnv()
+}
+
+// Specifications/work orders (API not implemented yet)
+export async function getSpecifications(): Promise<Specification[]> {
+  return []
+}
+
+export async function getSpecificationsForUser(_userId: string): Promise<Specification[]> {
+  return []
+}
+
+export async function getSpecificationById(_specificationId: string): Promise<Specification | undefined> {
+  return undefined
+}
+
+export async function createSpecification(
+  _payload: {
+    specification: Omit<Specification, "id" | "created_at">
+    items: Array<Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">>
+  }
+): Promise<Specification> {
+  throw new Error("Specification API is not implemented")
+}
+
+export async function updateSpecification(_specification: Specification): Promise<void> {
+  throw new Error("Specification API is not implemented")
+}
+
+export async function setSpecificationPublished(_specificationId: string, _published: boolean): Promise<void> {
+  throw new Error("Specification API is not implemented")
+}
+
+export async function getSpecItems(): Promise<SpecItem[]> {
+  return []
+}
+
+export async function getSpecItemsBySpecification(_specificationId: string): Promise<SpecItem[]> {
+  return []
+}
+
+export async function updateSpecItemProgress(
+  _specItemId: string,
+  _qtyDone: number,
+  _statusOverride?: SpecItemStatus
+): Promise<void> {
+  throw new Error("Specification API is not implemented")
+}
+
+export async function getWorkOrders(): Promise<WorkOrder[]> {
+  return []
+}
+
+export async function getWorkOrdersForUser(_userId: string): Promise<WorkOrder[]> {
+  return []
+}
+
+export async function getWorkOrdersForSpecification(_specificationId: string): Promise<WorkOrder[]> {
+  return []
+}
+
+export async function createWorkOrder(_order: Omit<WorkOrder, "id" | "created_at">): Promise<WorkOrder> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function updateWorkOrder(_order: WorkOrder): Promise<void> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function queueWorkOrder(_workOrderId: string, _machineId: string, _queuePos?: number): Promise<void> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function startWorkOrder(_workOrderId: string, _operatorId?: string): Promise<void> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function blockWorkOrder(_workOrderId: string, _reason: string): Promise<void> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function reportWorkOrderProgress(_workOrderId: string, _qtyGood: number, _qtyScrap = 0): Promise<void> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function completeWorkOrder(_workOrderId: string): Promise<void> {
+  throw new Error("Work order API is not implemented")
+}
+
+export async function getAccessGrants(): Promise<AccessGrant[]> {
+  return []
+}
+
+export async function getAccessGrantsForEntity(_entityType: AccessEntityType, _entityId: string): Promise<AccessGrant[]> {
+  return []
+}
+
+export async function grantAccess(
+  _entityType: AccessEntityType,
+  _entityId: string,
+  _userId: string,
+  _permission: AccessPermission,
+  _createdBy: string
+): Promise<AccessGrant> {
+  throw new Error("Access grant API is not implemented")
+}
+
+export async function revokeAccess(_grantId: string): Promise<void> {
+  throw new Error("Access grant API is not implemented")
 }
 
 // Inventory (API not implemented yet)

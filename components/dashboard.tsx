@@ -9,12 +9,13 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { PartsView } from "@/components/parts-view"
 import { AllTasksView } from "@/components/all-tasks-view"
 import { InventoryView } from "@/components/inventory/inventory-view"
+import { SpecificationsView } from "@/components/specifications-view"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import * as dataProvider from "@/lib/data-provider-adapter"
 
-type View = "parts" | "tasks" | "inventory"
+type View = "parts" | "tasks" | "inventory" | "specifications"
 
 export function Dashboard() {
   const { currentUser, getUnreadTasksCount, permissions } = useApp()
@@ -26,7 +27,10 @@ export function Dashboard() {
     if (activeView === "inventory" && !permissions.canViewInventory) {
       setActiveView("parts")
     }
-  }, [activeView, permissions.canViewInventory])
+    if (activeView === "specifications" && !permissions.canViewSpecifications) {
+      setActiveView("parts")
+    }
+  }, [activeView, permissions.canViewInventory, permissions.canViewSpecifications])
 
   // Not logged in
   if (!currentUser) {
@@ -42,7 +46,13 @@ export function Dashboard() {
           <SidebarTrigger className="-ml-2" />
           <Separator orientation="vertical" className="h-6" />
           <h1 className="font-semibold">
-            {activeView === "parts" ? "Детали" : activeView === "tasks" ? "Все задачи" : permissions.canViewInventory ? "Склад" : "Детали"}
+            {activeView === "parts"
+              ? "Детали"
+              : activeView === "tasks"
+                ? "Все задачи"
+                : activeView === "inventory"
+                  ? permissions.canViewInventory ? "Склад" : "Детали"
+                  : permissions.canViewSpecifications ? "Спецификации" : "Детали"}
           </h1>
           <div className="flex items-center gap-2 ml-auto">
             {/* Unread tasks badge */}
@@ -62,8 +72,10 @@ export function Dashboard() {
             <PartsView />
           ) : activeView === "tasks" ? (
             <AllTasksView />
-          ) : permissions.canViewInventory ? (
+          ) : activeView === "inventory" && permissions.canViewInventory ? (
             <InventoryView />
+          ) : activeView === "specifications" && permissions.canViewSpecifications ? (
+            <SpecificationsView />
           ) : (
             <PartsView />
           )}

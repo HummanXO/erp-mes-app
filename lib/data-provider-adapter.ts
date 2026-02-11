@@ -180,6 +180,105 @@ export function updateLogisticsEntry(entry: any) {
   return local().updateLogisticsEntry(entry)
 }
 
+// Specifications and work orders
+export function getSpecifications() {
+  return USE_API ? httpProvider.getSpecifications() : local().getSpecifications()
+}
+
+export function getSpecificationsForUser(userId: string) {
+  return USE_API ? httpProvider.getSpecificationsForUser(userId) : local().getSpecificationsForUser(userId)
+}
+
+export function getSpecificationById(specificationId: string) {
+  return USE_API ? httpProvider.getSpecificationById(specificationId) : local().getSpecificationById(specificationId)
+}
+
+export function createSpecification(payload: any) {
+  return USE_API ? httpProvider.createSpecification(payload) : local().createSpecification(payload)
+}
+
+export function updateSpecification(specification: any) {
+  return USE_API ? httpProvider.updateSpecification(specification) : local().updateSpecification(specification)
+}
+
+export function setSpecificationPublished(specificationId: string, published: boolean) {
+  return USE_API
+    ? httpProvider.setSpecificationPublished(specificationId, published)
+    : local().setSpecificationPublished(specificationId, published)
+}
+
+export function getSpecItems() {
+  return USE_API ? httpProvider.getSpecItems() : local().getSpecItems()
+}
+
+export function getSpecItemsBySpecification(specificationId: string) {
+  return USE_API ? httpProvider.getSpecItemsBySpecification(specificationId) : local().getSpecItemsBySpecification(specificationId)
+}
+
+export function updateSpecItemProgress(specItemId: string, qtyDone: number, statusOverride?: any) {
+  return USE_API
+    ? httpProvider.updateSpecItemProgress(specItemId, qtyDone, statusOverride)
+    : local().updateSpecItemProgress(specItemId, qtyDone, statusOverride)
+}
+
+export function getWorkOrders() {
+  return USE_API ? httpProvider.getWorkOrders() : local().getWorkOrders()
+}
+
+export function getWorkOrdersForUser(userId: string) {
+  return USE_API ? httpProvider.getWorkOrdersForUser(userId) : local().getWorkOrdersForUser(userId)
+}
+
+export function getWorkOrdersForSpecification(specificationId: string) {
+  return USE_API ? httpProvider.getWorkOrdersForSpecification(specificationId) : local().getWorkOrdersForSpecification(specificationId)
+}
+
+export function createWorkOrder(order: any) {
+  return USE_API ? httpProvider.createWorkOrder(order) : local().createWorkOrder(order)
+}
+
+export function updateWorkOrder(order: any) {
+  return USE_API ? httpProvider.updateWorkOrder(order) : local().updateWorkOrder(order)
+}
+
+export function queueWorkOrder(workOrderId: string, machineId: string, queuePos?: number) {
+  return USE_API ? httpProvider.queueWorkOrder(workOrderId, machineId, queuePos) : local().queueWorkOrder(workOrderId, machineId, queuePos)
+}
+
+export function startWorkOrder(workOrderId: string, operatorId?: string) {
+  return USE_API ? httpProvider.startWorkOrder(workOrderId, operatorId) : local().startWorkOrder(workOrderId, operatorId)
+}
+
+export function blockWorkOrder(workOrderId: string, reason: string) {
+  return USE_API ? httpProvider.blockWorkOrder(workOrderId, reason) : local().blockWorkOrder(workOrderId, reason)
+}
+
+export function reportWorkOrderProgress(workOrderId: string, qtyGood: number, qtyScrap?: number) {
+  return USE_API
+    ? httpProvider.reportWorkOrderProgress(workOrderId, qtyGood, qtyScrap)
+    : local().reportWorkOrderProgress(workOrderId, qtyGood, qtyScrap)
+}
+
+export function completeWorkOrder(workOrderId: string) {
+  return USE_API ? httpProvider.completeWorkOrder(workOrderId) : local().completeWorkOrder(workOrderId)
+}
+
+export function getAccessGrants() {
+  return USE_API ? httpProvider.getAccessGrants() : local().getAccessGrants()
+}
+
+export function getAccessGrantsForEntity(entityType: any, entityId: string) {
+  return USE_API ? httpProvider.getAccessGrantsForEntity(entityType, entityId) : local().getAccessGrantsForEntity(entityType, entityId)
+}
+
+export function grantAccess(entityType: any, entityId: string, userId: string, permission: any, createdBy: string) {
+  return USE_API ? httpProvider.grantAccess(entityType, entityId, userId, permission, createdBy) : local().grantAccess(entityType, entityId, userId, permission, createdBy)
+}
+
+export function revokeAccess(grantId: string) {
+  return USE_API ? httpProvider.revokeAccess(grantId) : local().revokeAccess(grantId)
+}
+
 // Inventory
 export function getInventoryMetal() {
   return USE_API ? httpProvider.getInventoryMetal() : local().getInventoryMetal()
