@@ -597,6 +597,27 @@ function syncSpecItemProgressFromWorkOrders(specItemId: string): void {
   recomputeSpecificationStatus(updated.specification_id)
 }
 
+function markPartAsStarted(partId?: string): void {
+  if (!partId) return
+  const parts = getParts()
+  const index = parts.findIndex((part) => part.id === partId)
+  if (index === -1) return
+
+  const part = parts[index]
+  if (part.qty_done >= part.qty_plan) {
+    if (part.status !== "done") {
+      parts[index] = { ...part, status: "done" }
+      saveToStorage(STORAGE_KEYS.parts, parts)
+    }
+    return
+  }
+
+  if (part.status === "not_started") {
+    parts[index] = { ...part, status: "in_progress" }
+    saveToStorage(STORAGE_KEYS.parts, parts)
+  }
+}
+
 export function getSpecifications(): Specification[] {
   return safeJsonParse(STORAGE_KEYS.specifications, MOCK_SPECIFICATIONS)
 }
@@ -654,6 +675,9 @@ export function createSpecification(
   }))
 
   saveToStorage(STORAGE_KEYS.specItems, [...newItems, ...specItems])
+  for (const item of newItems) {
+    markPartAsStarted(item.part_id)
+  }
 
   const makerItems = newItems.filter(item => item.item_type === "make" && !!item.part_id)
   if (makerItems.length > 0) {
@@ -701,6 +725,7 @@ export function createSpecItem(
   }
 
   saveToStorage(STORAGE_KEYS.specItems, [newItem, ...allSpecItems])
+  markPartAsStarted(newItem.part_id)
   recomputeSpecificationStatus(specificationId)
   return newItem
 }

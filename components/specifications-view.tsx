@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { AccessPermission, SpecificationStatus, WorkOrder } from "@/lib/types"
+import type { AccessPermission, SpecificationStatus } from "@/lib/types"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -13,7 +13,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { SpecListPane } from "@/components/specifications/spec-list-pane"
 import { SpecDetailHeader } from "@/components/specifications/spec-detail-header"
 import { SpecItemsPanel } from "@/components/specifications/spec-items-panel"
-import { SpecQueuePanel } from "@/components/specifications/spec-queue-panel"
 import { SpecAccessPanel } from "@/components/specifications/spec-access-panel"
 import { SpecItemDialog } from "@/components/specifications/spec-item-dialog"
 import { HowItWorksSheet } from "@/components/specifications/how-it-works-sheet"
@@ -25,26 +24,15 @@ export function SpecificationsView() {
     currentUser,
     permissions,
     users,
-    machines,
     dataError,
     createSpecification,
     setSpecificationPublished,
     deleteSpecification,
-    createWorkOrdersForSpecification,
-    queueWorkOrder,
-    startWorkOrder,
-    blockWorkOrder,
-    reportWorkOrderProgress,
-    completeWorkOrder,
     grantAccess,
     revokeAccess,
     getSpecificationsForCurrentUser,
     getSpecItemsBySpecification,
-    getWorkOrdersForSpecification,
-    getWorkOrdersForCurrentUser,
     getAccessGrantsForSpecification,
-    getPartById,
-    getMachineById,
     getUserById,
   } = useApp()
 
@@ -68,8 +56,6 @@ export function SpecificationsView() {
 
   const [howItWorksOpen, setHowItWorksOpen] = useState(false)
   const [howItWorksTopic, setHowItWorksTopic] = useState<HowItWorksTopic>("general")
-
-  const queueRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const timer = setTimeout(() => setIsLoading(false), 180)
@@ -126,37 +112,12 @@ export function SpecificationsView() {
     [selectedSpecification, getSpecItemsBySpecification]
   )
 
-  const selectedWorkOrders = useMemo(() => {
-    if (!selectedSpecification) return []
-    if (currentUser?.role === "operator") {
-      const allowed = new Set(getWorkOrdersForCurrentUser().map((order) => order.id))
-      return getWorkOrdersForSpecification(selectedSpecification.id).filter((order) => allowed.has(order.id))
-    }
-    return getWorkOrdersForSpecification(selectedSpecification.id)
-  }, [selectedSpecification, currentUser?.role, getWorkOrdersForCurrentUser, getWorkOrdersForSpecification])
-
   const selectedGrants = useMemo(
     () => (selectedSpecification ? getAccessGrantsForSpecification(selectedSpecification.id) : []),
     [selectedSpecification, getAccessGrantsForSpecification]
   )
 
   const canManageSpecifications = permissions.canManageSpecifications
-  const canManageWorkOrders = permissions.canManageWorkOrders
-  const isOperator = currentUser?.role === "operator"
-
-  const canStartOrder = (order: WorkOrder): boolean => {
-    if (canManageWorkOrders) return true
-    if (!isOperator || !currentUser) return false
-    if (order.status !== "queued" && order.status !== "backlog") return false
-    return !order.assigned_operator_id || order.assigned_operator_id === currentUser.id
-  }
-
-  const canReportOrder = (order: WorkOrder): boolean => {
-    if (canManageWorkOrders) return true
-    if (!isOperator || !currentUser) return false
-    if (order.status !== "in_progress") return false
-    return !order.assigned_operator_id || order.assigned_operator_id === currentUser.id
-  }
 
   const openPartDetails = (partId: string) => {
     sessionStorage.setItem("pc.navigate.partId", partId)
@@ -192,13 +153,6 @@ export function SpecificationsView() {
     })
   }
 
-  const handleCreateJobs = async () => {
-    if (!selectedSpecification) return
-    await runAction(async () => {
-      await createWorkOrdersForSpecification(selectedSpecification.id)
-    })
-  }
-
   const handleTogglePublished = (published: boolean) => {
     if (!selectedSpecification) return
     void runAction(async () => {
@@ -215,58 +169,6 @@ export function SpecificationsView() {
       setDeleteLinkedParts(false)
       const next = filteredSpecifications.find((specification) => specification.id !== targetId)
       setSelectedSpecificationId(next?.id ?? null)
-    })
-  }
-
-  const handleOpenQueue = () => {
-    queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }
-
-  const handleSetReady = (orderId: string, machineId: string) => {
-    void runAction(async () => {
-      await queueWorkOrder(orderId, machineId)
-    })
-  }
-
-  const handleStart = (orderId: string) => {
-    void runAction(async () => {
-      await startWorkOrder(orderId, currentUser?.id)
-    })
-  }
-
-  const handleReport = (orderId: string) => {
-    const goodRaw = window.prompt("Сколько годных добавить?", "0")
-    if (goodRaw === null) return
-    const qtyGood = Number(goodRaw.replace(",", "."))
-    if (!Number.isFinite(qtyGood) || qtyGood < 0) {
-      setActionError("Количество годных должно быть числом >= 0")
-      return
-    }
-
-    const scrapRaw = window.prompt("Сколько брака добавить?", "0")
-    if (scrapRaw === null) return
-    const qtyScrap = Number(scrapRaw.replace(",", "."))
-    if (!Number.isFinite(qtyScrap) || qtyScrap < 0) {
-      setActionError("Количество брака должно быть числом >= 0")
-      return
-    }
-
-    void runAction(async () => {
-      await reportWorkOrderProgress(orderId, qtyGood, qtyScrap)
-    })
-  }
-
-  const handleBlock = (orderId: string) => {
-    const reason = window.prompt("Причина блокировки")
-    if (!reason || !reason.trim()) return
-    void runAction(async () => {
-      await blockWorkOrder(orderId, reason.trim())
-    })
-  }
-
-  const handleComplete = (orderId: string) => {
-    void runAction(async () => {
-      await completeWorkOrder(orderId)
     })
   }
 
@@ -291,7 +193,7 @@ export function SpecificationsView() {
         <div>
           <h1 className="text-xl font-bold">Спецификации</h1>
           <p className="text-sm text-muted-foreground">
-            Сначала добавьте позиции, затем создайте задания и запустите очередь без обязательных дат
+            Сначала добавьте позиции. Детали и спецификации связаны напрямую, без отдельной очереди заданий
           </p>
         </div>
         {canManageSpecifications && (
@@ -333,13 +235,10 @@ export function SpecificationsView() {
               <SpecDetailHeader
                 specification={selectedSpecification}
                 itemCount={selectedSpecItems.length}
-                workOrderCount={selectedWorkOrders.length}
                 canManageSpecifications={canManageSpecifications}
                 actionBusy={actionBusy}
                 onTogglePublished={handleTogglePublished}
                 onAddItem={() => setAddItemOpen(true)}
-                onCreateJobs={() => void handleCreateJobs()}
-                onOpenQueue={handleOpenQueue}
                 onDelete={() => setDeleteOpen(true)}
               />
 
@@ -349,36 +248,6 @@ export function SpecificationsView() {
                 onHelp={() => openHowItWorks("items")}
                 onOpenPart={openPartDetails}
               />
-
-              <div ref={queueRef}>
-                <SpecQueuePanel
-                  workOrders={selectedWorkOrders}
-                  machines={machines}
-                  getPartTitle={(partId) => {
-                    const part = getPartById(partId)
-                    return part ? `${part.code} ${part.name}` : partId
-                  }}
-                  getMachineName={(machineId) => {
-                    const machine = machineId ? getMachineById(machineId) : undefined
-                    return machine?.name ?? "Не назначен"
-                  }}
-                  getOperatorName={(operatorId) => {
-                    const user = operatorId ? getUserById(operatorId) : undefined
-                    return user?.initials ?? "Не назначен"
-                  }}
-                  onCreateOrders={() => void handleCreateJobs()}
-                  onHelp={() => openHowItWorks("queue")}
-                  onSetReady={handleSetReady}
-                  onStart={handleStart}
-                  onReport={handleReport}
-                  onBlock={handleBlock}
-                  onComplete={handleComplete}
-                  canManageWorkOrders={canManageWorkOrders}
-                  canStartOrder={canStartOrder}
-                  canReportOrder={canReportOrder}
-                  actionBusy={actionBusy}
-                />
-              </div>
 
               <SpecAccessPanel
                 grants={selectedGrants}
@@ -487,7 +356,7 @@ export function SpecificationsView() {
           </DialogHeader>
           <div className="space-y-3 py-1">
             <p className="text-sm text-muted-foreground">
-              Спецификация <span className="font-medium text-foreground">{selectedSpecification?.number ?? "—"}</span> будет удалена вместе с позициями, заданиями и доступами операторов.
+              Спецификация <span className="font-medium text-foreground">{selectedSpecification?.number ?? "—"}</span> будет удалена вместе с позициями и доступами операторов.
             </p>
             <div className="rounded-md border p-3">
               <div className="flex items-start gap-3">
@@ -501,7 +370,7 @@ export function SpecificationsView() {
                     Удалить связанные детали каскадом
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    Удаляются только детали, которые больше не используются в других спецификациях/заданиях.
+                    Удаляются только детали, которые больше не используются в других спецификациях.
                   </p>
                 </div>
               </div>
