@@ -17,7 +17,7 @@ interface ToolingItemDialogProps {
 }
 
 export function ToolingItemDialog({ open, onOpenChange, item }: ToolingItemDialogProps) {
-  const { createInventoryTooling, updateInventoryTooling } = useApp()
+  const { createInventoryTooling, updateInventoryTooling, permissions } = useApp()
   const isEdit = Boolean(item)
 
   const [category, setCategory] = useState<ToolingCategory>("cutting")
@@ -48,6 +48,10 @@ export function ToolingItemDialog({ open, onOpenChange, item }: ToolingItemDialo
 
   const handleSubmit = async () => {
     setError(null)
+    if (!permissions.canManageInventory) {
+      setError("Недостаточно прав для изменения склада")
+      return
+    }
     if (!name.trim() || !location.trim() || !qty.trim()) {
       setError("Заполните обязательные поля")
       return
@@ -199,7 +203,7 @@ export function ToolingItemDialog({ open, onOpenChange, item }: ToolingItemDialo
           <Button variant="outline" className="h-11" onClick={() => onOpenChange(false)}>
             Отмена
           </Button>
-          <Button className="h-11" onClick={handleSubmit} disabled={isSubmitting}>
+          <Button className="h-11" onClick={handleSubmit} disabled={isSubmitting || !permissions.canManageInventory}>
             {isEdit ? "Сохранить" : "Создать"}
           </Button>
         </DialogFooter>

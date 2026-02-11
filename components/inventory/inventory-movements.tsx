@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Search } from "lucide-react"
 
 export function InventoryMovements() {
-  const { inventoryMovements, inventoryMetal, inventoryTooling, getUserById, dataError } = useApp()
+  const { inventoryMovements, inventoryMetal, inventoryTooling, getUserById, dataError, permissions } = useApp()
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<MovementType | "all">("all")
   const [itemTypeFilter, setItemTypeFilter] = useState<InventoryItemType | "all">("all")
@@ -98,10 +98,12 @@ export function InventoryMovements() {
                 <SelectItem value="tooling">Оснастка</SelectItem>
               </SelectContent>
             </Select>
-            <Button className="h-11" onClick={() => setDialogOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Новое движение
-            </Button>
+            {permissions.canManageInventory && (
+              <Button className="h-11" onClick={() => setDialogOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Новое движение
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -169,11 +171,13 @@ export function InventoryMovements() {
         </CardContent>
       </Card>
 
-      <MovementDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        items={{ metal: inventoryMetal, tooling: inventoryTooling }}
-      />
+      {permissions.canManageInventory && (
+        <MovementDialog
+          open={dialogOpen}
+          onOpenChange={setDialogOpen}
+          items={{ metal: inventoryMetal, tooling: inventoryTooling }}
+        />
+      )}
     </div>
   )
 }

@@ -123,7 +123,7 @@ export function InventoryMetal() {
             <h2 className="text-lg font-semibold">Металл</h2>
             <p className="text-xs text-muted-foreground">{inventoryMetal.length} позиций</p>
           </div>
-          {permissions.canManageLogistics && (
+          {permissions.canManageInventory && (
             <Button className="h-11" onClick={() => setCreateDialogOpen(true)}>
               Новая позиция
             </Button>
@@ -296,7 +296,7 @@ export function InventoryMetal() {
                   </div>
                 </div>
 
-                {permissions.canManageLogistics && (
+                {permissions.canManageInventory && (
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="outline"

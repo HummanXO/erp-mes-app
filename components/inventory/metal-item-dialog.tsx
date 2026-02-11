@@ -17,7 +17,7 @@ interface MetalItemDialogProps {
 }
 
 export function MetalItemDialog({ open, onOpenChange, item }: MetalItemDialogProps) {
-  const { createInventoryMetal, updateInventoryMetal } = useApp()
+  const { createInventoryMetal, updateInventoryMetal, permissions } = useApp()
   const isEdit = Boolean(item)
 
   const [materialGrade, setMaterialGrade] = useState("")
@@ -56,6 +56,10 @@ export function MetalItemDialog({ open, onOpenChange, item }: MetalItemDialogPro
 
   const handleSubmit = async () => {
     setError(null)
+    if (!permissions.canManageInventory) {
+      setError("Недостаточно прав для изменения склада")
+      return
+    }
     if (!materialGrade.trim() || !shape.trim() || !size.trim() || !length.trim() || !location.trim()) {
       setError("Заполните обязательные поля")
       return
@@ -216,7 +220,7 @@ export function MetalItemDialog({ open, onOpenChange, item }: MetalItemDialogPro
           <Button variant="outline" className="h-11" onClick={() => onOpenChange(false)}>
             Отмена
           </Button>
-          <Button className="h-11" onClick={handleSubmit} disabled={isSubmitting}>
+          <Button className="h-11" onClick={handleSubmit} disabled={isSubmitting || !permissions.canManageInventory}>
             {isEdit ? "Сохранить" : "Создать"}
           </Button>
         </DialogFooter>

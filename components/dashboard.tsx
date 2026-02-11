@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { ROLE_LABELS } from "@/lib/types"
 import { LoginPage } from "@/components/login-page"
@@ -17,10 +17,16 @@ import * as dataProvider from "@/lib/data-provider-adapter"
 type View = "parts" | "tasks" | "inventory"
 
 export function Dashboard() {
-  const { currentUser, getUnreadTasksCount } = useApp()
+  const { currentUser, getUnreadTasksCount, permissions } = useApp()
   
   const [activeView, setActiveView] = useState<View>("parts")
   const unreadCount = getUnreadTasksCount()
+
+  useEffect(() => {
+    if (activeView === "inventory" && !permissions.canViewInventory) {
+      setActiveView("parts")
+    }
+  }, [activeView, permissions.canViewInventory])
 
   // Not logged in
   if (!currentUser) {
@@ -36,7 +42,7 @@ export function Dashboard() {
           <SidebarTrigger className="-ml-2" />
           <Separator orientation="vertical" className="h-6" />
           <h1 className="font-semibold">
-            {activeView === "parts" ? "Детали" : activeView === "tasks" ? "Все задачи" : "Склад"}
+            {activeView === "parts" ? "Детали" : activeView === "tasks" ? "Все задачи" : permissions.canViewInventory ? "Склад" : "Детали"}
           </h1>
           <div className="flex items-center gap-2 ml-auto">
             {/* Unread tasks badge */}
@@ -56,8 +62,10 @@ export function Dashboard() {
             <PartsView />
           ) : activeView === "tasks" ? (
             <AllTasksView />
-          ) : (
+          ) : permissions.canViewInventory ? (
             <InventoryView />
+          ) : (
+            <PartsView />
           )}
         </main>
       </SidebarInset>

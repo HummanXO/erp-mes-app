@@ -307,6 +307,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   canCreateCoopParts: boolean // Может создавать кооперационные детали
   canEditParts: boolean // Может изменять детали
   canManageLogistics: boolean // Управление логистикой, материалами, оснасткой
+  canViewInventory: boolean // Может видеть вкладку Склад
+  canManageInventory: boolean // Может изменять склад (движения/редактирование)
 }> = {
   admin: {
     canViewAll: true,
@@ -321,6 +323,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: true,
     canEditParts: true,
     canManageLogistics: true,
+    canViewInventory: true,
+    canManageInventory: true,
   },
   director: {
     canViewAll: true,
@@ -335,6 +339,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: true,
     canEditParts: true,
     canManageLogistics: true,
+    canViewInventory: true,
+    canManageInventory: true,
   },
   chief_engineer: {
     canViewAll: true,
@@ -349,6 +355,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: true,
     canEditParts: true,
     canManageLogistics: false,
+    canViewInventory: true,
+    canManageInventory: false,
   },
   shop_head: {
     canViewAll: true,
@@ -363,6 +371,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: true,
     canEditParts: true,
     canManageLogistics: true,
+    canViewInventory: true,
+    canManageInventory: true,
   },
   supply: {
     canViewAll: true,
@@ -377,6 +387,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: true, // Снабжение может создавать только кооперацию
     canEditParts: true, // Может изменять кооперационные детали
     canManageLogistics: true, // Основная задача - логистика, материалы, снабжение
+    canViewInventory: true,
+    canManageInventory: true,
   },
   master: {
     canViewAll: true,
@@ -391,6 +403,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: false, // Мастер НЕ может создавать кооперацию
     canEditParts: true,
     canManageLogistics: false,
+    canViewInventory: true,
+    canManageInventory: false,
   },
   operator: {
     canViewAll: false,
@@ -405,5 +419,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canCreateCoopParts: false,
     canEditParts: false,
     canManageLogistics: false,
+    canViewInventory: false,
+    canManageInventory: false,
   },
 }

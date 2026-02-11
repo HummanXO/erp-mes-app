@@ -36,7 +36,7 @@ export function MovementDialog({
   items,
   onCreated,
 }: MovementDialogProps) {
-  const { currentUser, createInventoryMovement } = useApp()
+  const { currentUser, createInventoryMovement, permissions } = useApp()
   const fixedType = Boolean(defaultType)
   const [movementType, setMovementType] = useState<MovementType>(defaultType ?? "receipt")
   const [itemType, setItemType] = useState<InventoryItemType>(item ? (isMetal(item) ? "metal" : "tooling") : "metal")
@@ -114,6 +114,10 @@ export function MovementDialog({
 
   const handleSubmit = async () => {
     setError(null)
+    if (!permissions.canManageInventory) {
+      setError("Недостаточно прав для создания движения")
+      return
+    }
     if (!currentItem) {
       setError("Выберите позицию")
       return
@@ -308,7 +312,7 @@ export function MovementDialog({
           <Button variant="outline" className="h-11" onClick={() => onOpenChange(false)}>
             Отмена
           </Button>
-          <Button className="h-11" onClick={handleSubmit} disabled={isSubmitting}>
+          <Button className="h-11" onClick={handleSubmit} disabled={isSubmitting || !permissions.canManageInventory}>
             Создать
           </Button>
         </DialogFooter>
