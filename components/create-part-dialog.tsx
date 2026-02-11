@@ -4,7 +4,7 @@ import React from "react"
 
 import { useMemo, useState, useEffect, useId, useRef } from "react"
 import { useApp } from "@/lib/app-context"
-import type { ProductionStage, StageStatus } from "@/lib/types"
+import type { Part, ProductionStage, StageStatus } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Button } from "@/components/ui/button"
@@ -27,9 +27,22 @@ const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 interface CreatePartDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  sourceSpecificationId?: string
+  defaultCustomer?: string
+  fixedMode?: "shop" | "cooperation"
+  submitLabel?: string
+  onPartCreated?: (part: Part) => Promise<void> | void
 }
 
-export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) {
+export function CreatePartDialog({
+  open,
+  onOpenChange,
+  sourceSpecificationId,
+  defaultCustomer,
+  fixedMode,
+  submitLabel = "Создать деталь",
+  onPartCreated,
+}: CreatePartDialogProps) {
   const { createPart, machines, permissions, parts } = useApp()
   
   // Form state
@@ -42,6 +55,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   const [customerList, setCustomerList] = useState<string[]>([])
   const [isCustomerFocused, setIsCustomerFocused] = useState(false)
   const [formError, setFormError] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const formId = useId()
   const codeId = `${formId}-code`
   const nameId = `${formId}-name`
@@ -67,6 +81,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   const [footerHasScroll, setFooterHasScroll] = useState(false)
   
   const machiningMachines = machines.filter(m => m.department === "machining")
+  const isShopOnly = fixedMode === "shop"
+  const isCooperationOnly = fixedMode === "cooperation"
 
   const existingCustomers = useMemo(() => {
     const fromParts = parts
@@ -81,11 +97,17 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
   
   // If user can only create cooperation parts, default to cooperation mode
   useEffect(() => {
-    if (!canCreateOwnParts && canCreateCoopParts) {
+    if (isShopOnly) {
+      setIsCooperation(false)
+      setSelectedOptionalStages([])
+      return
+    }
+
+    if (isCooperationOnly || (!canCreateOwnParts && canCreateCoopParts)) {
       setIsCooperation(true)
       setSelectedOptionalStages([])
     }
-  }, [canCreateOwnParts, canCreateCoopParts])
+  }, [canCreateOwnParts, canCreateCoopParts, isCooperationOnly, isShopOnly])
 
   useEffect(() => {
     if (!open) return
@@ -123,7 +145,13 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
     }
   }, [existingCustomers, open])
 
+  useEffect(() => {
+    if (!open) return
+    setCustomer(defaultCustomer || "")
+  }, [defaultCustomer, open])
+
   const toggleCooperation = () => {
+    if (isShopOnly || isCooperationOnly) return
     setIsCooperation((prev) => !prev)
     setSelectedOptionalStages([])
   }
@@ -166,9 +194,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
 
   const showCustomerSuggestions = isCustomerFocused && filteredCustomers.length > 0
   
-  const handleCreate = () => {
+  const handleCreate = async () => {
     setFormError("")
-    if (!code || !name || !qtyPlan || !deadline) {
+    if (!code || !name || !qtyPlan) {
       setFormError("Заполните обязательные поля")
       return
     }
@@ -178,6 +206,10 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
     }
     if (isCooperation && !cooperationPartner.trim()) {
       setFormError("Для кооперации укажите партнёра-кооператора")
+      return
+    }
+    if (!sourceSpecificationId) {
+      setFormError("Деталь можно создать только из выбранной спецификации")
       return
     }
 
@@ -191,26 +223,38 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
       status: "pending" as const,
     }))
     
-    createPart({
-      code,
-      name,
-      description: description || undefined,
-      qty_plan: Number.parseInt(qtyPlan, 10),
-      qty_done: 0,
-      deadline,
-      status: "not_started",
-      is_cooperation: isCooperation,
-      cooperation_partner: isCooperation ? cooperationPartner.trim() : undefined,
-      required_stages: requiredStages,
-      stage_statuses: stageStatuses,
-      machine_id: !isCooperation ? machineId : undefined,
-      customer: customer || undefined,
-    })
-    addCustomerToList(customer)
-    
-    // Reset and close
-    resetForm()
-    onOpenChange(false)
+    setIsSubmitting(true)
+    try {
+      const createdPart = await createPart({
+        code: code.trim(),
+        name: name.trim(),
+        description: description.trim() || undefined,
+        qty_plan: Number.parseInt(qtyPlan, 10),
+        qty_done: 0,
+        deadline: deadline || "2099-12-31",
+        status: "not_started",
+        is_cooperation: isCooperation,
+        cooperation_partner: isCooperation ? cooperationPartner.trim() : undefined,
+        required_stages: requiredStages,
+        stage_statuses: stageStatuses,
+        machine_id: !isCooperation ? machineId : undefined,
+        customer: customer.trim() || undefined,
+        source_specification_id: sourceSpecificationId,
+      })
+
+      addCustomerToList(customer)
+      if (onPartCreated) {
+        await onPartCreated(createdPart)
+      }
+
+      // Reset and close
+      resetForm()
+      onOpenChange(false)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Не удалось создать деталь")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
   
   const resetForm = () => {
@@ -219,9 +263,15 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
     setDescription("")
     setQtyPlan("")
     setDeadline("")
-    setCustomer("")
+    setCustomer(defaultCustomer || "")
     setFormError("")
-    setIsCooperation(!canCreateOwnParts && canCreateCoopParts)
+    if (isShopOnly) {
+      setIsCooperation(false)
+    } else if (isCooperationOnly || (!canCreateOwnParts && canCreateCoopParts)) {
+      setIsCooperation(true)
+    } else {
+      setIsCooperation(false)
+    }
     setCooperationPartner("")
     setSelectedOptionalStages([])
     setMachineId("")
@@ -239,7 +289,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           
           <div ref={scrollRef} className="space-y-6 px-6 pb-24 pt-4 overflow-y-auto scroll-modal-body flex-1 min-h-0">
           {/* Role-based info alert */}
-          {!canCreateOwnParts && canCreateCoopParts && (
+          {!isShopOnly && !isCooperationOnly && !canCreateOwnParts && canCreateCoopParts && (
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
@@ -248,7 +298,7 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             </Alert>
           )}
           
-          {canCreateOwnParts && !canCreateCoopParts && (
+          {!isShopOnly && !isCooperationOnly && canCreateOwnParts && !canCreateCoopParts && (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
@@ -307,14 +357,12 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor={deadlineId}>Дедлайн *</Label>
+              <Label htmlFor={deadlineId}>Дедлайн</Label>
               <Input
                 id={deadlineId}
                 type="date"
                 value={deadline}
                 onChange={(e) => setDeadline(e.target.value)}
-                aria-invalid={!!formError && !deadline}
-                aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
           </div>
@@ -368,8 +416,9 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
           </div>
           
           {/* Cooperation toggle - only if user can create both types */}
-          {canCreateOwnParts && canCreateCoopParts && (
-            <div
+          {!isShopOnly && !isCooperationOnly && canCreateOwnParts && canCreateCoopParts && (
+            <button
+              type="button"
               className={`
                 flex items-center gap-3 p-4 rounded-lg border cursor-pointer transition-colors
                 ${isCooperation
@@ -378,30 +427,16 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                 }
               `}
               onClick={toggleCooperation}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                  toggleCooperation()
-                }
-              }}
+              aria-pressed={isCooperation}
             >
-              <Checkbox
-                id="cooperation"
-                checked={isCooperation}
-                onClick={(e) => e.stopPropagation()}
-                onCheckedChange={(checked) => {
-                  setIsCooperation(checked === true)
-                  setSelectedOptionalStages([])
-                }}
-                aria-label="Переключить кооперацию"
-              />
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs">
+                {isCooperation ? "✓" : ""}
+              </span>
               <div className="flex items-center gap-2">
                 <Building2 className={`h-5 w-5 ${isCooperation ? "text-foreground" : "text-muted-foreground"}`} />
                 <span>Кооперация (деталь изготавливается на стороне)</span>
               </div>
-            </div>
+            </button>
           )}
           
           {/* Cooperation partner input */}
@@ -460,7 +495,8 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {SHOP_OPTIONAL_STAGES.map((stage) => (
-                      <div
+                      <button
+                        type="button"
                         key={stage}
                         className={`
                           flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors overflow-hidden min-h-11
@@ -470,16 +506,16 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
                           }
                         `}
                         onClick={() => toggleOptionalStage(stage)}
+                        aria-pressed={selectedOptionalStages.includes(stage)}
                       >
-                        <Checkbox
-                          checked={selectedOptionalStages.includes(stage)}
-                          onCheckedChange={() => toggleOptionalStage(stage)}
-                        />
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs">
+                          {selectedOptionalStages.includes(stage) ? "✓" : ""}
+                        </span>
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
                           <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
                         </div>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </>
@@ -536,8 +572,11 @@ export function CreatePartDialog({ open, onOpenChange }: CreatePartDialogProps) 
             <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
               Отмена
             </Button>
-            <Button onClick={handleCreate} disabled={!code || !name || !qtyPlan || !deadline || (!isCooperation && !machineId)}>
-              Создать деталь
+            <Button
+              onClick={() => void handleCreate()}
+              disabled={isSubmitting || !code || !name || !qtyPlan || (!isCooperation && !machineId)}
+            >
+              {submitLabel}
             </Button>
           </DialogFooter>
         </div>
