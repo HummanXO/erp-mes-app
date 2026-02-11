@@ -667,7 +667,7 @@ export function createSpecification(
       qty_plan: item.qty_required,
       qty_done: 0,
       qty_scrap: 0,
-      priority: "normal",
+      priority: item.priority ?? "normal",
       created_by: specification.created_by,
       created_at: now,
     }))
@@ -675,6 +675,34 @@ export function createSpecification(
   }
 
   return specification
+}
+
+export function createSpecItem(
+  specificationId: string,
+  item: Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">
+): SpecItem {
+  const specification = getSpecificationById(specificationId)
+  if (!specification) {
+    throw new Error("Спецификация не найдена")
+  }
+
+  const allSpecItems = getSpecItems()
+  const lineNo = getSpecItemsBySpecification(specificationId).reduce((maxLine, current) => {
+    return Math.max(maxLine, current.line_no)
+  }, 0) + 1
+
+  const newItem: SpecItem = {
+    ...item,
+    id: `spec_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    specification_id: specificationId,
+    line_no: lineNo,
+    qty_done: 0,
+    status: "open",
+  }
+
+  saveToStorage(STORAGE_KEYS.specItems, [newItem, ...allSpecItems])
+  recomputeSpecificationStatus(specificationId)
+  return newItem
 }
 
 export function updateSpecification(specification: Specification): void {
@@ -770,6 +798,49 @@ export function updateSpecItemProgress(
   specItems[index] = updated
   saveToStorage(STORAGE_KEYS.specItems, specItems)
   recomputeSpecificationStatus(existing.specification_id)
+}
+
+export function createWorkOrdersForSpecification(specificationId: string, createdBy: string): WorkOrder[] {
+  const specification = getSpecificationById(specificationId)
+  if (!specification) {
+    throw new Error("Спецификация не найдена")
+  }
+
+  const specItems = getSpecItemsBySpecification(specificationId)
+  const existingOrders = getWorkOrders().filter(
+    order => order.specification_id === specificationId && order.status !== "canceled"
+  )
+  const existingByItem = new Set(existingOrders.map(order => order.spec_item_id))
+  const now = new Date().toISOString()
+
+  const newOrders: WorkOrder[] = specItems
+    .filter(item => item.item_type === "make" && !!item.part_id)
+    .filter(item => !existingByItem.has(item.id))
+    .map(item => ({
+      id: `wo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      specification_id: specificationId,
+      spec_item_id: item.id,
+      part_id: item.part_id as string,
+      status: "backlog",
+      qty_plan: item.qty_required,
+      qty_done: 0,
+      qty_scrap: 0,
+      priority: item.priority ?? "normal",
+      created_by: createdBy,
+      created_at: now,
+    }))
+
+  if (newOrders.length === 0) return []
+
+  const allOrders = getWorkOrders()
+  saveToStorage(STORAGE_KEYS.workOrders, [...newOrders, ...allOrders])
+
+  for (const order of newOrders) {
+    syncSpecItemProgressFromWorkOrders(order.spec_item_id)
+  }
+
+  recomputeSpecificationStatus(specificationId)
+  return newOrders
 }
 
 export function getWorkOrders(): WorkOrder[] {
