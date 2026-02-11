@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
 import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm, TaskAttachment } from "./types"
+import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { ROLE_PERMISSIONS } from "./types"
 import * as dataProvider from "./data-provider-adapter"
 import { ApiClientError } from "./api-client"
@@ -25,6 +26,10 @@ interface AppContextType {
   stageFacts: StageFact[]
   tasks: Task[]
   logistics: LogisticsEntry[]
+  inventoryMetal: InventoryMetalItem[]
+  inventoryTooling: InventoryToolingItem[]
+  inventoryMovements: InventoryMovement[]
+  dataError: string | null
   
   // Actions
   refreshData: () => void
@@ -72,6 +77,13 @@ interface AppContextType {
   // Logistics operations
   createLogisticsEntry: (entry: Omit<LogisticsEntry, "id">) => LogisticsEntry
   updateLogisticsEntry: (entry: LogisticsEntry) => void
+
+  // Inventory operations
+  createInventoryMovement: (movement: Omit<InventoryMovement, "id">) => Promise<InventoryMovement>
+  createInventoryMetal: (item: Omit<InventoryMetalItem, "id">) => Promise<InventoryMetalItem>
+  updateInventoryMetal: (item: InventoryMetalItem) => Promise<void>
+  createInventoryTooling: (item: Omit<InventoryToolingItem, "id">) => Promise<InventoryToolingItem>
+  updateInventoryTooling: (item: InventoryToolingItem) => Promise<void>
   
   // Computed
   getPartProgress: (partId: string) => {
@@ -121,13 +133,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [stageFacts, setStageFacts] = useState<StageFact[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [logistics, setLogistics] = useState<LogisticsEntry[]>([])
+  const [inventoryMetal, setInventoryMetal] = useState<InventoryMetalItem[]>([])
+  const [inventoryTooling, setInventoryTooling] = useState<InventoryToolingItem[]>([])
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([])
   const [machineNorms, setMachineNorms] = useState<MachineNorm[]>([])
+  const [dataError, setDataError] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
 
   async function refreshData() {
     try {
+      setDataError(null)
       // Load data (async in API mode, sync in localStorage mode)
-      const [users, machines, parts, facts, tasks, logistics, norms] = await Promise.all([
+      const [
+        users,
+        machines,
+        parts,
+        facts,
+        tasks,
+        logistics,
+        norms,
+        metal,
+        tooling,
+        movements,
+      ] = await Promise.all([
         dataProvider.getUsers(),
         dataProvider.getMachines(),
         dataProvider.getParts(),
@@ -135,6 +163,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dataProvider.getTasks(),
         dataProvider.getLogistics(),
         dataProvider.getMachineNorms(),
+        dataProvider.getInventoryMetal(),
+        dataProvider.getInventoryTooling(),
+        dataProvider.getInventoryMovements(),
       ])
       
       setUsers(Array.isArray(users) ? users : [])
@@ -144,8 +175,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTasks(Array.isArray(tasks) ? tasks : [])
       setLogistics(Array.isArray(logistics) ? logistics : [])
       setMachineNorms(Array.isArray(norms) ? norms : [])
+      setInventoryMetal(Array.isArray(metal) ? metal : [])
+      setInventoryTooling(Array.isArray(tooling) ? tooling : [])
+      setInventoryMovements(Array.isArray(movements) ? movements : [])
     } catch (error) {
       console.error("Failed to load data:", error)
+      setDataError(error instanceof Error ? error.message : "Failed to load data")
     }
   }
 
@@ -396,6 +431,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateLogisticsEntry = useCallback((entry: LogisticsEntry) => {
     dataProvider.updateLogisticsEntry(entry)
     refreshData()
+  }, [refreshData])
+
+  const createInventoryMovement = useCallback(async (movement: Omit<InventoryMovement, "id">) => {
+    const newMovement = await dataProvider.createInventoryMovement(movement)
+    await refreshData()
+    return newMovement
+  }, [refreshData])
+
+  const createInventoryMetal = useCallback(async (item: Omit<InventoryMetalItem, "id">) => {
+    const newItem = await dataProvider.createInventoryMetal(item)
+    await refreshData()
+    return newItem
+  }, [refreshData])
+
+  const updateInventoryMetal = useCallback(async (item: InventoryMetalItem) => {
+    await dataProvider.updateInventoryMetal(item)
+    await refreshData()
+  }, [refreshData])
+
+  const createInventoryTooling = useCallback(async (item: Omit<InventoryToolingItem, "id">) => {
+    const newItem = await dataProvider.createInventoryTooling(item)
+    await refreshData()
+    return newItem
+  }, [refreshData])
+
+  const updateInventoryTooling = useCallback(async (item: InventoryToolingItem) => {
+    await dataProvider.updateInventoryTooling(item)
+    await refreshData()
   }, [refreshData])
 
   const getPartProgress = useCallback((partId: string) => {
@@ -691,6 +754,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         stageFacts,
         tasks,
         logistics,
+        inventoryMetal,
+        inventoryTooling,
+        inventoryMovements,
+        dataError,
         refreshData,
         resetData,
         createPart,
@@ -721,6 +788,11 @@ markTaskAsRead,
         setMachineNorm: setMachineNormCb,
         createLogisticsEntry,
         updateLogisticsEntry,
+        createInventoryMovement,
+        createInventoryMetal,
+        updateInventoryMetal,
+        createInventoryTooling,
+        updateInventoryTooling,
         getPartProgress,
         getPartForecast,
         getMachineTodayProgress,

@@ -1,4 +1,5 @@
 import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm, TaskAttachment } from "./types"
+import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement, Qty } from "./inventory-types"
 import { addAuditEntry } from "./audit-log"
 import { notifyTaskAccepted, notifyTaskComment, notifyTaskForReview, notifyTaskApproved, notifyTaskReturned } from "./notifications"
 import {
@@ -9,6 +10,9 @@ import {
   MOCK_TASKS,
   MOCK_LOGISTICS,
   MOCK_MACHINE_NORMS,
+  MOCK_INVENTORY_METAL,
+  MOCK_INVENTORY_TOOLING,
+  MOCK_INVENTORY_MOVEMENTS,
   DEFAULT_DEMO_DATE,
   STORAGE_KEYS,
 } from "./mock-data"
@@ -141,6 +145,9 @@ export function initializeData(): void {
     saveToStorage(STORAGE_KEYS.tasks, MOCK_TASKS)
     saveToStorage(STORAGE_KEYS.logistics, MOCK_LOGISTICS)
     saveToStorage(STORAGE_KEYS.machineNorms, MOCK_MACHINE_NORMS)
+    saveToStorage(STORAGE_KEYS.inventoryMetal, MOCK_INVENTORY_METAL)
+    saveToStorage(STORAGE_KEYS.inventoryTooling, MOCK_INVENTORY_TOOLING)
+    saveToStorage(STORAGE_KEYS.inventoryMovements, MOCK_INVENTORY_MOVEMENTS)
     saveToStorage(STORAGE_KEYS.demoDate, DEFAULT_DEMO_DATE)
   }
 }
@@ -453,6 +460,174 @@ export function updateLogisticsEntry(entry: LogisticsEntry): void {
     logistics[index] = entry
     saveToStorage(STORAGE_KEYS.logistics, logistics)
   }
+}
+
+// Inventory helpers
+function normalizeQty(qty: Qty): Required<Qty> {
+  return {
+    pcs: qty.pcs ?? 0,
+    kg: qty.kg ?? 0,
+  }
+}
+
+function addQty(base: Qty, delta: Qty): Qty {
+  const baseNorm = normalizeQty(base)
+  const deltaNorm = normalizeQty(delta)
+  return {
+    pcs: baseNorm.pcs + deltaNorm.pcs,
+    kg: baseNorm.kg + deltaNorm.kg,
+  }
+}
+
+function subtractQty(base: Qty, delta: Qty): Qty {
+  const baseNorm = normalizeQty(base)
+  const deltaNorm = normalizeQty(delta)
+  return {
+    pcs: baseNorm.pcs - deltaNorm.pcs,
+    kg: baseNorm.kg - deltaNorm.kg,
+  }
+}
+
+function isPartialQty(available: Qty, requested: Qty): boolean {
+  const a = normalizeQty(available)
+  const r = normalizeQty(requested)
+  return (r.pcs > 0 && r.pcs < a.pcs) || (r.kg > 0 && r.kg < a.kg)
+}
+
+// Inventory - Metal
+export function getInventoryMetal(): InventoryMetalItem[] {
+  return safeJsonParse(STORAGE_KEYS.inventoryMetal, MOCK_INVENTORY_METAL)
+}
+
+export function createInventoryMetal(item: Omit<InventoryMetalItem, "id">): InventoryMetalItem {
+  const items = getInventoryMetal()
+  const newItem: InventoryMetalItem = {
+    ...item,
+    id: `metal_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+  }
+  items.unshift(newItem)
+  saveToStorage(STORAGE_KEYS.inventoryMetal, items)
+  return newItem
+}
+
+export function updateInventoryMetal(item: InventoryMetalItem): void {
+  const items = getInventoryMetal()
+  const index = items.findIndex(i => i.id === item.id)
+  if (index !== -1) {
+    items[index] = item
+    saveToStorage(STORAGE_KEYS.inventoryMetal, items)
+  }
+}
+
+// Inventory - Tooling
+export function getInventoryTooling(): InventoryToolingItem[] {
+  return safeJsonParse(STORAGE_KEYS.inventoryTooling, MOCK_INVENTORY_TOOLING)
+}
+
+export function createInventoryTooling(item: Omit<InventoryToolingItem, "id">): InventoryToolingItem {
+  const items = getInventoryTooling()
+  const newItem: InventoryToolingItem = {
+    ...item,
+    id: `tool_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+  }
+  items.unshift(newItem)
+  saveToStorage(STORAGE_KEYS.inventoryTooling, items)
+  return newItem
+}
+
+export function updateInventoryTooling(item: InventoryToolingItem): void {
+  const items = getInventoryTooling()
+  const index = items.findIndex(i => i.id === item.id)
+  if (index !== -1) {
+    items[index] = item
+    saveToStorage(STORAGE_KEYS.inventoryTooling, items)
+  }
+}
+
+// Inventory - Movements
+export function getInventoryMovements(): InventoryMovement[] {
+  return safeJsonParse(STORAGE_KEYS.inventoryMovements, MOCK_INVENTORY_MOVEMENTS)
+}
+
+export function createInventoryMovement(movement: Omit<InventoryMovement, "id">): InventoryMovement {
+  const movements = getInventoryMovements()
+  const newMovement: InventoryMovement = {
+    ...movement,
+    id: `im_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+  }
+
+  movements.push(newMovement)
+  saveToStorage(STORAGE_KEYS.inventoryMovements, movements)
+
+  if (movement.item_ref.type === "metal") {
+    const items = getInventoryMetal()
+    const index = items.findIndex(i => i.id === movement.item_ref.id)
+    if (index !== -1) {
+      const item = items[index]
+      const qty = movement.qty
+
+      if (movement.type === "transfer") {
+        const transferQty = normalizeQty(qty)
+        if (isPartialQty(item.qty, transferQty)) {
+          const updated = { ...item, qty: subtractQty(item.qty, transferQty) }
+          const newItem: InventoryMetalItem = {
+            ...item,
+            id: `metal_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            qty: transferQty,
+            location: movement.to_location || item.location,
+            status: item.status,
+          }
+          items[index] = updated
+          items.unshift(newItem)
+        } else {
+          items[index] = {
+            ...item,
+            location: movement.to_location || item.location,
+          }
+        }
+      } else if (movement.type === "issue") {
+        items[index] = { ...item, qty: subtractQty(item.qty, qty) }
+      } else if (movement.type === "receipt") {
+        items[index] = { ...item, qty: addQty(item.qty, qty) }
+      } else {
+        items[index] = { ...item, qty: addQty(item.qty, qty) }
+      }
+
+      saveToStorage(STORAGE_KEYS.inventoryMetal, items)
+    }
+  } else if (movement.item_ref.type === "tooling") {
+    const items = getInventoryTooling()
+    const index = items.findIndex(i => i.id === movement.item_ref.id)
+    if (index !== -1) {
+      const item = items[index]
+      const qty = normalizeQty(movement.qty).pcs
+      const delta = qty ?? 0
+      if (movement.type === "transfer") {
+        if (delta > 0 && delta < item.qty) {
+          const updated = { ...item, qty: item.qty - delta }
+          const newItem: InventoryToolingItem = {
+            ...item,
+            id: `tool_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            qty: delta,
+            location: movement.to_location || item.location,
+          }
+          items[index] = updated
+          items.unshift(newItem)
+        } else {
+          items[index] = { ...item, location: movement.to_location || item.location }
+        }
+      } else if (movement.type === "issue") {
+        items[index] = { ...item, qty: item.qty - delta }
+      } else if (movement.type === "receipt") {
+        items[index] = { ...item, qty: item.qty + delta }
+      } else {
+        items[index] = { ...item, qty: item.qty + delta }
+      }
+      saveToStorage(STORAGE_KEYS.inventoryTooling, items)
+    }
+  }
+
+  return newMovement
 }
 
 // Tasks

@@ -16,6 +16,7 @@ import type {
   MachineNorm,
   TaskAttachment,
 } from "./types"
+import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { apiClient, ApiClientError } from "./api-client"
 import { getApiBaseUrl, isApiConfigured as isApiConfiguredEnv } from "./env"
 
@@ -442,6 +443,39 @@ export async function logout(): Promise<void> {
 // Check if API is configured
 export function isApiConfigured(): boolean {
   return isApiConfiguredEnv()
+}
+
+// Inventory (API not implemented yet)
+export async function getInventoryMetal(): Promise<InventoryMetalItem[]> {
+  return []
+}
+
+export async function createInventoryMetal(_item: Omit<InventoryMetalItem, "id">): Promise<InventoryMetalItem> {
+  throw new Error("Inventory API is not implemented")
+}
+
+export async function updateInventoryMetal(_item: InventoryMetalItem): Promise<void> {
+  throw new Error("Inventory API is not implemented")
+}
+
+export async function getInventoryTooling(): Promise<InventoryToolingItem[]> {
+  return []
+}
+
+export async function createInventoryTooling(_item: Omit<InventoryToolingItem, "id">): Promise<InventoryToolingItem> {
+  throw new Error("Inventory API is not implemented")
+}
+
+export async function updateInventoryTooling(_item: InventoryToolingItem): Promise<void> {
+  throw new Error("Inventory API is not implemented")
+}
+
+export async function getInventoryMovements(): Promise<InventoryMovement[]> {
+  return []
+}
+
+export async function createInventoryMovement(_movement: Omit<InventoryMovement, "id">): Promise<InventoryMovement> {
+  throw new Error("Inventory API is not implemented")
 }
 
 // Helper functions (fallbacks for localStorage-specific features)

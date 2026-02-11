@@ -23,22 +23,34 @@ import {
   LogOut, 
   RefreshCw,
   Calendar,
-  User
+  User,
+  Warehouse
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface AppSidebarProps {
-  activeView: "parts" | "tasks"
-  onViewChange: (view: "parts" | "tasks") => void
+  activeView: "parts" | "tasks" | "inventory"
+  onViewChange: (view: "parts" | "tasks" | "inventory") => void
 }
 
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
-  const { currentUser, logout, demoDate, setDemoDate, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount } = useApp()
+  const { currentUser, logout, demoDate, setDemoDate, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount, inventoryMetal, inventoryTooling } = useApp()
   const usingApi = dataProvider.isUsingApi()
 
   const blockers = getAllBlockers()
   const overdue = getOverdueTasks()
   const unreadCount = getUnreadTasksCount()
+  const lowMetal = inventoryMetal.filter(item => {
+    if (!item.min_level) return false
+    const pcsOk = item.min_level.pcs !== undefined ? (item.qty.pcs ?? 0) < item.min_level.pcs : false
+    const kgOk = item.min_level.kg !== undefined ? (item.qty.kg ?? 0) < item.min_level.kg : false
+    return pcsOk || kgOk
+  }).length
+  const lowTooling = inventoryTooling.filter(item => {
+    if (item.min_level === undefined) return false
+    return item.qty < item.min_level
+  }).length
+  const lowStockCount = lowMetal + lowTooling
 
   return (
     <Sidebar>
@@ -81,6 +93,25 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
                   blockers.length > 0 ? "bg-destructive text-destructive-foreground" : "bg-amber-500 text-white"
                 )}>
                   {blockers.length + overdue.length}
+                </span>
+              )}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={activeView === "inventory"}
+              onClick={() => onViewChange("inventory")}
+              className="justify-start relative"
+            >
+              <Warehouse className="h-4 w-4" />
+              <span>Склад</span>
+              {lowStockCount > 0 && (
+                <span className={cn(
+                  "ml-auto text-xs px-1.5 py-0.5 rounded-full",
+                  "bg-[color:var(--status-warning-bg)] text-[color:var(--status-warning-fg)] border border-[color:var(--status-warning-border)]"
+                )}>
+                  {lowStockCount}
                 </span>
               )}
             </SidebarMenuButton>

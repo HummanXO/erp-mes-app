@@ -180,6 +180,39 @@ export function updateLogisticsEntry(entry: any) {
   return local().updateLogisticsEntry(entry)
 }
 
+// Inventory
+export function getInventoryMetal() {
+  return USE_API ? httpProvider.getInventoryMetal() : local().getInventoryMetal()
+}
+
+export function createInventoryMetal(item: any) {
+  return USE_API ? httpProvider.createInventoryMetal(item) : local().createInventoryMetal(item)
+}
+
+export function updateInventoryMetal(item: any) {
+  return USE_API ? httpProvider.updateInventoryMetal(item) : local().updateInventoryMetal(item)
+}
+
+export function getInventoryTooling() {
+  return USE_API ? httpProvider.getInventoryTooling() : local().getInventoryTooling()
+}
+
+export function createInventoryTooling(item: any) {
+  return USE_API ? httpProvider.createInventoryTooling(item) : local().createInventoryTooling(item)
+}
+
+export function updateInventoryTooling(item: any) {
+  return USE_API ? httpProvider.updateInventoryTooling(item) : local().updateInventoryTooling(item)
+}
+
+export function getInventoryMovements() {
+  return USE_API ? httpProvider.getInventoryMovements() : local().getInventoryMovements()
+}
+
+export function createInventoryMovement(movement: any) {
+  return USE_API ? httpProvider.createInventoryMovement(movement) : local().createInventoryMovement(movement)
+}
+
 export function getTasks() {
   return USE_API ? httpProvider.getTasks() : local().getTasks()
 }
