@@ -6,9 +6,22 @@ import { InventoryOverview } from "@/components/inventory/inventory-overview"
 import { InventoryMetal } from "@/components/inventory/inventory-metal"
 import { InventoryTooling } from "@/components/inventory/inventory-tooling"
 import { InventoryMovements } from "@/components/inventory/inventory-movements"
+import { useApp } from "@/lib/app-context"
+import { Card, CardContent } from "@/components/ui/card"
 
 export function InventoryView() {
+  const { permissions } = useApp()
   const [tab, setTab] = useState("overview")
+
+  if (!permissions.canViewInventory) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-center text-sm text-muted-foreground">
+          У вас нет доступа к разделу Склад
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-4">

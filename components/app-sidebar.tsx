@@ -34,7 +34,7 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
-  const { currentUser, logout, demoDate, setDemoDate, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount, inventoryMetal, inventoryTooling } = useApp()
+  const { currentUser, logout, demoDate, setDemoDate, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount, inventoryMetal, inventoryTooling, permissions } = useApp()
   const usingApi = dataProvider.isUsingApi()
 
   const blockers = getAllBlockers()
@@ -98,24 +98,26 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
             </SidebarMenuButton>
           </SidebarMenuItem>
 
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={activeView === "inventory"}
-              onClick={() => onViewChange("inventory")}
-              className="justify-start relative"
-            >
-              <Warehouse className="h-4 w-4" />
-              <span>Склад</span>
-              {lowStockCount > 0 && (
-                <span className={cn(
-                  "ml-auto text-xs px-1.5 py-0.5 rounded-full",
-                  "bg-[color:var(--status-warning-bg)] text-[color:var(--status-warning-fg)] border border-[color:var(--status-warning-border)]"
-                )}>
-                  {lowStockCount}
-                </span>
-              )}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {permissions.canViewInventory && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={activeView === "inventory"}
+                onClick={() => onViewChange("inventory")}
+                className="justify-start relative"
+              >
+                <Warehouse className="h-4 w-4" />
+                <span>Склад</span>
+                {lowStockCount > 0 && (
+                  <span className={cn(
+                    "ml-auto text-xs px-1.5 py-0.5 rounded-full",
+                    "bg-[color:var(--status-warning-bg)] text-[color:var(--status-warning-fg)] border border-[color:var(--status-warning-border)]"
+                  )}>
+                    {lowStockCount}
+                  </span>
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
         </SidebarMenu>
         
         <Separator className="my-4" />
