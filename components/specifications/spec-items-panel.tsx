@@ -39,7 +39,7 @@ export function SpecItemsPanel({ items, workOrders, onAddItem, onHelp, onOpenPar
     return (
       <EmptyStateCard
         title="Позиции ещё не добавлены"
-        description="Позиции описывают, что нужно изготовить, купить или отдать в кооперацию. Начните с первой позиции."
+        description="Позиции описывают, что нужно изготовить у себя или отдать в кооперацию. Начните с первой позиции."
         actionLabel="Добавить позицию"
         onAction={onAddItem}
         onHelp={onHelp}

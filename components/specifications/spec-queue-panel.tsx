@@ -24,19 +24,7 @@ const STATUS_TONES: Record<WorkOrder["status"], "info" | "success" | "warning" |
 
 const STATUS_LABELS: Record<WorkOrder["status"], string> = {
   ...WORK_ORDER_STATUS_LABELS,
-  queued: "Ready",
-}
-
-const PRIORITY_TONES: Record<WorkOrder["priority"], "info" | "success" | "warning" | "danger"> = {
-  low: "info",
-  normal: "warning",
-  high: "danger",
-}
-
-const PRIORITY_LABELS: Record<WorkOrder["priority"], string> = {
-  low: "Низкий",
-  normal: "Обычный",
-  high: "Высокий",
+  queued: "Готово к запуску",
 }
 
 interface SpecQueuePanelProps {
@@ -144,10 +132,7 @@ export function SpecQueuePanel({
                     <div key={order.id} className="rounded-lg border p-3 space-y-3">
                       <div className="space-y-1">
                         <div className="text-sm font-medium">{getPartTitle(order.part_id)}</div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <StatusBadge tone={PRIORITY_TONES[order.priority]}>{PRIORITY_LABELS[order.priority]}</StatusBadge>
-                          {order.due_date && <StatusBadge tone="warning">Срок: {order.due_date}</StatusBadge>}
-                        </div>
+                        {order.due_date && <StatusBadge tone="warning">Срок: {order.due_date}</StatusBadge>}
                       </div>
 
                       <div className="space-y-2">
@@ -192,10 +177,10 @@ export function SpecQueuePanel({
                             className="h-11"
                             onClick={() => onSetReady(order.id, machineId)}
                             disabled={actionBusy}
-                            aria-label={`Перевести задание ${order.id} в Ready`}
+                            aria-label={`Перевести задание ${order.id} в очередь`}
                           >
                             <Timer className="h-4 w-4" aria-hidden="true" />
-                            Ready
+                            В очередь
                           </Button>
                         )}
 
@@ -251,7 +236,7 @@ export function SpecQueuePanel({
                             aria-label={`Завершить задание ${order.id}`}
                           >
                             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                            Done
+                            Завершить
                           </Button>
                         )}
                       </div>
