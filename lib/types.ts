@@ -105,7 +105,7 @@ export interface Part {
 
 // Specification/BOM-like entities
 export type SpecificationStatus = "draft" | "active" | "closed"
-export type SpecItemType = "make" | "buy" | "coop"
+export type SpecItemType = "make" | "coop"
 export type SpecItemStatus = "open" | "partial" | "fulfilled" | "blocked" | "canceled"
 export type WorkOrderStatus = "backlog" | "queued" | "in_progress" | "blocked" | "done" | "canceled"
 export type WorkOrderPriority = "low" | "normal" | "high"
@@ -133,7 +133,6 @@ export interface SpecItem {
   qty_required: number
   qty_done: number
   uom: string
-  priority?: WorkOrderPriority
   comment?: string
   status: SpecItemStatus
 }
@@ -308,8 +307,7 @@ export const SPEC_STATUS_LABELS: Record<SpecificationStatus, string> = {
 }
 
 export const SPEC_ITEM_TYPE_LABELS: Record<SpecItemType, string> = {
-  make: "Собственное производство",
-  buy: "Покупка",
+  make: "Деталь",
   coop: "Кооперация",
 }
 

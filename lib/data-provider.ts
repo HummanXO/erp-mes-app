@@ -667,7 +667,7 @@ export function createSpecification(
       qty_plan: item.qty_required,
       qty_done: 0,
       qty_scrap: 0,
-      priority: item.priority ?? "normal",
+      priority: "normal",
       created_by: specification.created_by,
       created_at: now,
     }))
@@ -825,7 +825,7 @@ export function createWorkOrdersForSpecification(specificationId: string, create
       qty_plan: item.qty_required,
       qty_done: 0,
       qty_scrap: 0,
-      priority: item.priority ?? "normal",
+      priority: "normal",
       created_by: createdBy,
       created_at: now,
     }))
