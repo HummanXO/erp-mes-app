@@ -18,14 +18,18 @@ jobs:
     steps:
       - name: Configure SSH
         shell: bash
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_PORT: ${{ secrets.ORACLE_PORT }}
         run: |
           set -euo pipefail
+          PORT="${ORACLE_PORT:-22}"
           install -m 700 -d ~/.ssh
           cat > ~/.ssh/id_ed25519 <<'EOF'
           ${{ secrets.ORACLE_SSH_KEY }}
           EOF
           chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "$PORT" -H "$ORACLE_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy over SSH
         shell: bash
