@@ -98,6 +98,9 @@ export interface Part {
   
   // Customer info
   customer?: string
+
+  // Part should be created from specification context.
+  source_specification_id?: string
 }
 
 // Specification/BOM-like entities

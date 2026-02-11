@@ -64,8 +64,21 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
       
       <SidebarContent className="px-2">
         <SidebarMenu>
+          {permissions.canViewSpecifications && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={activeView === "specifications"}
+                onClick={() => onViewChange("specifications")}
+                className="justify-start"
+              >
+                <ClipboardList className="h-4 w-4" />
+                <span>Спецификации</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+
           <SidebarMenuItem>
-            <SidebarMenuButton 
+            <SidebarMenuButton
               isActive={activeView === "parts"}
               onClick={() => onViewChange("parts")}
               className="justify-start"
@@ -116,19 +129,6 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
                     {lowStockCount}
                   </span>
                 )}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          )}
-
-          {permissions.canViewSpecifications && (
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                isActive={activeView === "specifications"}
-                onClick={() => onViewChange("specifications")}
-                className="justify-start"
-              >
-                <ClipboardList className="h-4 w-4" />
-                <span>Спецификации</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}

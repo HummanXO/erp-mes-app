@@ -106,6 +106,9 @@ export function getPartsInProgressAtStage(stage: any) {
 }
 
 export function createPart(part: any) {
+  if (!part?.source_specification_id) {
+    throw new Error("Деталь можно создать только из спецификации")
+  }
   return USE_API ? httpProvider.createPart(part) : local().createPart(part)
 }
 
