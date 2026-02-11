@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
@@ -27,6 +27,29 @@ export function PartsView() {
   const [machineFilter, setMachineFilter] = useState<string>("all")
   const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+
+  const openPartFromNavigation = useCallback((partId?: string | null) => {
+    if (!partId) return
+    if (parts.some(part => part.id === partId)) {
+      setSelectedPartId(partId)
+    }
+  }, [parts])
+
+  useEffect(() => {
+    const fromStorage = sessionStorage.getItem("pc.navigate.partId")
+    if (fromStorage) {
+      openPartFromNavigation(fromStorage)
+      sessionStorage.removeItem("pc.navigate.partId")
+    }
+
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ partId?: string }>
+      openPartFromNavigation(customEvent.detail?.partId)
+    }
+
+    window.addEventListener("pc-open-part", handler)
+    return () => window.removeEventListener("pc-open-part", handler)
+  }, [openPartFromNavigation])
   
   const selectedPart = selectedPartId ? parts.find((part) => part.id === selectedPartId) || null : null
 
