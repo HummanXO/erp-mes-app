@@ -213,8 +213,54 @@ export function setSpecificationPublished(specificationId: string, published: bo
   return local().setSpecificationPublished(specificationId, published)
 }
 
-export function deleteSpecification(specificationId: string, deleteLinkedParts = false) {
-  return local().deleteSpecification(specificationId, deleteLinkedParts)
+export async function deleteSpecification(specificationId: string, deleteLinkedParts = false) {
+  if (!USE_API) {
+    local().deleteSpecification(specificationId, deleteLinkedParts)
+    return
+  }
+
+  if (!deleteLinkedParts) {
+    local().deleteSpecification(specificationId, false)
+    return
+  }
+
+  const allSpecItems = local().getSpecItems()
+  const allWorkOrders = local().getWorkOrders()
+
+  const removedSpecItems = allSpecItems.filter((item: any) => item.specification_id === specificationId)
+  const nextSpecItems = allSpecItems.filter((item: any) => item.specification_id !== specificationId)
+  const nextWorkOrders = allWorkOrders.filter((order: any) => order.specification_id !== specificationId)
+
+  const candidatePartIds = Array.from(
+    new Set(
+      removedSpecItems
+        .map((item: any) => item.part_id)
+        .filter((partId: any): partId is string => Boolean(partId))
+    )
+  )
+
+  const protectedPartIds = new Set<string>([
+    ...nextSpecItems
+      .map((item: any) => item.part_id)
+      .filter((partId: any): partId is string => Boolean(partId)),
+    ...nextWorkOrders
+      .map((order: any) => order.part_id)
+      .filter((partId: any): partId is string => Boolean(partId)),
+  ])
+
+  for (const partId of candidatePartIds) {
+    if (protectedPartIds.has(partId)) continue
+    try {
+      await httpProvider.deletePart(partId)
+    } catch (error: any) {
+      if (error?.statusCode === 404) {
+        continue
+      }
+      throw error
+    }
+  }
+
+  local().deleteSpecification(specificationId, true)
 }
 
 export function getSpecItems() {
