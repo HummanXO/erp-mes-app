@@ -345,7 +345,6 @@ export function SpecificationsView() {
 
               <SpecItemsPanel
                 items={selectedSpecItems}
-                workOrders={selectedWorkOrders}
                 onAddItem={() => setAddItemOpen(true)}
                 onHelp={() => openHowItWorks("items")}
                 onOpenPart={openPartDetails}
