@@ -32,6 +32,17 @@ export function Dashboard() {
     }
   }, [activeView, permissions.canViewInventory, permissions.canViewSpecifications])
 
+  useEffect(() => {
+    const openPartListener = () => {
+      setActiveView("parts")
+    }
+
+    window.addEventListener("pc-open-part", openPartListener)
+    return () => {
+      window.removeEventListener("pc-open-part", openPartListener)
+    }
+  }, [])
+
   // Not logged in
   if (!currentUser) {
     // Show API login form if using HTTP API, otherwise show user picker

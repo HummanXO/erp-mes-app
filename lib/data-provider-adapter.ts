@@ -206,6 +206,10 @@ export function setSpecificationPublished(specificationId: string, published: bo
   return local().setSpecificationPublished(specificationId, published)
 }
 
+export function deleteSpecification(specificationId: string, deleteLinkedParts = false) {
+  return local().deleteSpecification(specificationId, deleteLinkedParts)
+}
+
 export function getSpecItems() {
   return local().getSpecItems()
 }

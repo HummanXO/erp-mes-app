@@ -195,6 +195,40 @@ export function initializeData(): void {
   if (!localStorage.getItem(STORAGE_KEYS.accessGrants)) {
     saveToStorage(STORAGE_KEYS.accessGrants, MOCK_ACCESS_GRANTS)
   }
+
+  // Migration: remove legacy seeded demo data for specifications/work orders/access.
+  // Keep user-created data intact.
+  try {
+    const specifications = safeJsonParse<Specification[]>(STORAGE_KEYS.specifications, [])
+    const specItems = safeJsonParse<SpecItem[]>(STORAGE_KEYS.specItems, [])
+    const workOrders = safeJsonParse<WorkOrder[]>(STORAGE_KEYS.workOrders, [])
+    const grants = safeJsonParse<AccessGrant[]>(STORAGE_KEYS.accessGrants, [])
+
+    const legacySpecIds = new Set(["spec_1001", "spec_1002"])
+    const hasOnlyLegacySpecs =
+      specifications.length > 0 &&
+      specifications.every(spec => legacySpecIds.has(spec.id))
+
+    if (hasOnlyLegacySpecs) {
+      saveToStorage(STORAGE_KEYS.specifications, [])
+      saveToStorage(
+        STORAGE_KEYS.specItems,
+        specItems.filter(item => !legacySpecIds.has(item.specification_id))
+      )
+      saveToStorage(
+        STORAGE_KEYS.workOrders,
+        workOrders.filter(order => !legacySpecIds.has(order.specification_id))
+      )
+      saveToStorage(
+        STORAGE_KEYS.accessGrants,
+        grants.filter(
+          grant => !(grant.entity_type === "specification" && legacySpecIds.has(grant.entity_id))
+        )
+      )
+    }
+  } catch {
+    // Ignore migration issues, local storage may contain malformed user data.
+  }
 }
 
 // Reset data to initial mock data
@@ -657,6 +691,51 @@ export function setSpecificationPublished(specificationId: string, published: bo
     published_to_operators: published,
     status: published && specification.status === "draft" ? "active" : specification.status,
   })
+}
+
+export function deleteSpecification(specificationId: string, deleteLinkedParts = false): void {
+  const existing = getSpecificationById(specificationId)
+  if (!existing) return
+
+  const allSpecItems = getSpecItems()
+  const allWorkOrders = getWorkOrders()
+  const allGrants = getAccessGrants()
+
+  const removedSpecItems = allSpecItems.filter(item => item.specification_id === specificationId)
+  const removedWorkOrders = allWorkOrders.filter(order => order.specification_id === specificationId)
+  const removedWorkOrderIds = new Set(removedWorkOrders.map(order => order.id))
+
+  const nextSpecifications = getSpecifications().filter(spec => spec.id !== specificationId)
+  const nextSpecItems = allSpecItems.filter(item => item.specification_id !== specificationId)
+  const nextWorkOrders = allWorkOrders.filter(order => order.specification_id !== specificationId)
+  const nextGrants = allGrants.filter(grant => {
+    if (grant.entity_type === "specification" && grant.entity_id === specificationId) return false
+    if (grant.entity_type === "work_order" && removedWorkOrderIds.has(grant.entity_id)) return false
+    return true
+  })
+
+  saveToStorage(STORAGE_KEYS.specifications, nextSpecifications)
+  saveToStorage(STORAGE_KEYS.specItems, nextSpecItems)
+  saveToStorage(STORAGE_KEYS.workOrders, nextWorkOrders)
+  saveToStorage(STORAGE_KEYS.accessGrants, nextGrants)
+
+  if (!deleteLinkedParts) return
+
+  const candidatePartIds = Array.from(
+    new Set(removedSpecItems.map(item => item.part_id).filter((partId): partId is string => !!partId))
+  )
+  if (candidatePartIds.length === 0) return
+
+  const protectedPartIds = new Set<string>([
+    ...nextSpecItems.map(item => item.part_id).filter((partId): partId is string => !!partId),
+    ...nextWorkOrders.map(order => order.part_id),
+  ])
+
+  for (const partId of candidatePartIds) {
+    if (!protectedPartIds.has(partId)) {
+      deletePart(partId)
+    }
+  }
 }
 
 export function getSpecItems(): SpecItem[] {

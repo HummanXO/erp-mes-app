@@ -19,8 +19,10 @@ import {
   WORK_ORDER_STATUS_LABELS,
 } from "@/lib/types"
 import { StatusBadge } from "@/components/inventory/status-badge"
+import { PartCard } from "@/components/part-card"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -39,6 +41,7 @@ import {
   Search,
   ShieldPlus,
   Timer,
+  Trash2,
   Wrench,
   X,
 } from "lucide-react"
@@ -116,6 +119,7 @@ export function SpecificationsView() {
     machines,
     createSpecification,
     setSpecificationPublished,
+    deleteSpecification,
     createWorkOrder,
     queueWorkOrder,
     startWorkOrder,
@@ -142,6 +146,8 @@ export function SpecificationsView() {
   const [actionBusy, setActionBusy] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteLinkedParts, setDeleteLinkedParts] = useState(false)
   const [newSpecNumber, setNewSpecNumber] = useState("")
   const [newSpecCustomer, setNewSpecCustomer] = useState("")
   const [newSpecNote, setNewSpecNote] = useState("")
@@ -325,6 +331,11 @@ export function SpecificationsView() {
     }
   }
 
+  const openPartDetails = (partId: string) => {
+    sessionStorage.setItem("pc.navigate.partId", partId)
+    window.dispatchEvent(new CustomEvent("pc-open-part", { detail: { partId } }))
+  }
+
   const handleCreateSpecification = async () => {
     const number = newSpecNumber.trim()
     if (!number || !currentUser) {
@@ -370,6 +381,20 @@ export function SpecificationsView() {
       setSelectedSpecificationId(createdSpecification.id)
       setCreateOpen(false)
       clearCreateSpecificationForm()
+    })
+  }
+
+  const handleDeleteSpecification = async () => {
+    if (!selectedSpecification) return
+    const deletedSpecId = selectedSpecification.id
+
+    await runAction(async () => {
+      await deleteSpecification(deletedSpecId, deleteLinkedParts)
+      setDeleteOpen(false)
+      setDeleteLinkedParts(false)
+
+      const nextList = filteredSpecifications.filter(spec => spec.id !== deletedSpecId)
+      setSelectedSpecificationId(nextList[0]?.id ?? null)
     })
   }
 
@@ -823,6 +848,17 @@ export function SpecificationsView() {
                         />
                         <Label>Опубликовать операторам</Label>
                       </div>
+                      <div className="ml-auto">
+                        <Button
+                          variant="outline"
+                          className="h-11"
+                          onClick={() => setDeleteOpen(true)}
+                          disabled={actionBusy}
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                          Удалить спецификацию
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -843,9 +879,12 @@ export function SpecificationsView() {
                       const hasWorkOrder = selectedWorkOrders.some(
                         (workOrder) => workOrder.spec_item_id === item.id && workOrder.status !== "canceled"
                       )
+                      const itemProgress = item.qty_required > 0
+                        ? Math.min(100, Math.round((item.qty_done / item.qty_required) * 100))
+                        : 0
 
                       return (
-                        <div key={item.id} className="rounded-lg border p-3 space-y-2">
+                        <div key={item.id} className="rounded-lg border p-3 space-y-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <div className="font-medium">#{item.line_no} {item.description}</div>
@@ -861,18 +900,29 @@ export function SpecificationsView() {
                             </div>
                           </div>
 
+                          {part && (
+                            <div className="space-y-2">
+                              <PartCard part={part} onClick={() => openPartDetails(part.id)} />
+                              <div className="flex justify-end">
+                                <Button
+                                  variant="outline"
+                                  className="h-11"
+                                  onClick={() => openPartDetails(part.id)}
+                                >
+                                  Открыть в деталях
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+
                           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                             <div>
                               Выполнено: <span className="font-medium">{item.qty_done} / {item.qty_required} {item.uom}</span>
                             </div>
-                            <div className="text-muted-foreground">
-                              {item.qty_required > 0 ? Math.min(100, Math.round((item.qty_done / item.qty_required) * 100)) : 0}%
-                            </div>
+                            <div className="text-muted-foreground">{itemProgress}%</div>
                           </div>
 
-                          <Progress
-                            value={item.qty_required > 0 ? Math.min(100, Math.round((item.qty_done / item.qty_required) * 100)) : 0}
-                          />
+                          <Progress value={itemProgress} />
 
                           {canManageWorkOrders && item.item_type === "make" && item.part_id && !hasWorkOrder && (
                             <Button
@@ -1022,6 +1072,53 @@ export function SpecificationsView() {
           )}
         </div>
       </div>
+
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          if (!open) {
+            setDeleteLinkedParts(false)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Удалить спецификацию</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-1">
+            <p className="text-sm text-muted-foreground">
+              Спецификация <span className="font-medium text-foreground">{selectedSpecification?.number ?? "—"}</span> будет удалена вместе с позициями, заданиями и доступами операторов.
+            </p>
+            <div className="rounded-md border p-3">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="delete-linked-parts"
+                  checked={deleteLinkedParts}
+                  onCheckedChange={(checked) => setDeleteLinkedParts(Boolean(checked))}
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="delete-linked-parts" className="text-sm font-medium">
+                    Удалить связанные детали каскадом
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Удаляются только детали, которые больше не используются в других спецификациях/заданиях.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" className="h-11" onClick={() => setDeleteOpen(false)}>
+              Отмена
+            </Button>
+            <Button className="h-11" onClick={() => void handleDeleteSpecification()} disabled={actionBusy}>
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-xl">

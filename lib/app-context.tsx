@@ -116,6 +116,7 @@ interface AppContextType {
   }) => Promise<Specification>
   updateSpecification: (specification: Specification) => Promise<void>
   setSpecificationPublished: (specificationId: string, published: boolean) => Promise<void>
+  deleteSpecification: (specificationId: string, deleteLinkedParts?: boolean) => Promise<void>
   updateSpecItemProgress: (specItemId: string, qtyDone: number, statusOverride?: SpecItemStatus) => Promise<void>
   createWorkOrder: (order: Omit<WorkOrder, "id" | "created_at">) => Promise<WorkOrder>
   updateWorkOrder: (order: WorkOrder) => Promise<void>
@@ -547,6 +548,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const setSpecificationPublished = useCallback(async (specificationId: string, published: boolean) => {
     await dataProvider.setSpecificationPublished(specificationId, published)
+    await refreshData()
+  }, [refreshData])
+
+  const deleteSpecification = useCallback(async (specificationId: string, deleteLinkedParts = false) => {
+    await dataProvider.deleteSpecification(specificationId, deleteLinkedParts)
     await refreshData()
   }, [refreshData])
 
@@ -1002,6 +1008,7 @@ markTaskAsRead,
         createSpecification,
         updateSpecification,
         setSpecificationPublished,
+        deleteSpecification,
         updateSpecItemProgress,
         createWorkOrder,
         updateWorkOrder,
