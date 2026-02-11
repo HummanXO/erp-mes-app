@@ -16,39 +16,54 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          cat > ~/.ssh/id_ed25519 <<'EOF'
+          ${{ secrets.ORACLE_SSH_KEY }}
+          EOF
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.ORACLE_HOST }}" >> ~/.ssh/known_hosts
+
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ${{ secrets.ORACLE_USER }}
-          key: ${{ secrets.ORACLE_SSH_KEY }}
-          script_stop: true
-          script: |
-            APP_DIR="${{ secrets.ORACLE_APP_DIR }}"
-            BRANCH="main"
-            COMPOSE_FILE="docker-compose.prod.yml"
+        shell: bash
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_PORT: ${{ secrets.ORACLE_PORT }}
+          ORACLE_APP_DIR: ${{ secrets.ORACLE_APP_DIR }}
+        run: |
+          set -euo pipefail
+          PORT="${ORACLE_PORT:-22}"
 
-            if [ -z "$APP_DIR" ]; then
-              echo "ORACLE_APP_DIR secret is empty"
-              exit 1
-            fi
+          ssh -i ~/.ssh/id_ed25519 -p "$PORT" "${ORACLE_USER}@${ORACLE_HOST}" \
+            "APP_DIR='${ORACLE_APP_DIR}' BRANCH='main' COMPOSE_FILE='docker-compose.prod.yml' bash -se" <<'EOF'
+          set -euo pipefail
 
-            if [ ! -d "$APP_DIR" ]; then
-              echo "APP_DIR does not exist: $APP_DIR"
-              exit 1
-            fi
+          if [ -z "$APP_DIR" ]; then
+            echo "ORACLE_APP_DIR secret is empty"
+            exit 1
+          fi
 
-            cd "$APP_DIR"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "APP_DIR does not exist: $APP_DIR"
+            exit 1
+          fi
 
-            if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-              echo "Not a git repository: $APP_DIR"
-              exit 1
-            fi
+          cd "$APP_DIR"
 
-            git fetch --all --prune
-            git checkout "$BRANCH"
-            git reset --hard "origin/$BRANCH"
+          if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            echo "Not a git repository: $APP_DIR"
+            exit 1
+          fi
 
-            # Deploy backend first (API), then frontend.
-            docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate --no-deps backend
-            docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate --no-deps frontend
+          git fetch --all --prune
+          git checkout "$BRANCH"
+          git reset --hard "origin/$BRANCH"
+
+          # Deploy backend first (API), then frontend.
+          docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate --no-deps backend
+          docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate --no-deps frontend
+          EOF
