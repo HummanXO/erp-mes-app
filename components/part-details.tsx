@@ -81,7 +81,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [showLinkInput, setShowLinkInput] = useState(false)
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
 
-  const drawingUrlValue = part.drawing_url || ""
+  const drawingUrlValue = drawingUrl.trim()
   const drawingUrlLower = drawingUrlValue.toLowerCase()
   const isPdfDrawing =
     drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
@@ -110,8 +110,12 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   }
 
   useEffect(() => {
+    setDrawingUrl(part.drawing_url || "")
+  }, [part.id, part.drawing_url])
+
+  useEffect(() => {
     setDrawingError(false)
-  }, [drawingUrl, part.drawing_url])
+  }, [drawingUrl])
   
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const progress = getPartProgress(part.id)
