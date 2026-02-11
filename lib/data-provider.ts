@@ -326,6 +326,10 @@ export function getPartsInProgressAtStage(stage: ProductionStage): Part[] {
 }
 
 export function createPart(part: Omit<Part, "id">): Part {
+  if (!part.source_specification_id) {
+    throw new Error("Деталь можно создать только из спецификации")
+  }
+
   const parts = getParts()
   const newPart: Part = {
     ...part,

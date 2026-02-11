@@ -9,13 +9,11 @@ import { STAGE_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
 import { PartCard } from "./part-card"
 import { PartDetails } from "./part-details"
-import { CreatePartDialog } from "./create-part-dialog"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, Search, Filter, Building2 } from "lucide-react"
+import { Search, Filter, Building2 } from "lucide-react"
 
 export function PartsView() {
   const { parts, machines, permissions } = useApp()
@@ -26,7 +24,6 @@ export function PartsView() {
   const [typeFilter, setTypeFilter] = useState<"all" | "own" | "cooperation">("all")
   const [machineFilter, setMachineFilter] = useState<string>("all")
   const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
   const openPartFromNavigation = useCallback((partId?: string | null) => {
     if (!partId) return
@@ -117,26 +114,20 @@ export function PartsView() {
   const cooperationCount = visibleParts.filter(p => p.is_cooperation).length
   const ownCount = visibleParts.filter(p => !p.is_cooperation).length
   
-  // Check if user can create any parts
-  const canCreateParts = permissions.canCreateParts && (permissions.canCreateOwnParts || permissions.canCreateCoopParts)
-
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-bold">Детали</h1>
           <p className="text-sm text-muted-foreground">
             {visibleParts.length} деталей
             {permissions.canViewCooperation && `: ${ownCount} своих, ${cooperationCount} кооперация`}
           </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Создание новых деталей выполняется только из спецификаций
+          </p>
         </div>
-        {canCreateParts && (
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" />
-            Новая деталь
-          </Button>
-        )}
       </div>
       
       {/* Search and Filters */}
@@ -237,11 +228,6 @@ export function PartsView() {
         )}
       </div>
       
-      {/* Create dialog */}
-      <CreatePartDialog 
-        open={createDialogOpen} 
-        onOpenChange={setCreateDialogOpen}
-      />
     </div>
   )
 }
