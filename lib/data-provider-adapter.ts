@@ -183,96 +183,50 @@ export function updateLogisticsEntry(entry: any) {
   return local().updateLogisticsEntry(entry)
 }
 
-// Specifications/work orders/access:
-// temporary local fallback even in API mode until backend endpoints are implemented.
 export function getSpecifications() {
-  return local().getSpecifications()
+  return USE_API ? httpProvider.getSpecifications() : local().getSpecifications()
 }
 
 export function getSpecificationsForUser(userId: string) {
-  return local().getSpecificationsForUser(userId)
+  return USE_API ? httpProvider.getSpecificationsForUser(userId) : local().getSpecificationsForUser(userId)
 }
 
 export function getSpecificationById(specificationId: string) {
-  return local().getSpecificationById(specificationId)
+  return USE_API ? httpProvider.getSpecificationById(specificationId) : local().getSpecificationById(specificationId)
 }
 
 export function createSpecification(payload: any) {
-  return local().createSpecification(payload)
+  return USE_API ? httpProvider.createSpecification(payload) : local().createSpecification(payload)
 }
 
 export function createSpecItem(specificationId: string, item: any) {
-  return local().createSpecItem(specificationId, item)
+  return USE_API ? httpProvider.createSpecItem(specificationId, item) : local().createSpecItem(specificationId, item)
 }
 
 export function updateSpecification(specification: any) {
-  return local().updateSpecification(specification)
+  return USE_API ? httpProvider.updateSpecification(specification) : local().updateSpecification(specification)
 }
 
 export function setSpecificationPublished(specificationId: string, published: boolean) {
-  return local().setSpecificationPublished(specificationId, published)
+  return USE_API ? httpProvider.setSpecificationPublished(specificationId, published) : local().setSpecificationPublished(specificationId, published)
 }
 
-export async function deleteSpecification(specificationId: string, deleteLinkedParts = false) {
-  if (!USE_API) {
-    local().deleteSpecification(specificationId, deleteLinkedParts)
-    return
-  }
-
-  if (!deleteLinkedParts) {
-    local().deleteSpecification(specificationId, false)
-    return
-  }
-
-  const allSpecItems = local().getSpecItems()
-  const allWorkOrders = local().getWorkOrders()
-
-  const removedSpecItems = allSpecItems.filter((item: any) => item.specification_id === specificationId)
-  const nextSpecItems = allSpecItems.filter((item: any) => item.specification_id !== specificationId)
-  const nextWorkOrders = allWorkOrders.filter((order: any) => order.specification_id !== specificationId)
-
-  const candidatePartIds = Array.from(
-    new Set(
-      removedSpecItems
-        .map((item: any) => item.part_id)
-        .filter((partId: any): partId is string => Boolean(partId))
-    )
-  )
-
-  const protectedPartIds = new Set<string>([
-    ...nextSpecItems
-      .map((item: any) => item.part_id)
-      .filter((partId: any): partId is string => Boolean(partId)),
-    ...nextWorkOrders
-      .map((order: any) => order.part_id)
-      .filter((partId: any): partId is string => Boolean(partId)),
-  ])
-
-  for (const partId of candidatePartIds) {
-    if (protectedPartIds.has(partId)) continue
-    try {
-      await httpProvider.deletePart(partId)
-    } catch (error: any) {
-      if (error?.statusCode === 404) {
-        continue
-      }
-      throw error
-    }
-  }
-
-  local().deleteSpecification(specificationId, true)
+export function deleteSpecification(specificationId: string, deleteLinkedParts = false) {
+  return USE_API
+    ? httpProvider.deleteSpecification(specificationId, deleteLinkedParts)
+    : local().deleteSpecification(specificationId, deleteLinkedParts)
 }
 
 export function getSpecItems() {
-  return local().getSpecItems()
+  return USE_API ? httpProvider.getSpecItems() : local().getSpecItems()
 }
 
 export function getSpecItemsBySpecification(specificationId: string) {
-  return local().getSpecItemsBySpecification(specificationId)
+  return USE_API ? httpProvider.getSpecItemsBySpecification(specificationId) : local().getSpecItemsBySpecification(specificationId)
 }
 
 export function updateSpecItemProgress(specItemId: string, qtyDone: number, statusOverride?: any) {
-  return local().updateSpecItemProgress(specItemId, qtyDone, statusOverride)
+  return USE_API ? httpProvider.updateSpecItemProgress(specItemId, qtyDone, statusOverride) : local().updateSpecItemProgress(specItemId, qtyDone, statusOverride)
 }
 
 export function createWorkOrdersForSpecification(specificationId: string, createdBy: string) {
@@ -320,19 +274,21 @@ export function completeWorkOrder(workOrderId: string) {
 }
 
 export function getAccessGrants() {
-  return local().getAccessGrants()
+  return USE_API ? httpProvider.getAccessGrants() : local().getAccessGrants()
 }
 
 export function getAccessGrantsForEntity(entityType: any, entityId: string) {
-  return local().getAccessGrantsForEntity(entityType, entityId)
+  return USE_API ? httpProvider.getAccessGrantsForEntity(entityType, entityId) : local().getAccessGrantsForEntity(entityType, entityId)
 }
 
 export function grantAccess(entityType: any, entityId: string, userId: string, permission: any, createdBy: string) {
-  return local().grantAccess(entityType, entityId, userId, permission, createdBy)
+  return USE_API
+    ? httpProvider.grantAccess(entityType, entityId, userId, permission, createdBy)
+    : local().grantAccess(entityType, entityId, userId, permission, createdBy)
 }
 
 export function revokeAccess(grantId: string) {
-  return local().revokeAccess(grantId)
+  return USE_API ? httpProvider.revokeAccess(grantId) : local().revokeAccess(grantId)
 }
 
 // Inventory

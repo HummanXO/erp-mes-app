@@ -127,6 +127,48 @@ function transformMachineNorm(backendNorm: any): MachineNorm {
   }
 }
 
+function transformSpecification(backendSpecification: any): Specification {
+  return {
+    id: backendSpecification.id,
+    number: backendSpecification.number,
+    customer: backendSpecification.customer ?? undefined,
+    deadline: backendSpecification.deadline ?? undefined,
+    note: backendSpecification.note ?? undefined,
+    status: backendSpecification.status,
+    published_to_operators: backendSpecification.published_to_operators,
+    created_by: backendSpecification.created_by,
+    created_at: backendSpecification.created_at,
+  }
+}
+
+function transformSpecItem(backendItem: any): SpecItem {
+  return {
+    id: backendItem.id,
+    specification_id: backendItem.specification_id,
+    line_no: backendItem.line_no,
+    item_type: backendItem.item_type,
+    part_id: backendItem.part_id ?? undefined,
+    description: backendItem.description,
+    qty_required: backendItem.qty_required,
+    qty_done: backendItem.qty_done,
+    uom: backendItem.uom,
+    comment: backendItem.comment ?? undefined,
+    status: backendItem.status,
+  }
+}
+
+function transformAccessGrant(backendGrant: any): AccessGrant {
+  return {
+    id: backendGrant.id,
+    entity_type: backendGrant.entity_type,
+    entity_id: backendGrant.entity_id,
+    user_id: backendGrant.user_id,
+    permission: backendGrant.permission,
+    created_by: backendGrant.created_by,
+    created_at: backendGrant.created_at,
+  }
+}
+
 function resolveUploadUrl(url: string): string {
   if (!url) return url
   if (url.startsWith("/uploads/")) {
@@ -467,50 +509,84 @@ export function isApiConfigured(): boolean {
   return isApiConfiguredEnv()
 }
 
-// Specifications/work orders (API not implemented yet)
+// Specifications
 export async function getSpecifications(): Promise<Specification[]> {
-  return []
+  const response = await apiClient.getSpecifications()
+  const data = response.data || response
+  return (Array.isArray(data) ? data : []).map(transformSpecification)
 }
 
 export async function getSpecificationsForUser(_userId: string): Promise<Specification[]> {
-  return []
+  // Backend returns data already scoped to current user.
+  return getSpecifications()
 }
 
-export async function getSpecificationById(_specificationId: string): Promise<Specification | undefined> {
-  return undefined
+export async function getSpecificationById(specificationId: string): Promise<Specification | undefined> {
+  try {
+    const response = await apiClient.getSpecificationById(specificationId)
+    return transformSpecification(response)
+  } catch (error) {
+    if (error instanceof ApiClientError && error.statusCode === 404) {
+      return undefined
+    }
+    throw error
+  }
 }
 
 export async function createSpecification(
-  _payload: {
+  payload: {
     specification: Omit<Specification, "id" | "created_at">
     items: Array<Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">>
   }
 ): Promise<Specification> {
-  throw new Error("Specification API is not implemented")
+  const createdSpecification = await apiClient.createSpecification(payload.specification)
+
+  const specificationId = createdSpecification.id
+  for (const item of payload.items) {
+    await apiClient.createSpecItem(specificationId, item)
+  }
+
+  return transformSpecification(createdSpecification)
 }
 
-export async function updateSpecification(_specification: Specification): Promise<void> {
-  throw new Error("Specification API is not implemented")
+export async function createSpecItem(
+  specificationId: string,
+  item: Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">
+): Promise<SpecItem> {
+  const response = await apiClient.createSpecItem(specificationId, item)
+  return transformSpecItem(response)
 }
 
-export async function setSpecificationPublished(_specificationId: string, _published: boolean): Promise<void> {
-  throw new Error("Specification API is not implemented")
+export async function updateSpecification(specification: Specification): Promise<void> {
+  await apiClient.updateSpecification(specification.id, specification)
+}
+
+export async function setSpecificationPublished(specificationId: string, published: boolean): Promise<void> {
+  await apiClient.setSpecificationPublished(specificationId, published)
+}
+
+export async function deleteSpecification(specificationId: string, deleteLinkedParts = false): Promise<void> {
+  await apiClient.deleteSpecification(specificationId, deleteLinkedParts)
 }
 
 export async function getSpecItems(): Promise<SpecItem[]> {
-  return []
+  const response = await apiClient.getSpecItems()
+  const data = response.data || response
+  return (Array.isArray(data) ? data : []).map(transformSpecItem)
 }
 
-export async function getSpecItemsBySpecification(_specificationId: string): Promise<SpecItem[]> {
-  return []
+export async function getSpecItemsBySpecification(specificationId: string): Promise<SpecItem[]> {
+  const response = await apiClient.getSpecItemsBySpecification(specificationId)
+  const data = response.data || response
+  return (Array.isArray(data) ? data : []).map(transformSpecItem)
 }
 
 export async function updateSpecItemProgress(
-  _specItemId: string,
-  _qtyDone: number,
-  _statusOverride?: SpecItemStatus
+  specItemId: string,
+  qtyDone: number,
+  statusOverride?: SpecItemStatus
 ): Promise<void> {
-  throw new Error("Specification API is not implemented")
+  await apiClient.updateSpecItemProgress(specItemId, qtyDone, statusOverride)
 }
 
 export async function getWorkOrders(): Promise<WorkOrder[]> {
@@ -554,25 +630,38 @@ export async function completeWorkOrder(_workOrderId: string): Promise<void> {
 }
 
 export async function getAccessGrants(): Promise<AccessGrant[]> {
-  return []
+  const response = await apiClient.getAccessGrants()
+  const data = response.data || response
+  return (Array.isArray(data) ? data : []).map(transformAccessGrant)
 }
 
-export async function getAccessGrantsForEntity(_entityType: AccessEntityType, _entityId: string): Promise<AccessGrant[]> {
-  return []
+export async function getAccessGrantsForEntity(entityType: AccessEntityType, entityId: string): Promise<AccessGrant[]> {
+  const response = await apiClient.getAccessGrants({
+    entity_type: entityType,
+    entity_id: entityId,
+  })
+  const data = response.data || response
+  return (Array.isArray(data) ? data : []).map(transformAccessGrant)
 }
 
 export async function grantAccess(
-  _entityType: AccessEntityType,
-  _entityId: string,
-  _userId: string,
-  _permission: AccessPermission,
+  entityType: AccessEntityType,
+  entityId: string,
+  userId: string,
+  permission: AccessPermission,
   _createdBy: string
 ): Promise<AccessGrant> {
-  throw new Error("Access grant API is not implemented")
+  const response = await apiClient.grantAccess({
+    entity_type: entityType,
+    entity_id: entityId,
+    user_id: userId,
+    permission,
+  })
+  return transformAccessGrant(response)
 }
 
-export async function revokeAccess(_grantId: string): Promise<void> {
-  throw new Error("Access grant API is not implemented")
+export async function revokeAccess(grantId: string): Promise<void> {
+  await apiClient.revokeAccess(grantId)
 }
 
 // Inventory (API not implemented yet)
