@@ -13,6 +13,7 @@ import type {
   WorkOrderStatus,
 } from "@/lib/types"
 import {
+  PART_STATUS_LABELS,
   SPEC_ITEM_STATUS_LABELS,
   SPEC_ITEM_TYPE_LABELS,
   SPEC_STATUS_LABELS,
@@ -97,6 +98,12 @@ const ACCESS_PERMISSION_TONES: Record<AccessPermission, Tone> = {
 
 const WORK_ORDER_LANES: WorkOrderStatus[] = ["backlog", "queued", "in_progress", "blocked", "done"]
 
+const PART_STATUS_TONES = {
+  not_started: "info",
+  in_progress: "warning",
+  done: "success",
+} as const
+
 function formatDateTime(value?: string): string {
   if (!value) return "—"
   const date = new Date(value)
@@ -134,6 +141,7 @@ export function SpecificationsView() {
     getWorkOrdersForSpecification,
     getAccessGrantsForSpecification,
     getPartById,
+    getPartProgress,
     getMachineById,
     getUserById,
   } = useApp()
@@ -879,8 +887,12 @@ export function SpecificationsView() {
                       const hasWorkOrder = selectedWorkOrders.some(
                         (workOrder) => workOrder.spec_item_id === item.id && workOrder.status !== "canceled"
                       )
-                      const itemProgress = item.qty_required > 0
-                        ? Math.min(100, Math.round((item.qty_done / item.qty_required) * 100))
+                      const linkedPartProgress =
+                        part && item.item_type === "make" ? getPartProgress(part.id) : null
+                      const effectiveQtyDone = linkedPartProgress ? linkedPartProgress.qtyDone : item.qty_done
+                      const effectiveQtyRequired = linkedPartProgress ? part.qty_plan : item.qty_required
+                      const itemProgress = effectiveQtyRequired > 0
+                        ? Math.min(100, Math.round((effectiveQtyDone / effectiveQtyRequired) * 100))
                         : 0
 
                       return (
@@ -896,6 +908,11 @@ export function SpecificationsView() {
                               <StatusBadge tone={SPEC_ITEM_STATUS_TONES[item.status]}>
                                 {SPEC_ITEM_STATUS_LABELS[item.status]}
                               </StatusBadge>
+                              {part && item.item_type === "make" && (
+                                <StatusBadge tone={PART_STATUS_TONES[part.status]}>
+                                  Деталь: {PART_STATUS_LABELS[part.status]}
+                                </StatusBadge>
+                              )}
                               <StatusBadge tone="info">{SPEC_ITEM_TYPE_LABELS[item.item_type]}</StatusBadge>
                             </div>
                           </div>
@@ -917,7 +934,7 @@ export function SpecificationsView() {
 
                           <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                             <div>
-                              Выполнено: <span className="font-medium">{item.qty_done} / {item.qty_required} {item.uom}</span>
+                              Выполнено: <span className="font-medium">{effectiveQtyDone} / {effectiveQtyRequired} {item.uom}</span>
                             </div>
                             <div className="text-muted-foreground">{itemProgress}%</div>
                           </div>
