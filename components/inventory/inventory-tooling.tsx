@@ -6,6 +6,7 @@ import type { MovementType, StockStatus, ToolingCategory, ToolingCondition } fro
 import { CONDITION_TONES, STOCK_STATUS_LABELS, STOCK_STATUS_TONES, TOOLING_CATEGORY_LABELS, TOOLING_CONDITION_LABELS } from "@/lib/inventory-constants"
 import { StatusBadge } from "@/components/inventory/status-badge"
 import { MovementDialog } from "@/components/inventory/movement-dialog"
+import { ToolingItemDialog } from "@/components/inventory/tooling-item-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -32,6 +33,8 @@ export function InventoryTooling() {
   const [onlyBelowMin, setOnlyBelowMin] = useState(false)
   const [movementDialogOpen, setMovementDialogOpen] = useState(false)
   const [movementType, setMovementType] = useState<MovementType>("receipt")
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -106,6 +109,17 @@ export function InventoryTooling() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Оснастка</h2>
+            <p className="text-xs text-muted-foreground">{inventoryTooling.length} позиций</p>
+          </div>
+          {permissions.canManageLogistics && (
+            <Button className="h-11" onClick={() => setCreateDialogOpen(true)}>
+              Новая позиция
+            </Button>
+          )}
+        </div>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Фильтры</CardTitle>
@@ -288,6 +302,14 @@ export function InventoryTooling() {
 
                 {permissions.canManageLogistics && (
                   <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="h-11"
+                      onClick={() => setEditDialogOpen(true)}
+                    >
+                      Редактировать
+                    </Button>
                     {movementButtons.map((btn) => (
                       <Button
                         key={btn.type}
@@ -313,6 +335,15 @@ export function InventoryTooling() {
           open={movementDialogOpen}
           onOpenChange={setMovementDialogOpen}
           defaultType={movementType}
+          item={selectedItem}
+        />
+      )}
+
+      <ToolingItemDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+      {selectedItem && (
+        <ToolingItemDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
           item={selectedItem}
         />
       )}
