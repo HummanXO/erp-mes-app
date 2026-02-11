@@ -114,10 +114,15 @@ interface AppContextType {
     specification: Omit<Specification, "id" | "created_at">
     items: Array<Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">>
   }) => Promise<Specification>
+  createSpecItem: (
+    specificationId: string,
+    item: Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">
+  ) => Promise<SpecItem>
   updateSpecification: (specification: Specification) => Promise<void>
   setSpecificationPublished: (specificationId: string, published: boolean) => Promise<void>
   deleteSpecification: (specificationId: string, deleteLinkedParts?: boolean) => Promise<void>
   updateSpecItemProgress: (specItemId: string, qtyDone: number, statusOverride?: SpecItemStatus) => Promise<void>
+  createWorkOrdersForSpecification: (specificationId: string) => Promise<WorkOrder[]>
   createWorkOrder: (order: Omit<WorkOrder, "id" | "created_at">) => Promise<WorkOrder>
   updateWorkOrder: (order: WorkOrder) => Promise<void>
   queueWorkOrder: (workOrderId: string, machineId: string, queuePos?: number) => Promise<void>
@@ -541,6 +546,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return specification
   }, [refreshData])
 
+  const createSpecItem = useCallback(async (
+    specificationId: string,
+    item: Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">
+  ) => {
+    const created = await dataProvider.createSpecItem(specificationId, item)
+    await refreshData()
+    return created
+  }, [refreshData])
+
   const updateSpecification = useCallback(async (specification: Specification) => {
     await dataProvider.updateSpecification(specification)
     await refreshData()
@@ -560,6 +574,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await dataProvider.updateSpecItemProgress(specItemId, qtyDone, statusOverride)
     await refreshData()
   }, [refreshData])
+
+  const createWorkOrdersForSpecification = useCallback(async (specificationId: string) => {
+    if (!currentUser) return []
+    const created = await dataProvider.createWorkOrdersForSpecification(specificationId, currentUser.id)
+    await refreshData()
+    return created
+  }, [currentUser, refreshData])
 
   const createWorkOrder = useCallback(async (order: Omit<WorkOrder, "id" | "created_at">) => {
     const workOrder = await dataProvider.createWorkOrder(order)
@@ -1006,10 +1027,12 @@ markTaskAsRead,
         createInventoryTooling,
         updateInventoryTooling,
         createSpecification,
+        createSpecItem,
         updateSpecification,
         setSpecificationPublished,
         deleteSpecification,
         updateSpecItemProgress,
+        createWorkOrdersForSpecification,
         createWorkOrder,
         updateWorkOrder,
         queueWorkOrder,

@@ -201,6 +201,10 @@ export function createSpecification(payload: any) {
   return local().createSpecification(payload)
 }
 
+export function createSpecItem(specificationId: string, item: any) {
+  return local().createSpecItem(specificationId, item)
+}
+
 export function updateSpecification(specification: any) {
   return local().updateSpecification(specification)
 }
@@ -223,6 +227,10 @@ export function getSpecItemsBySpecification(specificationId: string) {
 
 export function updateSpecItemProgress(specItemId: string, qtyDone: number, statusOverride?: any) {
   return local().updateSpecItemProgress(specItemId, qtyDone, statusOverride)
+}
+
+export function createWorkOrdersForSpecification(specificationId: string, createdBy: string) {
+  return local().createWorkOrdersForSpecification(specificationId, createdBy)
 }
 
 export function getWorkOrders() {

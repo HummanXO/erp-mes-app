@@ -133,6 +133,8 @@ export interface SpecItem {
   qty_required: number
   qty_done: number
   uom: string
+  priority?: WorkOrderPriority
+  comment?: string
   status: SpecItemStatus
 }
 
@@ -149,6 +151,7 @@ export interface WorkOrder {
   qty_done: number
   qty_scrap: number
   priority: WorkOrderPriority
+  due_date?: string
   block_reason?: string
   started_at?: string
   completed_at?: string
