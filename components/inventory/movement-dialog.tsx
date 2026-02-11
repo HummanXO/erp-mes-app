@@ -106,7 +106,11 @@ export function MovementDialog({
     } else if (movementType === "transfer") {
       setFromLocation(location)
       setToLocation("")
-    } else {\n      setFromLocation(location)\n      setToLocation(location)\n    }\n  }, [movementType, currentItem, open])
+    } else {
+      setFromLocation(location)
+      setToLocation(location)
+    }
+  }, [movementType, currentItem, open])
 
   const handleSubmit = async () => {
     setError(null)
