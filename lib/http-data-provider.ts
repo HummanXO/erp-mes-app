@@ -121,7 +121,22 @@ function transformMachineNorm(backendNorm: any): MachineNorm {
 }
 
 function resolveUploadUrl(url: string): string {
-  if (!url || !url.startsWith("/")) return url
+  if (!url) return url
+  if (url.startsWith("/uploads/")) {
+    const filename = url.split("/").pop()
+    if (!filename) return url
+    const apiBase = getApiBaseUrl()
+    if (!apiBase) return `/api/v1/attachments/serve/${filename}`
+    if (apiBase.startsWith("/")) {
+      return `${apiBase.replace(/\/$/, "")}/attachments/serve/${filename}`
+    }
+    try {
+      return new URL(`/attachments/serve/${filename}`, apiBase).toString()
+    } catch {
+      return url
+    }
+  }
+  if (!url.startsWith("/")) return url
   const apiBase = getApiBaseUrl()
   if (!apiBase || apiBase.startsWith("/")) return url
   try {
