@@ -38,6 +38,11 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
   const currentStage = getCurrentStage(part.id)
   const hasFacts = getStageFactsForPart(part.id).length > 0
   const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
+  const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
+  const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
+  const internalDeltaDays = hasInternalDeadline
+    ? Math.ceil((new Date(part.deadline).getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
+    : null
   
   const isOverdue = new Date(part.deadline) < new Date(demoDate) && part.status !== "done"
   const isAtRisk = hasForecastInput && !forecast.willFinishOnTime && part.status !== "done"
@@ -188,6 +193,30 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
                 {forecast.daysRemaining} дн. до дедлайна
               </span>
             </div>
+            {hasInternalDeadline && (
+              <div className="mt-1 flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Внутренний дедлайн: {internalDeadlineDate.toLocaleDateString("ru-RU")}
+                </span>
+                <span
+                  className={cn(
+                    internalDeltaDays === null
+                      ? "text-muted-foreground"
+                      : internalDeltaDays >= 0
+                        ? "text-green-700"
+                        : "text-amber-700"
+                  )}
+                >
+                  {internalDeltaDays === null
+                    ? "—"
+                    : internalDeltaDays > 0
+                      ? `Запас ${internalDeltaDays} дн.`
+                      : internalDeltaDays < 0
+                        ? `Опоздание ${Math.abs(internalDeltaDays)} дн.`
+                        : "В срок"}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </CardContent>

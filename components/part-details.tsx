@@ -165,6 +165,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   })
   const hasFacts = stageFacts.length > 0
   const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
+  const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
+  const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
+  const internalDeltaDays = hasInternalDeadline
+    ? Math.ceil((new Date(part.deadline).getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
+    : null
   const canDeletePart = permissions.canCreateParts && (
     (part.is_cooperation && permissions.canCreateCoopParts) ||
     (!part.is_cooperation && permissions.canCreateOwnParts)
@@ -357,6 +362,25 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
           <div className="mt-3 pt-3 border-t flex justify-between text-sm">
             <span className="text-muted-foreground">Дедлайн</span>
             <span className="font-medium">{new Date(part.deadline).toLocaleDateString("ru-RU")}</span>
+          </div>
+          <div className="mt-2 flex justify-between text-sm">
+            <span className="text-muted-foreground">Внутренний дедлайн</span>
+            {!hasInternalDeadline ? (
+              <span className="text-muted-foreground">Появится после нормы или факта</span>
+            ) : (
+              <span className={cn("font-medium", internalDeltaDays !== null && internalDeltaDays < 0 ? "text-amber-700" : "text-green-700")}>
+                {internalDeadlineDate.toLocaleDateString("ru-RU")}
+                {internalDeltaDays !== null && (
+                  <span className="ml-2 text-xs font-normal">
+                    {internalDeltaDays > 0
+                      ? `(запас ${internalDeltaDays} дн.)`
+                      : internalDeltaDays < 0
+                        ? `(опоздание ${Math.abs(internalDeltaDays)} дн.)`
+                        : "(в срок)"}
+                  </span>
+                )}
+              </span>
+            )}
           </div>
           {progress.qtyScrap > 0 && (
             <div className="mt-2 flex justify-between text-sm">
