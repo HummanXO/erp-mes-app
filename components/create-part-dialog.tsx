@@ -29,6 +29,7 @@ interface CreatePartDialogProps {
   onOpenChange: (open: boolean) => void
   sourceSpecificationId?: string
   defaultCustomer?: string
+  defaultDeadline?: string
   fixedMode?: "shop" | "cooperation"
   submitLabel?: string
   onPartCreated?: (part: Part) => Promise<void> | void
@@ -39,6 +40,7 @@ export function CreatePartDialog({
   onOpenChange,
   sourceSpecificationId,
   defaultCustomer,
+  defaultDeadline,
   fixedMode,
   submitLabel = "Создать деталь",
   onPartCreated,
@@ -83,6 +85,7 @@ export function CreatePartDialog({
   const machiningMachines = machines.filter(m => m.department === "machining")
   const isShopOnly = fixedMode === "shop"
   const isCooperationOnly = fixedMode === "cooperation"
+  const useSpecificationDeadline = Boolean(sourceSpecificationId)
 
   const existingCustomers = useMemo(() => {
     const fromParts = parts
@@ -149,6 +152,11 @@ export function CreatePartDialog({
     if (!open) return
     setCustomer(defaultCustomer || "")
   }, [defaultCustomer, open])
+
+  useEffect(() => {
+    if (!open) return
+    setDeadline(defaultDeadline || "")
+  }, [defaultDeadline, open])
 
   const toggleCooperation = () => {
     if (isShopOnly || isCooperationOnly) return
@@ -225,13 +233,15 @@ export function CreatePartDialog({
     
     setIsSubmitting(true)
     try {
+      const resolvedDeadline = defaultDeadline || deadline || "2099-12-31"
+
       const createdPart = await createPart({
         code: code.trim(),
         name: name.trim(),
         description: description.trim() || undefined,
         qty_plan: Number.parseInt(qtyPlan, 10),
         qty_done: 0,
-        deadline: deadline || "2099-12-31",
+        deadline: resolvedDeadline,
         status: "not_started",
         is_cooperation: isCooperation,
         cooperation_partner: isCooperation ? cooperationPartner.trim() : undefined,
@@ -262,7 +272,7 @@ export function CreatePartDialog({
     setName("")
     setDescription("")
     setQtyPlan("")
-    setDeadline("")
+    setDeadline(defaultDeadline || "")
     setCustomer(defaultCustomer || "")
     setFormError("")
     if (isShopOnly) {
@@ -356,15 +366,24 @@ export function CreatePartDialog({
                 aria-describedby={formError ? formErrorId : undefined}
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor={deadlineId}>Дедлайн</Label>
-              <Input
-                id={deadlineId}
-                type="date"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-              />
-            </div>
+            {useSpecificationDeadline ? (
+              <div className="space-y-2">
+                <Label>Дедлайн</Label>
+                <div className="h-11 rounded-md border px-3 flex items-center text-sm text-muted-foreground">
+                  {defaultDeadline || "Будет взят из спецификации"}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor={deadlineId}>Дедлайн</Label>
+                <Input
+                  id={deadlineId}
+                  type="date"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                />
+              </div>
+            )}
           </div>
           
           <div className="space-y-2">

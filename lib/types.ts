@@ -116,6 +116,7 @@ export interface Specification {
   id: string
   number: string
   customer?: string
+  deadline?: string
   note?: string
   status: SpecificationStatus
   published_to_operators: boolean

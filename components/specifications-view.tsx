@@ -58,6 +58,7 @@ export function SpecificationsView() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newSpecNumber, setNewSpecNumber] = useState("")
   const [newSpecCustomer, setNewSpecCustomer] = useState("")
+  const [newSpecDeadline, setNewSpecDeadline] = useState("")
   const [newSpecNote, setNewSpecNote] = useState("")
 
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -173,6 +174,7 @@ export function SpecificationsView() {
         specification: {
           number: newSpecNumber.trim(),
           customer: newSpecCustomer.trim() || undefined,
+          deadline: newSpecDeadline || undefined,
           note: newSpecNote.trim() || undefined,
           status: "draft",
           published_to_operators: false,
@@ -185,6 +187,7 @@ export function SpecificationsView() {
       setCreateOpen(false)
       setNewSpecNumber("")
       setNewSpecCustomer("")
+      setNewSpecDeadline("")
       setNewSpecNote("")
     })
   }
@@ -408,6 +411,7 @@ export function SpecificationsView() {
           onOpenChange={setAddItemOpen}
           specificationId={selectedSpecification.id}
           defaultCustomer={selectedSpecification.customer}
+          defaultDeadline={selectedSpecification.deadline}
         />
       )}
 
@@ -436,6 +440,16 @@ export function SpecificationsView() {
                 placeholder="ООО Заказчик"
                 value={newSpecCustomer}
                 onChange={(event) => setNewSpecCustomer(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="spec-deadline">Дедлайн спецификации</Label>
+              <Input
+                id="spec-deadline"
+                className="h-11"
+                type="date"
+                value={newSpecDeadline}
+                onChange={(event) => setNewSpecDeadline(event.target.value)}
               />
             </div>
             <div className="space-y-2">
