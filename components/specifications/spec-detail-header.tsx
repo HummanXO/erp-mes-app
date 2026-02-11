@@ -7,18 +7,15 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { StatusBadge } from "@/components/inventory/status-badge"
-import { ClipboardList, ListChecks, Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 
 interface SpecDetailHeaderProps {
   specification: Specification
   itemCount: number
-  workOrderCount: number
   canManageSpecifications: boolean
   actionBusy: boolean
   onTogglePublished: (published: boolean) => void
   onAddItem: () => void
-  onCreateJobs: () => void
-  onOpenQueue: () => void
   onDelete: () => void
 }
 
@@ -31,17 +28,12 @@ function formatDateTime(value: string): string {
 export function SpecDetailHeader({
   specification,
   itemCount,
-  workOrderCount,
   canManageSpecifications,
   actionBusy,
   onTogglePublished,
   onAddItem,
-  onCreateJobs,
-  onOpenQueue,
   onDelete,
 }: SpecDetailHeaderProps) {
-  const shouldCreateJobs = itemCount > 0 && workOrderCount === 0
-
   return (
     <Card>
       <CardHeader className="pb-2">
@@ -71,10 +63,6 @@ export function SpecDetailHeader({
             <div className="text-xl font-semibold">{itemCount}</div>
           </div>
           <div>
-            <div className="text-xs text-muted-foreground">Задания</div>
-            <div className="text-xl font-semibold">{workOrderCount}</div>
-          </div>
-          <div>
             <div className="text-xs text-muted-foreground">Дедлайн</div>
             <div className="text-sm">{specification.deadline ?? "Не задан"}</div>
           </div>
@@ -85,29 +73,10 @@ export function SpecDetailHeader({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {itemCount === 0 ? (
-            <Button className="h-11" onClick={onAddItem} disabled={actionBusy}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Добавить позицию
-            </Button>
-          ) : shouldCreateJobs ? (
-            <Button className="h-11" onClick={onCreateJobs} disabled={actionBusy}>
-              <ListChecks className="h-4 w-4" aria-hidden="true" />
-              Создать задания / Поставить в очередь
-            </Button>
-          ) : (
-            <Button className="h-11" onClick={onOpenQueue}>
-              <ClipboardList className="h-4 w-4" aria-hidden="true" />
-              Открыть очередь
-            </Button>
-          )}
-
-          {itemCount > 0 && (
-            <Button variant="outline" className="h-11" onClick={onAddItem} disabled={actionBusy}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              Добавить позицию
-            </Button>
-          )}
+          <Button className="h-11" onClick={onAddItem} disabled={actionBusy}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Добавить позицию
+          </Button>
         </div>
 
         {canManageSpecifications && (
