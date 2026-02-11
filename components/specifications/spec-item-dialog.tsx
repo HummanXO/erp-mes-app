@@ -9,13 +9,14 @@ interface SpecItemDialogProps {
   onOpenChange: (open: boolean) => void
   specificationId: string
   defaultCustomer?: string
+  defaultDeadline?: string
 }
 
 function buildDescription(part: Part): string {
   return `${part.code} ${part.name}`.trim()
 }
 
-export function SpecItemDialog({ open, onOpenChange, specificationId, defaultCustomer }: SpecItemDialogProps) {
+export function SpecItemDialog({ open, onOpenChange, specificationId, defaultCustomer, defaultDeadline }: SpecItemDialogProps) {
   const { createSpecItem } = useApp()
 
   const handlePartCreated = async (part: Part) => {
@@ -34,6 +35,7 @@ export function SpecItemDialog({ open, onOpenChange, specificationId, defaultCus
       onOpenChange={onOpenChange}
       sourceSpecificationId={specificationId}
       defaultCustomer={defaultCustomer}
+      defaultDeadline={defaultDeadline}
       submitLabel="Создать и добавить позицию"
       onPartCreated={handlePartCreated}
     />

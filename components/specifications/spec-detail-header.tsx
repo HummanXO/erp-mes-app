@@ -65,7 +65,7 @@ export function SpecDetailHeader({
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <div>
             <div className="text-xs text-muted-foreground">Позиции</div>
             <div className="text-xl font-semibold">{itemCount}</div>
@@ -73,6 +73,10 @@ export function SpecDetailHeader({
           <div>
             <div className="text-xs text-muted-foreground">Задания</div>
             <div className="text-xl font-semibold">{workOrderCount}</div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">Дедлайн</div>
+            <div className="text-sm">{specification.deadline ?? "Не задан"}</div>
           </div>
           <div>
             <div className="text-xs text-muted-foreground">Создана</div>
