@@ -4,7 +4,7 @@ import React from "react"
 
 import { useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Part, ProductionStage } from "@/lib/types"
+import type { ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
 import { PartCard } from "./part-card"
@@ -20,7 +20,7 @@ import { Plus, Search, Filter, Building2 } from "lucide-react"
 export function PartsView() {
   const { parts, machines, permissions } = useApp()
   
-  const [selectedPart, setSelectedPart] = useState<Part | null>(null)
+  const [selectedPartId, setSelectedPartId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "not_started" | "done">("all")
   const [typeFilter, setTypeFilter] = useState<"all" | "own" | "cooperation">("all")
@@ -28,12 +28,14 @@ export function PartsView() {
   const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   
+  const selectedPart = selectedPartId ? parts.find((part) => part.id === selectedPartId) || null : null
+
   // If viewing a specific part
   if (selectedPart) {
     return (
       <PartDetails 
         part={selectedPart} 
-        onBack={() => setSelectedPart(null)} 
+        onBack={() => setSelectedPartId(null)} 
       />
     )
   }
@@ -206,7 +208,7 @@ export function PartsView() {
             <PartCard
               key={part.id}
               part={part}
-              onClick={() => setSelectedPart(part)}
+              onClick={() => setSelectedPartId(part.id)}
             />
           ))
         )}
