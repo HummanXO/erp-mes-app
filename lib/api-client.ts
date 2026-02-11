@@ -62,9 +62,23 @@ class ApiClient {
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`
     
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...options.headers,
+    }
+    if (options.headers) {
+      if (options.headers instanceof Headers) {
+        options.headers.forEach((value, key) => {
+          headers[key] = value
+        })
+      } else if (Array.isArray(options.headers)) {
+        options.headers.forEach(([key, value]) => {
+          headers[key] = value
+        })
+      } else {
+        Object.entries(options.headers as Record<string, string>).forEach(([key, value]) => {
+          headers[key] = value
+        })
+      }
     }
 
     if (this.accessToken) {
@@ -186,7 +200,7 @@ class ApiClient {
       })
     }
     const query = params.toString()
-    return this.request<any>(`/parts${query ? `?${query}` : ""}`)
+      return this.request<any>(`/parts${query ? `?${query}` : ""}`)
   }
 
   async getPartById(id: string) {
@@ -249,6 +263,94 @@ class ApiClient {
 
   async deletePart(id: string) {
     return this.request<void>(`/parts/${id}`, {
+      method: "DELETE",
+    })
+  }
+
+  // Specifications
+  async getSpecifications() {
+    return this.request<any>("/specifications")
+  }
+
+  async getSpecificationById(id: string) {
+    return this.request<any>(`/specifications/${id}`)
+  }
+
+  async createSpecification(data: any) {
+    return this.request<any>("/specifications", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updateSpecification(id: string, data: any) {
+    return this.request<any>(`/specifications/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async setSpecificationPublished(id: string, published: boolean) {
+    return this.request<any>(`/specifications/${id}/publish`, {
+      method: "POST",
+      body: JSON.stringify({ published }),
+    })
+  }
+
+  async deleteSpecification(id: string, deleteLinkedParts = false) {
+    const query = deleteLinkedParts ? "?delete_linked_parts=true" : ""
+    return this.request<void>(`/specifications/${id}${query}`, {
+      method: "DELETE",
+    })
+  }
+
+  async getSpecItems() {
+    return this.request<any>("/spec-items")
+  }
+
+  async getSpecItemsBySpecification(specificationId: string) {
+    return this.request<any>(`/specifications/${specificationId}/items`)
+  }
+
+  async createSpecItem(specificationId: string, data: any) {
+    return this.request<any>(`/specifications/${specificationId}/items`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updateSpecItemProgress(specItemId: string, qtyDone: number, statusOverride?: string) {
+    return this.request<any>(`/spec-items/${specItemId}/progress`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        qty_done: qtyDone,
+        status_override: statusOverride,
+      }),
+    })
+  }
+
+  async getAccessGrants(filters?: { entity_type?: string; entity_id?: string; user_id?: string }) {
+    const params = new URLSearchParams()
+    if (filters) {
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          params.append(key, String(value))
+        }
+      })
+    }
+    const query = params.toString()
+    return this.request<any>(`/access-grants${query ? `?${query}` : ""}`)
+  }
+
+  async grantAccess(data: any) {
+    return this.request<any>("/access-grants", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async revokeAccess(grantId: string) {
+    return this.request<void>(`/access-grants/${grantId}`, {
       method: "DELETE",
     })
   }

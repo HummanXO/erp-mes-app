@@ -904,7 +904,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter(order => order.assigned_operator_id === currentUser.id)
       .forEach(order => grantedSpecIds.add(order.specification_id))
 
-    return specifications.filter(spec => grantedSpecIds.has(spec.id))
+    return specifications.filter(spec =>
+      spec.published_to_operators || grantedSpecIds.has(spec.id)
+    )
   }, [currentUser, specifications, accessGrants, workOrders])
 
   const getSpecItemsBySpecification = useCallback((specificationId: string) => {

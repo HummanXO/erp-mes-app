@@ -147,6 +147,107 @@ class Part(Base):
     stage_statuses = relationship("PartStageStatus", back_populates="part", cascade="all, delete-orphan")
     stage_facts = relationship("StageFact", back_populates="part")
     tasks = relationship("Task", back_populates="part")
+    spec_items = relationship("SpecItem", back_populates="part")
+
+
+class Specification(Base):
+    """Production specification model."""
+    __tablename__ = "specifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), index=True, nullable=False)
+    number = Column(String(120), nullable=False, index=True)
+    customer = Column(String(255), nullable=True)
+    deadline = Column(Date, nullable=True, index=True)
+    note = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    published_to_operators = Column(Boolean, default=False, nullable=False)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            status.in_(["draft", "active", "closed"]),
+            name="chk_specification_status",
+        ),
+        UniqueConstraint("org_id", "number", name="uq_specification_org_number"),
+    )
+
+    items = relationship("SpecItem", back_populates="specification", cascade="all, delete-orphan")
+
+
+class SpecItem(Base):
+    """Specification item model."""
+    __tablename__ = "spec_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    specification_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("specifications.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    line_no = Column(Integer, nullable=False)
+    item_type = Column(String(20), nullable=False, index=True)
+    part_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("parts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    description = Column(Text, nullable=False)
+    qty_required = Column(Integer, nullable=False)
+    qty_done = Column(Integer, nullable=False, default=0)
+    uom = Column(String(20), nullable=False, default="шт")
+    comment = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="open", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(qty_required > 0, name="chk_spec_item_qty_required_positive"),
+        CheckConstraint(qty_done >= 0, name="chk_spec_item_qty_done_non_negative"),
+        CheckConstraint(
+            item_type.in_(["make", "coop"]),
+            name="chk_spec_item_type",
+        ),
+        CheckConstraint(
+            status.in_(["open", "partial", "fulfilled", "blocked", "canceled"]),
+            name="chk_spec_item_status",
+        ),
+        UniqueConstraint("specification_id", "line_no", name="uq_spec_item_line_no"),
+    )
+
+    specification = relationship("Specification", back_populates="items")
+    part = relationship("Part", back_populates="spec_items")
+
+
+class AccessGrant(Base):
+    """Per-entity access grants for operators."""
+    __tablename__ = "access_grants"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), index=True, nullable=False)
+    entity_type = Column(String(30), nullable=False, index=True)
+    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    permission = Column(String(20), nullable=False, default="view")
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            entity_type.in_(["specification", "work_order", "part"]),
+            name="chk_access_grant_entity_type",
+        ),
+        CheckConstraint(
+            permission.in_(["view", "report", "manage"]),
+            name="chk_access_grant_permission",
+        ),
+        UniqueConstraint("entity_type", "entity_id", "user_id", name="uq_access_grant_scope"),
+        Index("idx_access_grants_entity_scope", "entity_type", "entity_id"),
+    )
 
 
 class PartStageStatus(Base):

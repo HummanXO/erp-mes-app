@@ -165,6 +165,92 @@ class PartResponse(BaseModel):
         return cls(**data)
 
 
+# Specification schemas
+class SpecificationCreate(BaseModel):
+    number: str
+    customer: Optional[str] = None
+    deadline: Optional[date] = None
+    note: Optional[str] = None
+    status: str = Field(default="draft", pattern="^(draft|active|closed)$")
+    published_to_operators: bool = False
+
+
+class SpecificationUpdate(BaseModel):
+    number: Optional[str] = None
+    customer: Optional[str] = None
+    deadline: Optional[date] = None
+    note: Optional[str] = None
+    status: Optional[str] = Field(default=None, pattern="^(draft|active|closed)$")
+    published_to_operators: Optional[bool] = None
+
+
+class SpecificationPublishRequest(BaseModel):
+    published: bool
+
+
+class SpecificationResponse(BaseModel):
+    id: UUID
+    number: str
+    customer: Optional[str] = None
+    deadline: Optional[date] = None
+    note: Optional[str] = None
+    status: str
+    published_to_operators: bool
+    created_by: UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SpecItemCreate(BaseModel):
+    item_type: str = Field(pattern="^(make|coop)$")
+    part_id: Optional[UUID] = None
+    description: str
+    qty_required: int = Field(gt=0)
+    uom: str = "шт"
+    comment: Optional[str] = None
+
+
+class SpecItemProgressUpdate(BaseModel):
+    qty_done: int = Field(ge=0)
+    status_override: Optional[str] = Field(
+        default=None,
+        pattern="^(open|partial|fulfilled|blocked|canceled)$",
+    )
+
+
+class SpecItemResponse(BaseModel):
+    id: UUID
+    specification_id: UUID
+    line_no: int
+    item_type: str
+    part_id: Optional[UUID] = None
+    description: str
+    qty_required: int
+    qty_done: int
+    uom: str
+    comment: Optional[str] = None
+    status: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccessGrantCreate(BaseModel):
+    entity_type: str = Field(pattern="^(specification|work_order|part)$")
+    entity_id: UUID
+    user_id: UUID
+    permission: str = Field(pattern="^(view|report|manage)$")
+
+
+class AccessGrantResponse(BaseModel):
+    id: UUID
+    entity_type: str
+    entity_id: UUID
+    user_id: UUID
+    permission: str
+    created_by: UUID
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Stage Fact schemas
 class AttachmentBase(BaseModel):
     name: str
