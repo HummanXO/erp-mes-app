@@ -15,38 +15,59 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Filter, Building2 } from "lucide-react"
 
+type NavigationSourceView = "specifications" | "parts" | "tasks" | "inventory"
+
+function isNavigationSourceView(value: string | null): value is NavigationSourceView {
+  return value === "specifications" || value === "parts" || value === "tasks" || value === "inventory"
+}
+
 export function PartsView() {
   const { parts, machines, permissions } = useApp()
   
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null)
+  const [navigationSourceView, setNavigationSourceView] = useState<NavigationSourceView | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "not_started" | "done">("all")
   const [typeFilter, setTypeFilter] = useState<"all" | "own" | "cooperation">("all")
   const [machineFilter, setMachineFilter] = useState<string>("all")
   const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
 
-  const openPartFromNavigation = useCallback((partId?: string | null) => {
+  const openPartFromNavigation = useCallback((partId?: string | null, sourceView?: NavigationSourceView | null) => {
     if (!partId) return
     if (parts.some(part => part.id === partId)) {
       setSelectedPartId(partId)
+      setNavigationSourceView(sourceView ?? null)
     }
   }, [parts])
 
   useEffect(() => {
     const fromStorage = sessionStorage.getItem("pc.navigate.partId")
+    const sourceFromStorageRaw = sessionStorage.getItem("pc.navigate.sourceView")
+    const sourceFromStorage = isNavigationSourceView(sourceFromStorageRaw) ? sourceFromStorageRaw : null
     if (fromStorage) {
-      openPartFromNavigation(fromStorage)
-      sessionStorage.removeItem("pc.navigate.partId")
+      openPartFromNavigation(fromStorage, sourceFromStorage)
     }
+    sessionStorage.removeItem("pc.navigate.partId")
+    sessionStorage.removeItem("pc.navigate.sourceView")
 
     const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<{ partId?: string }>
-      openPartFromNavigation(customEvent.detail?.partId)
+      const customEvent = event as CustomEvent<{ partId?: string; sourceView?: NavigationSourceView }>
+      openPartFromNavigation(customEvent.detail?.partId, customEvent.detail?.sourceView ?? null)
     }
 
     window.addEventListener("pc-open-part", handler)
     return () => window.removeEventListener("pc-open-part", handler)
   }, [openPartFromNavigation])
+
+  const handleBack = useCallback(() => {
+    const sourceView = navigationSourceView
+    setSelectedPartId(null)
+    setNavigationSourceView(null)
+
+    if (sourceView && sourceView !== "parts") {
+      window.dispatchEvent(new CustomEvent("pc-switch-view", { detail: { view: sourceView } }))
+    }
+  }, [navigationSourceView])
   
   const selectedPart = selectedPartId ? parts.find((part) => part.id === selectedPartId) || null : null
 
@@ -55,7 +76,7 @@ export function PartsView() {
     return (
       <PartDetails 
         part={selectedPart} 
-        onBack={() => setSelectedPartId(null)} 
+        onBack={handleBack} 
       />
     )
   }

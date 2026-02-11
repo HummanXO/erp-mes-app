@@ -121,7 +121,8 @@ export function SpecificationsView() {
 
   const openPartDetails = (partId: string) => {
     sessionStorage.setItem("pc.navigate.partId", partId)
-    window.dispatchEvent(new CustomEvent("pc-open-part", { detail: { partId } }))
+    sessionStorage.setItem("pc.navigate.sourceView", "specifications")
+    window.dispatchEvent(new CustomEvent("pc-open-part", { detail: { partId, sourceView: "specifications" } }))
   }
 
   const handleCreateSpecification = async () => {

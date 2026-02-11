@@ -43,6 +43,22 @@ export function Dashboard() {
     }
   }, [])
 
+  useEffect(() => {
+    const switchViewListener = (event: Event) => {
+      const customEvent = event as CustomEvent<{ view?: View }>
+      const targetView = customEvent.detail?.view
+      if (!targetView) return
+      if (targetView === "inventory" && !permissions.canViewInventory) return
+      if (targetView === "specifications" && !permissions.canViewSpecifications) return
+      setActiveView(targetView)
+    }
+
+    window.addEventListener("pc-switch-view", switchViewListener)
+    return () => {
+      window.removeEventListener("pc-switch-view", switchViewListener)
+    }
+  }, [permissions.canViewInventory, permissions.canViewSpecifications])
+
   // Not logged in
   if (!currentUser) {
     // Show API login form if using HTTP API, otherwise show user picker
