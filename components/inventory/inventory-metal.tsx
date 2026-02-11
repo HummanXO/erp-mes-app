@@ -7,6 +7,7 @@ import { STOCK_STATUS_LABELS, STOCK_STATUS_TONES } from "@/lib/inventory-constan
 import { formatQty, isBelowMin } from "@/lib/inventory-utils"
 import { StatusBadge } from "@/components/inventory/status-badge"
 import { MovementDialog } from "@/components/inventory/movement-dialog"
+import { MetalItemDialog } from "@/components/inventory/metal-item-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -32,6 +33,8 @@ export function InventoryMetal() {
   const [onlyBelowMin, setOnlyBelowMin] = useState(false)
   const [movementDialogOpen, setMovementDialogOpen] = useState(false)
   const [movementType, setMovementType] = useState<MovementType>("receipt")
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -115,6 +118,17 @@ export function InventoryMetal() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Металл</h2>
+            <p className="text-xs text-muted-foreground">{inventoryMetal.length} позиций</p>
+          </div>
+          {permissions.canManageLogistics && (
+            <Button className="h-11" onClick={() => setCreateDialogOpen(true)}>
+              Новая позиция
+            </Button>
+          )}
+        </div>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm">Фильтры</CardTitle>
@@ -284,6 +298,14 @@ export function InventoryMetal() {
 
                 {permissions.canManageLogistics && (
                   <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="h-11"
+                      onClick={() => setEditDialogOpen(true)}
+                    >
+                      Редактировать
+                    </Button>
                     {movementButtons.map((btn) => (
                       <Button
                         key={btn.type}
@@ -325,6 +347,15 @@ export function InventoryMetal() {
           open={movementDialogOpen}
           onOpenChange={setMovementDialogOpen}
           defaultType={movementType}
+          item={selectedItem}
+        />
+      )}
+
+      <MetalItemDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen} />
+      {selectedItem && (
+        <MetalItemDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
           item={selectedItem}
         />
       )}
