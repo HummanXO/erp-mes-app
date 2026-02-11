@@ -250,7 +250,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label="Назад к списку деталей"
+          aria-label="Назад"
           className="h-11 w-11"
           onClick={onBack}
         >
