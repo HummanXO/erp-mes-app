@@ -1,7 +1,27 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
-import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm, TaskAttachment } from "./types"
+import type {
+  User,
+  Machine,
+  Part,
+  StageFact,
+  Task,
+  LogisticsEntry,
+  ShiftType,
+  ProductionStage,
+  StageStatus,
+  TaskComment,
+  MachineNorm,
+  TaskAttachment,
+  Specification,
+  SpecItem,
+  SpecItemStatus,
+  WorkOrder,
+  AccessGrant,
+  AccessEntityType,
+  AccessPermission,
+} from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { ROLE_PERMISSIONS } from "./types"
 import * as dataProvider from "./data-provider-adapter"
@@ -29,6 +49,10 @@ interface AppContextType {
   inventoryMetal: InventoryMetalItem[]
   inventoryTooling: InventoryToolingItem[]
   inventoryMovements: InventoryMovement[]
+  specifications: Specification[]
+  specItems: SpecItem[]
+  workOrders: WorkOrder[]
+  accessGrants: AccessGrant[]
   dataError: string | null
   
   // Actions
@@ -84,6 +108,29 @@ interface AppContextType {
   updateInventoryMetal: (item: InventoryMetalItem) => Promise<void>
   createInventoryTooling: (item: Omit<InventoryToolingItem, "id">) => Promise<InventoryToolingItem>
   updateInventoryTooling: (item: InventoryToolingItem) => Promise<void>
+
+  // Specification/work order operations
+  createSpecification: (payload: {
+    specification: Omit<Specification, "id" | "created_at">
+    items: Array<Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">>
+  }) => Promise<Specification>
+  updateSpecification: (specification: Specification) => Promise<void>
+  setSpecificationPublished: (specificationId: string, published: boolean) => Promise<void>
+  updateSpecItemProgress: (specItemId: string, qtyDone: number, statusOverride?: SpecItemStatus) => Promise<void>
+  createWorkOrder: (order: Omit<WorkOrder, "id" | "created_at">) => Promise<WorkOrder>
+  updateWorkOrder: (order: WorkOrder) => Promise<void>
+  queueWorkOrder: (workOrderId: string, machineId: string, queuePos?: number) => Promise<void>
+  startWorkOrder: (workOrderId: string, operatorId?: string) => Promise<void>
+  blockWorkOrder: (workOrderId: string, reason: string) => Promise<void>
+  reportWorkOrderProgress: (workOrderId: string, qtyGood: number, qtyScrap?: number) => Promise<void>
+  completeWorkOrder: (workOrderId: string) => Promise<void>
+  grantAccess: (
+    entityType: AccessEntityType,
+    entityId: string,
+    userId: string,
+    permission: AccessPermission
+  ) => Promise<AccessGrant | null>
+  revokeAccess: (grantId: string) => Promise<void>
   
   // Computed
   getPartProgress: (partId: string) => {
@@ -116,6 +163,11 @@ interface AppContextType {
   getMachineById: (id: string) => Machine | undefined
   getPartById: (id: string) => Part | undefined
   getOperators: () => User[]
+  getSpecificationsForCurrentUser: () => Specification[]
+  getSpecItemsBySpecification: (specificationId: string) => SpecItem[]
+  getWorkOrdersForCurrentUser: () => WorkOrder[]
+  getWorkOrdersForSpecification: (specificationId: string) => WorkOrder[]
+  getAccessGrantsForSpecification: (specificationId: string) => AccessGrant[]
 }
 
 const defaultPermissions = ROLE_PERMISSIONS["operator"]
@@ -136,6 +188,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [inventoryMetal, setInventoryMetal] = useState<InventoryMetalItem[]>([])
   const [inventoryTooling, setInventoryTooling] = useState<InventoryToolingItem[]>([])
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([])
+  const [specifications, setSpecifications] = useState<Specification[]>([])
+  const [specItems, setSpecItems] = useState<SpecItem[]>([])
+  const [workOrders, setWorkOrders] = useState<WorkOrder[]>([])
+  const [accessGrants, setAccessGrants] = useState<AccessGrant[]>([])
   const [machineNorms, setMachineNorms] = useState<MachineNorm[]>([])
   const [dataError, setDataError] = useState<string | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
@@ -155,6 +211,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         metal,
         tooling,
         movements,
+        specifications,
+        specItems,
+        workOrders,
+        accessGrants,
       ] = await Promise.all([
         dataProvider.getUsers(),
         dataProvider.getMachines(),
@@ -166,6 +226,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         dataProvider.getInventoryMetal(),
         dataProvider.getInventoryTooling(),
         dataProvider.getInventoryMovements(),
+        dataProvider.getSpecifications(),
+        dataProvider.getSpecItems(),
+        dataProvider.getWorkOrders(),
+        dataProvider.getAccessGrants(),
       ])
       
       setUsers(Array.isArray(users) ? users : [])
@@ -178,6 +242,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setInventoryMetal(Array.isArray(metal) ? metal : [])
       setInventoryTooling(Array.isArray(tooling) ? tooling : [])
       setInventoryMovements(Array.isArray(movements) ? movements : [])
+      setSpecifications(Array.isArray(specifications) ? specifications : [])
+      setSpecItems(Array.isArray(specItems) ? specItems : [])
+      setWorkOrders(Array.isArray(workOrders) ? workOrders : [])
+      setAccessGrants(Array.isArray(accessGrants) ? accessGrants : [])
     } catch (error) {
       console.error("Failed to load data:", error)
       setDataError(error instanceof Error ? error.message : "Failed to load data")
@@ -461,6 +529,85 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await refreshData()
   }, [refreshData])
 
+  const createSpecification = useCallback(async (
+    payload: {
+      specification: Omit<Specification, "id" | "created_at">
+      items: Array<Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">>
+    }
+  ) => {
+    const specification = await dataProvider.createSpecification(payload)
+    await refreshData()
+    return specification
+  }, [refreshData])
+
+  const updateSpecification = useCallback(async (specification: Specification) => {
+    await dataProvider.updateSpecification(specification)
+    await refreshData()
+  }, [refreshData])
+
+  const setSpecificationPublished = useCallback(async (specificationId: string, published: boolean) => {
+    await dataProvider.setSpecificationPublished(specificationId, published)
+    await refreshData()
+  }, [refreshData])
+
+  const updateSpecItemProgress = useCallback(async (specItemId: string, qtyDone: number, statusOverride?: SpecItemStatus) => {
+    await dataProvider.updateSpecItemProgress(specItemId, qtyDone, statusOverride)
+    await refreshData()
+  }, [refreshData])
+
+  const createWorkOrder = useCallback(async (order: Omit<WorkOrder, "id" | "created_at">) => {
+    const workOrder = await dataProvider.createWorkOrder(order)
+    await refreshData()
+    return workOrder
+  }, [refreshData])
+
+  const updateWorkOrder = useCallback(async (order: WorkOrder) => {
+    await dataProvider.updateWorkOrder(order)
+    await refreshData()
+  }, [refreshData])
+
+  const queueWorkOrder = useCallback(async (workOrderId: string, machineId: string, queuePos?: number) => {
+    await dataProvider.queueWorkOrder(workOrderId, machineId, queuePos)
+    await refreshData()
+  }, [refreshData])
+
+  const startWorkOrder = useCallback(async (workOrderId: string, operatorId?: string) => {
+    await dataProvider.startWorkOrder(workOrderId, operatorId)
+    await refreshData()
+  }, [refreshData])
+
+  const blockWorkOrder = useCallback(async (workOrderId: string, reason: string) => {
+    await dataProvider.blockWorkOrder(workOrderId, reason)
+    await refreshData()
+  }, [refreshData])
+
+  const reportWorkOrderProgress = useCallback(async (workOrderId: string, qtyGood: number, qtyScrap = 0) => {
+    await dataProvider.reportWorkOrderProgress(workOrderId, qtyGood, qtyScrap)
+    await refreshData()
+  }, [refreshData])
+
+  const completeWorkOrder = useCallback(async (workOrderId: string) => {
+    await dataProvider.completeWorkOrder(workOrderId)
+    await refreshData()
+  }, [refreshData])
+
+  const grantAccess = useCallback(async (
+    entityType: AccessEntityType,
+    entityId: string,
+    userId: string,
+    permission: AccessPermission
+  ) => {
+    if (!currentUser) return null
+    const grant = await dataProvider.grantAccess(entityType, entityId, userId, permission, currentUser.id)
+    await refreshData()
+    return grant
+  }, [currentUser, refreshData])
+
+  const revokeAccess = useCallback(async (grantId: string) => {
+    await dataProvider.revokeAccess(grantId)
+    await refreshData()
+  }, [refreshData])
+
   const getPartProgress = useCallback((partId: string) => {
     const part = parts.find(p => p.id === partId)
     if (!part) return { qtyDone: 0, qtyPlan: 0, percent: 0, qtyScrap: 0, stageProgress: [] }
@@ -718,6 +865,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [parts])
 
+  const getSpecificationsForCurrentUser = useCallback(() => {
+    if (!currentUser) return []
+    if (currentUser.role !== "operator") return specifications
+
+    const grants = accessGrants.filter(
+      grant => grant.user_id === currentUser.id && grant.entity_type === "specification"
+    )
+    const grantedSpecIds = new Set(grants.map(grant => grant.entity_id))
+    workOrders
+      .filter(order => order.assigned_operator_id === currentUser.id)
+      .forEach(order => grantedSpecIds.add(order.specification_id))
+
+    return specifications.filter(spec => grantedSpecIds.has(spec.id))
+  }, [currentUser, specifications, accessGrants, workOrders])
+
+  const getSpecItemsBySpecification = useCallback((specificationId: string) => {
+    return specItems
+      .filter(item => item.specification_id === specificationId)
+      .sort((a, b) => a.line_no - b.line_no)
+  }, [specItems])
+
+  const getWorkOrdersForCurrentUser = useCallback(() => {
+    if (!currentUser) return []
+    if (currentUser.role !== "operator") return workOrders
+
+    const specGrantIds = new Set(
+      accessGrants
+        .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "specification")
+        .map(grant => grant.entity_id)
+    )
+    const workOrderGrantIds = new Set(
+      accessGrants
+        .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "work_order")
+        .map(grant => grant.entity_id)
+    )
+
+    return workOrders.filter(order =>
+      order.assigned_operator_id === currentUser.id ||
+      specGrantIds.has(order.specification_id) ||
+      workOrderGrantIds.has(order.id)
+    )
+  }, [currentUser, workOrders, accessGrants])
+
+  const getWorkOrdersForSpecification = useCallback((specificationId: string) => {
+    return workOrders
+      .filter(order => order.specification_id === specificationId)
+      .sort((a, b) => (a.queue_pos ?? 9999) - (b.queue_pos ?? 9999))
+  }, [workOrders])
+
+  const getAccessGrantsForSpecification = useCallback((specificationId: string) => {
+    return accessGrants.filter(
+      grant => grant.entity_type === "specification" && grant.entity_id === specificationId
+    )
+  }, [accessGrants])
+
   const getUserById = useCallback((id: string) => {
     return users.find(u => u.id === id)
   }, [users])
@@ -757,6 +959,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         inventoryMetal,
         inventoryTooling,
         inventoryMovements,
+        specifications,
+        specItems,
+        workOrders,
+        accessGrants,
         dataError,
         refreshData,
         resetData,
@@ -793,6 +999,19 @@ markTaskAsRead,
         updateInventoryMetal,
         createInventoryTooling,
         updateInventoryTooling,
+        createSpecification,
+        updateSpecification,
+        setSpecificationPublished,
+        updateSpecItemProgress,
+        createWorkOrder,
+        updateWorkOrder,
+        queueWorkOrder,
+        startWorkOrder,
+        blockWorkOrder,
+        reportWorkOrderProgress,
+        completeWorkOrder,
+        grantAccess,
+        revokeAccess,
         getPartProgress,
         getPartForecast,
         getMachineTodayProgress,
@@ -817,6 +1036,11 @@ markTaskAsRead,
         getMachineById,
         getPartById,
         getOperators,
+        getSpecificationsForCurrentUser,
+        getSpecItemsBySpecification,
+        getWorkOrdersForCurrentUser,
+        getWorkOrdersForSpecification,
+        getAccessGrantsForSpecification,
       }}
     >
       {children}

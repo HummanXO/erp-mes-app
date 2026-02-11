@@ -20,6 +20,7 @@ import {
   Factory, 
   Package, 
   ListTodo, 
+  ClipboardList,
   LogOut, 
   RefreshCw,
   Calendar,
@@ -29,8 +30,8 @@ import {
 import { cn } from "@/lib/utils"
 
 interface AppSidebarProps {
-  activeView: "parts" | "tasks" | "inventory"
-  onViewChange: (view: "parts" | "tasks" | "inventory") => void
+  activeView: "parts" | "tasks" | "inventory" | "specifications"
+  onViewChange: (view: "parts" | "tasks" | "inventory" | "specifications") => void
 }
 
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
@@ -115,6 +116,19 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
                     {lowStockCount}
                   </span>
                 )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+
+          {permissions.canViewSpecifications && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={activeView === "specifications"}
+                onClick={() => onViewChange("specifications")}
+                className="justify-start"
+              >
+                <ClipboardList className="h-4 w-4" />
+                <span>Спецификации</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}

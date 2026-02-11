@@ -1,4 +1,27 @@
-import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ShiftType, ProductionStage, StageStatus, TaskComment, MachineNorm, TaskAttachment } from "./types"
+import type {
+  User,
+  Machine,
+  Part,
+  StageFact,
+  Task,
+  LogisticsEntry,
+  ShiftType,
+  ProductionStage,
+  StageStatus,
+  TaskComment,
+  MachineNorm,
+  TaskAttachment,
+  Specification,
+  SpecItem,
+  SpecItemType,
+  SpecItemStatus,
+  SpecificationStatus,
+  WorkOrder,
+  WorkOrderStatus,
+  AccessGrant,
+  AccessEntityType,
+  AccessPermission,
+} from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement, Qty } from "./inventory-types"
 import { addAuditEntry } from "./audit-log"
 import { notifyTaskAccepted, notifyTaskComment, notifyTaskForReview, notifyTaskApproved, notifyTaskReturned } from "./notifications"
@@ -10,6 +33,10 @@ import {
   MOCK_TASKS,
   MOCK_LOGISTICS,
   MOCK_MACHINE_NORMS,
+  MOCK_SPECIFICATIONS,
+  MOCK_SPEC_ITEMS,
+  MOCK_WORK_ORDERS,
+  MOCK_ACCESS_GRANTS,
   MOCK_INVENTORY_METAL,
   MOCK_INVENTORY_TOOLING,
   MOCK_INVENTORY_MOVEMENTS,
@@ -145,10 +172,28 @@ export function initializeData(): void {
     saveToStorage(STORAGE_KEYS.tasks, MOCK_TASKS)
     saveToStorage(STORAGE_KEYS.logistics, MOCK_LOGISTICS)
     saveToStorage(STORAGE_KEYS.machineNorms, MOCK_MACHINE_NORMS)
+    saveToStorage(STORAGE_KEYS.specifications, MOCK_SPECIFICATIONS)
+    saveToStorage(STORAGE_KEYS.specItems, MOCK_SPEC_ITEMS)
+    saveToStorage(STORAGE_KEYS.workOrders, MOCK_WORK_ORDERS)
+    saveToStorage(STORAGE_KEYS.accessGrants, MOCK_ACCESS_GRANTS)
     saveToStorage(STORAGE_KEYS.inventoryMetal, MOCK_INVENTORY_METAL)
     saveToStorage(STORAGE_KEYS.inventoryTooling, MOCK_INVENTORY_TOOLING)
     saveToStorage(STORAGE_KEYS.inventoryMovements, MOCK_INVENTORY_MOVEMENTS)
     saveToStorage(STORAGE_KEYS.demoDate, DEFAULT_DEMO_DATE)
+  }
+
+  // Non-breaking migration: add new entities when older local data already exists
+  if (!localStorage.getItem(STORAGE_KEYS.specifications)) {
+    saveToStorage(STORAGE_KEYS.specifications, MOCK_SPECIFICATIONS)
+  }
+  if (!localStorage.getItem(STORAGE_KEYS.specItems)) {
+    saveToStorage(STORAGE_KEYS.specItems, MOCK_SPEC_ITEMS)
+  }
+  if (!localStorage.getItem(STORAGE_KEYS.workOrders)) {
+    saveToStorage(STORAGE_KEYS.workOrders, MOCK_WORK_ORDERS)
+  }
+  if (!localStorage.getItem(STORAGE_KEYS.accessGrants)) {
+    saveToStorage(STORAGE_KEYS.accessGrants, MOCK_ACCESS_GRANTS)
   }
 }
 
@@ -460,6 +505,372 @@ export function updateLogisticsEntry(entry: LogisticsEntry): void {
     logistics[index] = entry
     saveToStorage(STORAGE_KEYS.logistics, logistics)
   }
+}
+
+// Specifications and work orders
+function recomputeSpecItemStatus(specItem: SpecItem, hasBlockedOrder: boolean): SpecItemStatus {
+  if (specItem.qty_done <= 0) return "open"
+  if (specItem.qty_done >= specItem.qty_required) return "fulfilled"
+  if (hasBlockedOrder) return "blocked"
+  return "partial"
+}
+
+function recomputeSpecificationStatus(specificationId: string): void {
+  const specifications = getSpecifications()
+  const specItems = getSpecItemsBySpecification(specificationId)
+  const specification = specifications.find(s => s.id === specificationId)
+  if (!specification) return
+
+  const allDone = specItems.length > 0 && specItems.every(item => item.status === "fulfilled" || item.status === "canceled")
+  const hasWork = specItems.some(item => item.qty_done > 0 || item.status === "partial" || item.status === "blocked")
+  let status: SpecificationStatus = specification.status
+
+  if (allDone) {
+    status = "closed"
+  } else if (specification.status !== "closed" && (specification.published_to_operators || hasWork)) {
+    status = "active"
+  }
+
+  if (status !== specification.status) {
+    const index = specifications.findIndex(s => s.id === specificationId)
+    if (index !== -1) {
+      specifications[index] = { ...specification, status }
+      saveToStorage(STORAGE_KEYS.specifications, specifications)
+    }
+  }
+}
+
+function syncSpecItemProgressFromWorkOrders(specItemId: string): void {
+  const specItems = getSpecItems()
+  const workOrders = getWorkOrders().filter(wo => wo.spec_item_id === specItemId && wo.status !== "canceled")
+  const index = specItems.findIndex(item => item.id === specItemId)
+  if (index === -1) return
+
+  const specItem = specItems[index]
+  const qtyDone = workOrders.reduce((sum, wo) => sum + wo.qty_done, 0)
+  const hasBlocked = workOrders.some(wo => wo.status === "blocked")
+  const updated: SpecItem = {
+    ...specItem,
+    qty_done: qtyDone,
+    status: recomputeSpecItemStatus({ ...specItem, qty_done: qtyDone }, hasBlocked),
+  }
+  specItems[index] = updated
+  saveToStorage(STORAGE_KEYS.specItems, specItems)
+  recomputeSpecificationStatus(updated.specification_id)
+}
+
+export function getSpecifications(): Specification[] {
+  return safeJsonParse(STORAGE_KEYS.specifications, MOCK_SPECIFICATIONS)
+}
+
+export function getSpecificationsForUser(userId: string): Specification[] {
+  const user = getUserById(userId)
+  if (!user) return []
+
+  const specifications = getSpecifications()
+  if (user.role !== "operator") {
+    return specifications
+  }
+
+  const grants = getAccessGrants().filter(
+    grant => grant.user_id === userId && grant.entity_type === "specification"
+  )
+  const grantedSpecIds = new Set(grants.map(grant => grant.entity_id))
+  const assignedWorkOrders = getWorkOrders().filter(wo => wo.assigned_operator_id === userId)
+
+  for (const wo of assignedWorkOrders) {
+    grantedSpecIds.add(wo.specification_id)
+  }
+
+  return specifications.filter(spec => grantedSpecIds.has(spec.id))
+}
+
+export function getSpecificationById(specificationId: string): Specification | undefined {
+  return getSpecifications().find(spec => spec.id === specificationId)
+}
+
+export function createSpecification(
+  payload: {
+    specification: Omit<Specification, "id" | "created_at">
+    items: Array<Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">>
+  }
+): Specification {
+  const specifications = getSpecifications()
+  const specItems = getSpecItems()
+  const now = new Date().toISOString()
+  const specification: Specification = {
+    ...payload.specification,
+    id: `spec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    created_at: now,
+  }
+  specifications.unshift(specification)
+  saveToStorage(STORAGE_KEYS.specifications, specifications)
+
+  const newItems: SpecItem[] = payload.items.map((item, index) => ({
+    ...item,
+    id: `spec_item_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+    specification_id: specification.id,
+    line_no: index + 1,
+    qty_done: 0,
+    status: "open",
+  }))
+
+  saveToStorage(STORAGE_KEYS.specItems, [...newItems, ...specItems])
+
+  const makerItems = newItems.filter(item => item.item_type === "make" && !!item.part_id)
+  if (makerItems.length > 0) {
+    const workOrders = getWorkOrders()
+    const createdWorkOrders: WorkOrder[] = makerItems.map(item => ({
+      id: `wo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      specification_id: specification.id,
+      spec_item_id: item.id,
+      part_id: item.part_id as string,
+      status: "backlog",
+      qty_plan: item.qty_required,
+      qty_done: 0,
+      qty_scrap: 0,
+      priority: "normal",
+      created_by: specification.created_by,
+      created_at: now,
+    }))
+    saveToStorage(STORAGE_KEYS.workOrders, [...createdWorkOrders, ...workOrders])
+  }
+
+  return specification
+}
+
+export function updateSpecification(specification: Specification): void {
+  const specifications = getSpecifications()
+  const index = specifications.findIndex(spec => spec.id === specification.id)
+  if (index !== -1) {
+    specifications[index] = specification
+    saveToStorage(STORAGE_KEYS.specifications, specifications)
+    recomputeSpecificationStatus(specification.id)
+  }
+}
+
+export function setSpecificationPublished(specificationId: string, published: boolean): void {
+  const specification = getSpecificationById(specificationId)
+  if (!specification) return
+  updateSpecification({
+    ...specification,
+    published_to_operators: published,
+    status: published && specification.status === "draft" ? "active" : specification.status,
+  })
+}
+
+export function getSpecItems(): SpecItem[] {
+  return safeJsonParse(STORAGE_KEYS.specItems, MOCK_SPEC_ITEMS)
+}
+
+export function getSpecItemsBySpecification(specificationId: string): SpecItem[] {
+  return getSpecItems()
+    .filter(item => item.specification_id === specificationId)
+    .sort((a, b) => a.line_no - b.line_no)
+}
+
+export function updateSpecItemProgress(
+  specItemId: string,
+  qtyDone: number,
+  statusOverride?: SpecItemStatus
+): void {
+  const specItems = getSpecItems()
+  const index = specItems.findIndex(item => item.id === specItemId)
+  if (index === -1) return
+  const existing = specItems[index]
+  const boundedQty = Math.max(0, qtyDone)
+  const updated: SpecItem = {
+    ...existing,
+    qty_done: boundedQty,
+    status: statusOverride ?? (boundedQty >= existing.qty_required ? "fulfilled" : boundedQty > 0 ? "partial" : "open"),
+  }
+  specItems[index] = updated
+  saveToStorage(STORAGE_KEYS.specItems, specItems)
+  recomputeSpecificationStatus(existing.specification_id)
+}
+
+export function getWorkOrders(): WorkOrder[] {
+  return safeJsonParse(STORAGE_KEYS.workOrders, MOCK_WORK_ORDERS)
+}
+
+export function getWorkOrdersForUser(userId: string): WorkOrder[] {
+  const user = getUserById(userId)
+  if (!user) return []
+  if (user.role !== "operator") return getWorkOrders()
+
+  const grants = getAccessGrants().filter(grant => grant.user_id === userId)
+  const specIds = new Set(
+    grants.filter(grant => grant.entity_type === "specification").map(grant => grant.entity_id)
+  )
+  const woIds = new Set(
+    grants.filter(grant => grant.entity_type === "work_order").map(grant => grant.entity_id)
+  )
+
+  return getWorkOrders().filter(wo =>
+    wo.assigned_operator_id === userId ||
+    specIds.has(wo.specification_id) ||
+    woIds.has(wo.id)
+  )
+}
+
+export function getWorkOrdersForSpecification(specificationId: string): WorkOrder[] {
+  return getWorkOrders()
+    .filter(wo => wo.specification_id === specificationId)
+    .sort((a, b) => (a.queue_pos ?? 9999) - (b.queue_pos ?? 9999))
+}
+
+export function createWorkOrder(order: Omit<WorkOrder, "id" | "created_at">): WorkOrder {
+  const workOrders = getWorkOrders()
+  const newOrder: WorkOrder = {
+    ...order,
+    id: `wo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    created_at: new Date().toISOString(),
+  }
+  workOrders.unshift(newOrder)
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+  syncSpecItemProgressFromWorkOrders(newOrder.spec_item_id)
+  return newOrder
+}
+
+export function updateWorkOrder(order: WorkOrder): void {
+  const workOrders = getWorkOrders()
+  const index = workOrders.findIndex(wo => wo.id === order.id)
+  if (index === -1) return
+  workOrders[index] = order
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+  syncSpecItemProgressFromWorkOrders(order.spec_item_id)
+}
+
+export function queueWorkOrder(workOrderId: string, machineId: string, queuePos?: number): void {
+  const workOrders = getWorkOrders()
+  const index = workOrders.findIndex(wo => wo.id === workOrderId)
+  if (index === -1) return
+
+  const sameMachineCount = workOrders.filter(wo => wo.machine_id === machineId && wo.status === "queued").length
+  const position = queuePos ?? (sameMachineCount + 1)
+  const order = workOrders[index]
+  workOrders[index] = {
+    ...order,
+    machine_id: machineId,
+    queue_pos: position,
+    status: "queued",
+    block_reason: undefined,
+  }
+
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+}
+
+export function startWorkOrder(workOrderId: string, operatorId?: string): void {
+  const workOrders = getWorkOrders()
+  const index = workOrders.findIndex(wo => wo.id === workOrderId)
+  if (index === -1) return
+  const order = workOrders[index]
+  workOrders[index] = {
+    ...order,
+    status: "in_progress",
+    assigned_operator_id: operatorId ?? order.assigned_operator_id,
+    started_at: order.started_at || new Date().toISOString(),
+    block_reason: undefined,
+  }
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+}
+
+export function blockWorkOrder(workOrderId: string, reason: string): void {
+  const workOrders = getWorkOrders()
+  const index = workOrders.findIndex(wo => wo.id === workOrderId)
+  if (index === -1) return
+  const order = workOrders[index]
+  workOrders[index] = {
+    ...order,
+    status: "blocked",
+    block_reason: reason,
+  }
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+  syncSpecItemProgressFromWorkOrders(order.spec_item_id)
+}
+
+export function reportWorkOrderProgress(workOrderId: string, qtyGood: number, qtyScrap = 0): void {
+  const workOrders = getWorkOrders()
+  const index = workOrders.findIndex(wo => wo.id === workOrderId)
+  if (index === -1) return
+  const order = workOrders[index]
+  const done = Math.max(0, order.qty_done + qtyGood)
+  const scrap = Math.max(0, order.qty_scrap + qtyScrap)
+  const status: WorkOrderStatus = done >= order.qty_plan ? "done" : order.status === "blocked" ? "in_progress" : order.status
+  workOrders[index] = {
+    ...order,
+    qty_done: done,
+    qty_scrap: scrap,
+    status,
+    completed_at: done >= order.qty_plan ? new Date().toISOString() : undefined,
+  }
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+  syncSpecItemProgressFromWorkOrders(order.spec_item_id)
+}
+
+export function completeWorkOrder(workOrderId: string): void {
+  const workOrders = getWorkOrders()
+  const index = workOrders.findIndex(wo => wo.id === workOrderId)
+  if (index === -1) return
+  const order = workOrders[index]
+  workOrders[index] = {
+    ...order,
+    status: "done",
+    qty_done: Math.max(order.qty_done, order.qty_plan),
+    completed_at: new Date().toISOString(),
+  }
+  saveToStorage(STORAGE_KEYS.workOrders, workOrders)
+  syncSpecItemProgressFromWorkOrders(order.spec_item_id)
+}
+
+export function getAccessGrants(): AccessGrant[] {
+  return safeJsonParse(STORAGE_KEYS.accessGrants, MOCK_ACCESS_GRANTS)
+}
+
+export function getAccessGrantsForEntity(entityType: AccessEntityType, entityId: string): AccessGrant[] {
+  return getAccessGrants().filter(grant => grant.entity_type === entityType && grant.entity_id === entityId)
+}
+
+export function grantAccess(
+  entityType: AccessEntityType,
+  entityId: string,
+  userId: string,
+  permission: AccessPermission,
+  createdBy: string
+): AccessGrant {
+  const existing = getAccessGrants().find(
+    grant => grant.entity_type === entityType && grant.entity_id === entityId && grant.user_id === userId
+  )
+  if (existing) {
+    const grants = getAccessGrants()
+    const index = grants.findIndex(grant => grant.id === existing.id)
+    const updated = { ...existing, permission }
+    if (index !== -1) {
+      grants[index] = updated
+      saveToStorage(STORAGE_KEYS.accessGrants, grants)
+    }
+    return updated
+  }
+
+  const grants = getAccessGrants()
+  const grant: AccessGrant = {
+    id: `grant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    entity_type: entityType,
+    entity_id: entityId,
+    user_id: userId,
+    permission,
+    created_by: createdBy,
+    created_at: new Date().toISOString(),
+  }
+  grants.unshift(grant)
+  saveToStorage(STORAGE_KEYS.accessGrants, grants)
+  return grant
+}
+
+export function revokeAccess(grantId: string): void {
+  const grants = getAccessGrants()
+  const filtered = grants.filter(grant => grant.id !== grantId)
+  saveToStorage(STORAGE_KEYS.accessGrants, filtered)
 }
 
 // Inventory helpers

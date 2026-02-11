@@ -1,4 +1,19 @@
-import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ProductionStage, StageStatus, MachineNorm, TaskComment } from "./types"
+import type {
+  User,
+  Machine,
+  Part,
+  StageFact,
+  Task,
+  LogisticsEntry,
+  ProductionStage,
+  StageStatus,
+  MachineNorm,
+  TaskComment,
+  Specification,
+  SpecItem,
+  WorkOrder,
+  AccessGrant,
+} from "./types"
 import type { InventoryMetalItem, InventoryMovement, InventoryToolingItem } from "./inventory-types"
 
 export const MOCK_USERS: User[] = [
@@ -415,6 +430,149 @@ export const MOCK_MACHINE_NORMS: MachineNorm[] = [
   { machine_id: "m_nextturn", part_id: "p_229_01", stage: "machining", qty_per_shift: 350, is_configured: false }, // Not yet configured
 ]
 
+export const MOCK_SPECIFICATIONS: Specification[] = [
+  {
+    id: "spec_1001",
+    number: "SP-2026-001",
+    customer: "ООО Заказчик-1",
+    note: "Комплект на февраль",
+    status: "active",
+    published_to_operators: true,
+    created_by: "u_shop_head",
+    created_at: "2026-01-30T08:00:00Z",
+  },
+  {
+    id: "spec_1002",
+    number: "SP-2026-002",
+    customer: "АО Промтех",
+    note: "Смешанная партия",
+    status: "draft",
+    published_to_operators: false,
+    created_by: "u_supply_1",
+    created_at: "2026-01-31T09:30:00Z",
+  },
+]
+
+export const MOCK_SPEC_ITEMS: SpecItem[] = [
+  {
+    id: "spec_item_1",
+    specification_id: "spec_1001",
+    line_no: 1,
+    item_type: "make",
+    part_id: "p_725",
+    description: "Корпус основной",
+    qty_required: 2450,
+    qty_done: 1220,
+    uom: "шт",
+    status: "partial",
+  },
+  {
+    id: "spec_item_2",
+    specification_id: "spec_1001",
+    line_no: 2,
+    item_type: "buy",
+    description: "Пруток 12Х18Н10Т Ø16",
+    qty_required: 30,
+    qty_done: 20,
+    uom: "шт",
+    status: "partial",
+  },
+  {
+    id: "spec_item_3",
+    specification_id: "spec_1001",
+    line_no: 3,
+    item_type: "coop",
+    part_id: "p_coop_1",
+    description: "Кооперация: корпус литой",
+    qty_required: 500,
+    qty_done: 200,
+    uom: "шт",
+    status: "partial",
+  },
+  {
+    id: "spec_item_4",
+    specification_id: "spec_1002",
+    line_no: 1,
+    item_type: "make",
+    part_id: "p_229_01",
+    description: "Шестерня ведущая",
+    qty_required: 6350,
+    qty_done: 0,
+    uom: "шт",
+    status: "open",
+  },
+]
+
+export const MOCK_WORK_ORDERS: WorkOrder[] = [
+  {
+    id: "wo_1",
+    specification_id: "spec_1001",
+    spec_item_id: "spec_item_1",
+    part_id: "p_725",
+    machine_id: "m_tsugami",
+    assigned_operator_id: "u_op_1",
+    status: "in_progress",
+    queue_pos: 1,
+    qty_plan: 2450,
+    qty_done: 1220,
+    qty_scrap: 10,
+    priority: "high",
+    started_at: "2026-01-30T08:10:00Z",
+    created_by: "u_shop_head",
+    created_at: "2026-01-30T08:00:00Z",
+  },
+  {
+    id: "wo_2",
+    specification_id: "spec_1002",
+    spec_item_id: "spec_item_4",
+    part_id: "p_229_01",
+    machine_id: "m_nextturn",
+    status: "queued",
+    queue_pos: 1,
+    qty_plan: 6350,
+    qty_done: 0,
+    qty_scrap: 0,
+    priority: "normal",
+    created_by: "u_shop_head",
+    created_at: "2026-01-31T10:00:00Z",
+  },
+  {
+    id: "wo_3",
+    specification_id: "spec_1001",
+    spec_item_id: "spec_item_1",
+    part_id: "p_725_01",
+    machine_id: "m_tsugami",
+    status: "backlog",
+    qty_plan: 6050,
+    qty_done: 0,
+    qty_scrap: 0,
+    priority: "normal",
+    created_by: "u_master",
+    created_at: "2026-01-31T11:15:00Z",
+  },
+]
+
+export const MOCK_ACCESS_GRANTS: AccessGrant[] = [
+  {
+    id: "grant_1",
+    entity_type: "specification",
+    entity_id: "spec_1001",
+    user_id: "u_op_1",
+    permission: "report",
+    created_by: "u_master",
+    created_at: "2026-01-30T08:05:00Z",
+  },
+  {
+    id: "grant_2",
+    entity_type: "specification",
+    entity_id: "spec_1002",
+    user_id: "u_op_4",
+    permission: "view",
+    created_by: "u_master",
+    created_at: "2026-01-31T10:05:00Z",
+  },
+]
+
 export const MOCK_INVENTORY_METAL: InventoryMetalItem[] = [
   {
     id: "metal_1",
@@ -584,6 +742,10 @@ export const STORAGE_KEYS = {
   tasks: "pc.tasks",
   logistics: "pc.logistics",
   machineNorms: "pc.machineNorms",
+  specifications: "pc.specifications",
+  specItems: "pc.specItems",
+  workOrders: "pc.workOrders",
+  accessGrants: "pc.accessGrants",
   inventoryMetal: "pc.inventoryMetal",
   inventoryTooling: "pc.inventoryTooling",
   inventoryMovements: "pc.inventoryMovements",
