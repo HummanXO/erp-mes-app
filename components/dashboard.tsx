@@ -8,12 +8,13 @@ import { LoginPageApi } from "@/components/login-page-api"
 import { AppSidebar } from "@/components/app-sidebar"
 import { PartsView } from "@/components/parts-view"
 import { AllTasksView } from "@/components/all-tasks-view"
+import { InventoryView } from "@/components/inventory/inventory-view"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import * as dataProvider from "@/lib/data-provider-adapter"
 
-type View = "parts" | "tasks"
+type View = "parts" | "tasks" | "inventory"
 
 export function Dashboard() {
   const { currentUser, getUnreadTasksCount } = useApp()
@@ -35,7 +36,7 @@ export function Dashboard() {
           <SidebarTrigger className="-ml-2" />
           <Separator orientation="vertical" className="h-6" />
           <h1 className="font-semibold">
-            {activeView === "parts" ? "Детали" : "Все задачи"}
+            {activeView === "parts" ? "Детали" : activeView === "tasks" ? "Все задачи" : "Склад"}
           </h1>
           <div className="flex items-center gap-2 ml-auto">
             {/* Unread tasks badge */}
@@ -53,8 +54,10 @@ export function Dashboard() {
         <main className="flex-1 overflow-auto p-4 lg:p-6">
           {activeView === "parts" ? (
             <PartsView />
-          ) : (
+          ) : activeView === "tasks" ? (
             <AllTasksView />
+          ) : (
+            <InventoryView />
           )}
         </main>
       </SidebarInset>

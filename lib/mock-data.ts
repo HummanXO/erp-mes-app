@@ -1,4 +1,5 @@
 import type { User, Machine, Part, StageFact, Task, LogisticsEntry, ProductionStage, StageStatus, MachineNorm, TaskComment } from "./types"
+import type { InventoryMetalItem, InventoryMovement, InventoryToolingItem } from "./inventory-types"
 
 export const MOCK_USERS: User[] = [
   // Admin
@@ -414,6 +415,165 @@ export const MOCK_MACHINE_NORMS: MachineNorm[] = [
   { machine_id: "m_nextturn", part_id: "p_229_01", stage: "machining", qty_per_shift: 350, is_configured: false }, // Not yet configured
 ]
 
+export const MOCK_INVENTORY_METAL: InventoryMetalItem[] = [
+  {
+    id: "metal_1",
+    material_grade: "12Х18Н10Т",
+    shape: "Пруток",
+    size: "Ø16",
+    length: 6000,
+    qty: { pcs: 24, kg: 92 },
+    location: "Склад А / Стеллаж 3",
+    status: "available",
+    min_level: { pcs: 10, kg: 40 },
+    lot: "A-2401",
+    supplier: "МеталлСнаб",
+    certificate_ref: "CERT-2401-16",
+  },
+  {
+    id: "metal_2",
+    material_grade: "40Х",
+    shape: "Пруток",
+    size: "Ø28",
+    length: 4000,
+    qty: { pcs: 6, kg: 58 },
+    location: "Склад А / Стеллаж 1",
+    status: "reserved",
+    min_level: { pcs: 8, kg: 70 },
+    lot: "B-2402",
+    supplier: "УралМет",
+    certificate_ref: "CERT-2402-28",
+    reserved_qty: { pcs: 4, kg: 38 },
+  },
+  {
+    id: "metal_3",
+    material_grade: "АЛ-2",
+    shape: "Лист",
+    size: "2.0x1000x2000",
+    length: 2000,
+    qty: { pcs: 12, kg: 78 },
+    location: "Склад B / Паллет 2",
+    status: "in_use",
+    min_level: { pcs: 15, kg: 90 },
+    lot: "AL-2403",
+    supplier: "АлюмПроф",
+    certificate_ref: "CERT-2403-AL2",
+    in_use_qty: { pcs: 5, kg: 32 },
+  },
+  {
+    id: "metal_4",
+    material_grade: "Ст3",
+    shape: "Пруток",
+    size: "Ø10",
+    length: 6000,
+    qty: { pcs: 3, kg: 12 },
+    location: "Склад C / Стеллаж 5",
+    status: "available",
+    min_level: { pcs: 8, kg: 30 },
+    lot: "ST3-2404",
+    supplier: "СтальПоставка",
+    certificate_ref: "CERT-2404-ST3",
+  },
+]
+
+export const MOCK_INVENTORY_TOOLING: InventoryToolingItem[] = [
+  {
+    id: "tool_1",
+    category: "cutting",
+    name: "Фреза торцевая",
+    params: "Ø63 Z6",
+    compatible_machines: ["Tsugami S205A"],
+    qty: 8,
+    location: "Инструментальная / Шкаф 2",
+    condition: "good",
+    min_level: 6,
+    status: "available",
+  },
+  {
+    id: "tool_2",
+    category: "machine_tooling",
+    name: "Патрон цанговый",
+    params: "ER20",
+    compatible_machines: ["NextTurn SA12B"],
+    qty: 2,
+    location: "Инструментальная / Шкаф 1",
+    condition: "needs_service",
+    min_level: 3,
+    status: "reserved",
+  },
+  {
+    id: "tool_3",
+    category: "cutting",
+    name: "Сверло спиральное",
+    params: "Ø6 HSS",
+    compatible_machines: ["Tsugami S205A", "NextTurn SA12B"],
+    qty: 14,
+    location: "Инструментальная / Шкаф 3",
+    condition: "new",
+    min_level: 10,
+    status: "available",
+  },
+  {
+    id: "tool_4",
+    category: "machine_tooling",
+    name: "Оправка",
+    params: "BT40",
+    compatible_machines: ["Шлифовальный КШ-3"],
+    qty: 1,
+    location: "Цех / Участок шлифовки",
+    condition: "scrap",
+    min_level: 2,
+    status: "in_use",
+  },
+]
+
+export const MOCK_INVENTORY_MOVEMENTS: InventoryMovement[] = [
+  {
+    id: "mov_1",
+    type: "receipt",
+    datetime: "2026-01-30T08:40:00Z",
+    item_ref: { type: "metal", id: "metal_1", label: "12Х18Н10Т Ø16" },
+    qty: { pcs: 12, kg: 46 },
+    from_location: "Поставщик",
+    to_location: "Склад А / Стеллаж 3",
+    reason: "Поставка по счету 241",
+    user_id: "u_supply_1",
+  },
+  {
+    id: "mov_2",
+    type: "issue",
+    datetime: "2026-01-31T10:05:00Z",
+    item_ref: { type: "tooling", id: "tool_1", label: "Фреза торцевая Ø63" },
+    qty: { pcs: 2 },
+    from_location: "Инструментальная / Шкаф 2",
+    to_location: "Цех / Участок механообработки",
+    reason: "Выдача на смену",
+    user_id: "u_master",
+  },
+  {
+    id: "mov_3",
+    type: "transfer",
+    datetime: "2026-01-31T14:30:00Z",
+    item_ref: { type: "metal", id: "metal_2", label: "40Х Ø28" },
+    qty: { pcs: 2, kg: 19 },
+    from_location: "Склад А / Стеллаж 1",
+    to_location: "Склад B / Паллет 1",
+    reason: "Перемещение по партии",
+    user_id: "u_supply_2",
+  },
+  {
+    id: "mov_4",
+    type: "adjustment",
+    datetime: "2026-01-31T16:10:00Z",
+    item_ref: { type: "tooling", id: "tool_2", label: "Патрон ER20" },
+    qty: { pcs: -1 },
+    from_location: "Инструментальная / Шкаф 1",
+    to_location: "Инструментальная / Шкаф 1",
+    reason: "Списание из-за дефекта",
+    user_id: "u_shop_head",
+  },
+]
+
 export const DEFAULT_DEMO_DATE = "2026-01-31"
 
 export const STORAGE_KEYS = {
@@ -424,6 +584,9 @@ export const STORAGE_KEYS = {
   tasks: "pc.tasks",
   logistics: "pc.logistics",
   machineNorms: "pc.machineNorms",
+  inventoryMetal: "pc.inventoryMetal",
+  inventoryTooling: "pc.inventoryTooling",
+  inventoryMovements: "pc.inventoryMovements",
   currentUserId: "pc.currentUserId",
   demoDate: "pc.demoDate",
 } as const
