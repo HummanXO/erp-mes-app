@@ -21,7 +21,19 @@ export function Dashboard() {
   const { currentUser, getUnreadTasksCount, permissions } = useApp()
   
   const [activeView, setActiveView] = useState<View>("parts")
+  const [defaultViewUserId, setDefaultViewUserId] = useState<string | null>(null)
   const unreadCount = getUnreadTasksCount()
+
+  useEffect(() => {
+    if (!currentUser) {
+      setDefaultViewUserId(null)
+      setActiveView("parts")
+      return
+    }
+    if (defaultViewUserId === currentUser.id) return
+    setActiveView(permissions.canViewSpecifications ? "specifications" : "parts")
+    setDefaultViewUserId(currentUser.id)
+  }, [currentUser, permissions.canViewSpecifications, defaultViewUserId])
 
   useEffect(() => {
     if (activeView === "inventory" && !permissions.canViewInventory) {
