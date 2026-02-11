@@ -265,7 +265,6 @@ export function SpecificationsView() {
                     await revokeAccess(grantId)
                   })
                 }}
-                onHelp={() => openHowItWorks("access")}
                 actionBusy={actionBusy}
               />
             </>

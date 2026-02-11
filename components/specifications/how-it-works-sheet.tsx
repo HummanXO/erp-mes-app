@@ -1,6 +1,7 @@
 "use client"
 
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { CircleCheck } from "lucide-react"
 
 export type HowItWorksTopic = "general" | "items" | "queue" | "access"
 
@@ -50,20 +51,21 @@ export function HowItWorksSheet({ open, onOpenChange, topic }: HowItWorksSheetPr
   const content = TOPIC_CONTENT[topic]
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-lg">
-        <SheetHeader>
-          <SheetTitle>{content.title}</SheetTitle>
-          <SheetDescription>Короткая памятка для текущего блока</SheetDescription>
-        </SheetHeader>
-        <div className="space-y-3 text-sm pt-4">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>{content.title}</DialogTitle>
+          <DialogDescription>Короткая памятка для текущего блока</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 pt-2">
           {content.lines.map((line) => (
-            <p key={line} className="text-muted-foreground leading-relaxed">
-              {line}
-            </p>
+            <div key={line} className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2">
+              <CircleCheck className="mt-0.5 h-4 w-4 text-[color:var(--status-info-fg)]" aria-hidden="true" />
+              <p className="text-sm leading-relaxed text-muted-foreground">{line}</p>
+            </div>
           ))}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
