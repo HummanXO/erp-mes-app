@@ -88,6 +88,26 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const isImageDrawing =
     drawingUrlLower.startsWith("data:image/") ||
     /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
+  const isKnownDrawingType = isPdfDrawing || isImageDrawing
+
+  const isValidDrawingPath = (value: string) => {
+    const candidate = value.trim()
+    if (!candidate) return false
+    if (
+      candidate.startsWith("data:image/") ||
+      candidate.startsWith("data:application/pdf") ||
+      candidate.startsWith("/uploads/") ||
+      candidate.startsWith("/api/v1/attachments/serve/")
+    ) {
+      return true
+    }
+    try {
+      const parsed = new URL(candidate)
+      return parsed.protocol === "http:" || parsed.protocol === "https:"
+    } catch {
+      return false
+    }
+  }
 
   useEffect(() => {
     setDrawingError(false)
@@ -147,11 +167,17 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   )
 
   const handleSaveDrawing = async () => {
-    if (!drawingUrl) return
+    const trimmed = drawingUrl.trim()
+    if (!trimmed) return
+    if (!isValidDrawingPath(trimmed)) {
+      setDrawingActionError("Некорректный путь: используйте http(s)-ссылку или путь к загруженному файлу")
+      return
+    }
     setDrawingActionError("")
     setIsSavingDrawing(true)
     try {
-      await updatePartDrawing(part.id, drawingUrl)
+      await updatePartDrawing(part.id, trimmed)
+      setDrawingUrl(trimmed)
       setDrawingError(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось сохранить ссылку"
@@ -513,8 +539,14 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                             ? "PDF-чертёж"
                             : drawingError
                             ? "Не удалось загрузить изображение"
-                            : "Чертёж доступен"}
+                            : "Неподдерживаемый формат или некорректный путь"}
                         </p>
+                        {!isKnownDrawingType && !drawingError && (
+                          <p className="text-xs mt-1">Поддерживаются PDF и изображения</p>
+                        )}
+                        {drawingError && (
+                          <p className="text-xs mt-1 break-all">Путь: {drawingUrlValue}</p>
+                        )}
                       </div>
                     )}
                   </div>
