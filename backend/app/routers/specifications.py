@@ -59,6 +59,8 @@ def _get_specification_or_404(db: Session, specification_id: UUID, org_id: UUID)
 
 
 def _operator_can_access_specification(db: Session, specification: Specification, user: User) -> bool:
+    if specification.published_to_operators:
+        return True
     grant_exists = db.query(AccessGrant.id).filter(
         AccessGrant.org_id == user.org_id,
         AccessGrant.entity_type == "specification",
@@ -167,7 +169,10 @@ def get_specifications(
             AccessGrant.entity_type == "specification",
             AccessGrant.user_id == current_user.id,
         )
-        query = query.filter(Specification.id.in_(granted_spec_ids))
+        query = query.filter(
+            (Specification.published_to_operators.is_(True))
+            | (Specification.id.in_(granted_spec_ids))
+        )
 
     specifications = query.order_by(Specification.created_at.desc()).all()
     return [SpecificationResponse.model_validate(specification) for specification in specifications]
@@ -418,7 +423,10 @@ def get_spec_items(
             AccessGrant.entity_type == "specification",
             AccessGrant.user_id == current_user.id,
         )
-        query = query.filter(Specification.id.in_(granted_spec_ids))
+        query = query.filter(
+            (Specification.published_to_operators.is_(True))
+            | (Specification.id.in_(granted_spec_ids))
+        )
 
     items = query.order_by(SpecItem.created_at.desc()).all()
 

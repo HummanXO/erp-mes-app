@@ -904,7 +904,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .filter(order => order.assigned_operator_id === currentUser.id)
       .forEach(order => grantedSpecIds.add(order.specification_id))
 
-    return specifications.filter(spec => grantedSpecIds.has(spec.id))
+    return specifications.filter(spec =>
+      spec.published_to_operators || grantedSpecIds.has(spec.id)
+    )
   }, [currentUser, specifications, accessGrants, workOrders])
 
   const getSpecItemsBySpecification = useCallback((specificationId: string) => {
@@ -927,13 +929,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "work_order")
         .map(grant => grant.entity_id)
     )
+    const publishedSpecIds = new Set(
+      specifications
+        .filter(spec => spec.published_to_operators)
+        .map(spec => spec.id)
+    )
 
     return workOrders.filter(order =>
       order.assigned_operator_id === currentUser.id ||
       specGrantIds.has(order.specification_id) ||
+      publishedSpecIds.has(order.specification_id) ||
       workOrderGrantIds.has(order.id)
     )
-  }, [currentUser, workOrders, accessGrants])
+  }, [currentUser, workOrders, accessGrants, specifications])
 
   const getWorkOrdersForSpecification = useCallback((specificationId: string) => {
     return workOrders
