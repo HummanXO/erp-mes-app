@@ -118,6 +118,7 @@ export function SpecificationsView() {
   )
 
   const canManageSpecifications = permissions.canManageSpecifications
+  const isOperator = currentUser?.role === "operator"
 
   const openPartDetails = (partId: string) => {
     sessionStorage.setItem("pc.navigate.partId", partId)
@@ -216,6 +217,7 @@ export function SpecificationsView() {
           specifications={filteredSpecifications}
           selectedId={selectedSpecificationId}
           onSelect={setSelectedSpecificationId}
+          showFilters={!isOperator}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
           statusFilter={statusFilter}
@@ -246,29 +248,32 @@ export function SpecificationsView() {
               <SpecItemsPanel
                 items={selectedSpecItems}
                 canManageSpecifications={canManageSpecifications}
+                showFilters={!isOperator}
                 onAddItem={() => setAddItemOpen(true)}
                 onHelp={() => openHowItWorks("items")}
                 onOpenPart={openPartDetails}
               />
 
-              <SpecAccessPanel
-                grants={selectedGrants}
-                operators={users.filter((user) => user.role === "operator")}
-                getUserName={(userId) => getUserById(userId)?.initials ?? userId}
-                canManageSpecifications={canManageSpecifications}
-                onGrant={(userId, permission) => {
-                  if (!selectedSpecification) return
-                  void runAction(async () => {
-                    await grantAccess("specification", selectedSpecification.id, userId, permission)
-                  })
-                }}
-                onRevoke={(grantId) => {
-                  void runAction(async () => {
-                    await revokeAccess(grantId)
-                  })
-                }}
-                actionBusy={actionBusy}
-              />
+              {!isOperator && (
+                <SpecAccessPanel
+                  grants={selectedGrants}
+                  operators={users.filter((user) => user.role === "operator")}
+                  getUserName={(userId) => getUserById(userId)?.initials ?? userId}
+                  canManageSpecifications={canManageSpecifications}
+                  onGrant={(userId, permission) => {
+                    if (!selectedSpecification) return
+                    void runAction(async () => {
+                      await grantAccess("specification", selectedSpecification.id, userId, permission)
+                    })
+                  }}
+                  onRevoke={(grantId) => {
+                    void runAction(async () => {
+                      await revokeAccess(grantId)
+                    })
+                  }}
+                  actionBusy={actionBusy}
+                />
+              )}
             </>
           )}
         </div>
