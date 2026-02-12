@@ -80,8 +80,8 @@ export function SidebarBrand({
               <Image
                 src={logoSrc}
                 alt=""
-                width={420}
-                height={115}
+                width={310}
+                height={66}
                 priority
                 onError={() => setLogoFailed(true)}
                 // The provided PNG is white; make it black on light theme and keep white in dark theme.
@@ -106,7 +106,7 @@ export function SidebarBrand({
 
   const sharedClassName = cn(
     "group w-full rounded-md px-3 py-2",
-    "flex flex-col items-start gap-2 text-left",
+    "flex flex-col items-start gap-1.5 text-left",
     "outline-none transition-[background-color,box-shadow,color] duration-150",
     "hover:bg-sidebar-accent hover:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
     "focus-visible:ring-2 focus-visible:ring-sidebar-ring",
