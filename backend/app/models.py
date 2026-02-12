@@ -526,7 +526,7 @@ class AuditEvent(Base):
                 'task_created', 'task_status_changed', 'task_accepted', 'task_comment_added',
                 'task_sent_for_review', 'task_approved', 'task_returned', 'task_attachment_added',
                 'fact_added', 'fact_updated', 'part_created', 'part_updated', 'part_stage_changed',
-                'norm_configured', 'user_login', 'user_logout'
+                'norm_configured', 'user_login', 'user_logout', 'password_changed'
             ]),
             name='chk_audit_action'
         ),
