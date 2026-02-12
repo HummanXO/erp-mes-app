@@ -561,14 +561,12 @@ def upsert_part_norm(
     ).first()
 
     if existing:
-        existing.org_id = current_user.org_id
         existing.qty_per_shift = data.qty_per_shift
         existing.is_configured = data.is_configured
         existing.configured_by_id = current_user.id
         norm = existing
     else:
         norm = MachineNorm(
-            org_id=current_user.org_id,
             machine_id=data.machine_id,
             part_id=part_id,
             stage=data.stage,
