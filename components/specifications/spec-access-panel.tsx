@@ -150,7 +150,7 @@ export function SpecAccessPanel({
           <DialogHeader>
             <DialogTitle>Выдать доступ оператору</DialogTitle>
             <DialogDescription>
-              Если включено «Опубликовать операторам», спецификацию видят все операторы. Здесь — персональный доступ дополнительно.
+              Доступ выдаётся персонально к выбранной спецификации. Без выдачи оператор её не увидит.
             </DialogDescription>
           </DialogHeader>
 
