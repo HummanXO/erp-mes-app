@@ -57,6 +57,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
     setMachineNorm,
     stageFacts
   } = useApp()
+  const isOperator = currentUser?.role === "operator"
   
   const operators = getOperators()
   const formId = useId()
@@ -75,12 +76,16 @@ export function StageFactForm({ part }: StageFactFormProps) {
     .filter(s => (s.status === "pending" || s.status === "in_progress") && s.stage !== "logistics")
     .map(s => s.stage)
     .sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b))
+  const availableStages = isOperator
+    ? activeStages.filter((activeStage) => activeStage === "machining")
+    : activeStages
   
   const [isOpen, setIsOpen] = useState(false)
   const [shiftType, setShiftType] = useState<ShiftType>(getCurrentShift())
   const [stage, setStage] = useState<ProductionStage>(() => {
+    if (isOperator) return "machining"
     const inProgressStage = stageStatuses.find(s => s.status === "in_progress" && s.stage !== "logistics")?.stage
-    return inProgressStage || activeStages[0] || "machining"
+    return inProgressStage || availableStages[0] || "machining"
   })
   const [machineId, setMachineId] = useState<string>(part.machine_id || "")
   const [operatorId, setOperatorId] = useState<string>(currentUser?.role === "operator" ? currentUser.id : "")
@@ -104,16 +109,24 @@ export function StageFactForm({ part }: StageFactFormProps) {
   }, [stage])
 
   useEffect(() => {
-    if (!activeStages.includes(stage)) {
-      setStage(activeStages[0] || "machining")
+    if (isOperator) {
+      setStage("machining")
+      return
     }
-  }, [activeStages, stage])
+    if (!availableStages.includes(stage)) {
+      setStage(availableStages[0] || "machining")
+    }
+  }, [availableStages, isOperator, stage])
 
   useEffect(() => {
+    if (isOperator && currentUser?.id) {
+      setOperatorId(currentUser.id)
+      return
+    }
     if (stageRequiresOperator(stage) && (!operatorId || operatorId === "none") && operators.length > 0) {
       setOperatorId(operators[0].id)
     }
-  }, [stage, operatorId, operators])
+  }, [stage, operatorId, operators, isOperator, currentUser?.id])
   
   // Filter machines for machining stage
   const machiningMachines = machines.filter(m => m.department === "machining")
@@ -175,7 +188,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const handleSubmit = async () => {
     setSubmitError("")
 
-    const normalizedOperatorId = operatorId === "none" ? "" : operatorId
+    const normalizedOperatorId = isOperator
+      ? (currentUser?.id || "")
+      : (operatorId === "none" ? "" : operatorId)
 
     // For machining, operator is required. For other stages, it's optional
     if (!qtyGood) return
@@ -388,6 +403,14 @@ export function StageFactForm({ part }: StageFactFormProps) {
   }
 
   if (!isOpen) {
+    if (isOperator && availableStages.length === 0) {
+      return (
+        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          Для вашей роли ввод факта доступен только на этапе «Механообработка».
+        </div>
+      )
+    }
+
     return (
       <div className="space-y-4">
         {/* Current shift status summary */}
@@ -511,21 +534,28 @@ export function StageFactForm({ part }: StageFactFormProps) {
         )}
         
         {/* Stage selection */}
-        <div className="space-y-2">
-          <Label htmlFor={stageFieldId}>Этап</Label>
-          <Select value={stage} onValueChange={(v) => setStage(v as ProductionStage)}>
-            <SelectTrigger id={stageFieldId}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {activeStages.map(s => (
-                <SelectItem key={s} value={s}>
-                  {STAGE_LABELS[s]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {isOperator ? (
+          <div className="space-y-2">
+            <Label htmlFor={stageFieldId}>Этап</Label>
+            <Input id={stageFieldId} value={STAGE_LABELS.machining} readOnly />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor={stageFieldId}>Этап</Label>
+            <Select value={stage} onValueChange={(v) => setStage(v as ProductionStage)}>
+              <SelectTrigger id={stageFieldId}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableStages.map(s => (
+                  <SelectItem key={s} value={s}>
+                    {STAGE_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         
         {/* Machine selection - only for machining */}
         {stage === "machining" && (
@@ -547,7 +577,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
         )}
         
         {/* Operator selection - only for machining */}
-        {stageRequiresOperator(stage) && (
+        {stageRequiresOperator(stage) && !isOperator && (
           <div className="space-y-2">
             <Label htmlFor={operatorFieldId}>Оператор</Label>
             <Select value={operatorId} onValueChange={setOperatorId}>
@@ -710,7 +740,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
             onClick={handleSubmit} 
             disabled={isSubmitting ||
               !qtyGood || 
-              (stageRequiresOperator(stage) && (!operatorId || operatorId === "none"))
+              (stageRequiresOperator(stage) && !isOperator && (!operatorId || operatorId === "none"))
             }
           >
             {isSubmitting ? "Сохраняем..." : currentFact ? "Сохранить изменения" : "Сохранить"}
