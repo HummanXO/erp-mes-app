@@ -28,6 +28,16 @@ export function SpecItemsPanel({ items, onAddItem, onHelp, onOpenPart }: SpecIte
   const [machineFilter, setMachineFilter] = useState<string>("all")
   const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
 
+  const linkedParts = useMemo(() => {
+    const result: Part[] = []
+    for (const item of items) {
+      if (!item.part_id) continue
+      const part = getPartById(item.part_id)
+      if (part) result.push(part)
+    }
+    return result
+  }, [getPartById, items])
+
   if (items.length === 0) {
     return (
       <EmptyStateCard
@@ -40,16 +50,6 @@ export function SpecItemsPanel({ items, onAddItem, onHelp, onOpenPart }: SpecIte
       />
     )
   }
-
-  const linkedParts = useMemo(() => {
-    const result: Part[] = []
-    for (const item of items) {
-      if (!item.part_id) continue
-      const part = getPartById(item.part_id)
-      if (part) result.push(part)
-    }
-    return result
-  }, [getPartById, items])
 
   let visibleParts = [...linkedParts]
   if (!permissions.canViewCooperation) {

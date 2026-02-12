@@ -29,6 +29,54 @@ export class ApiClientError extends Error {
   }
 }
 
+function normalizeApiError(statusCode: number, payload: any, fallbackMessage: string): ApiError {
+  // Backend custom shape: { error: { code, message, details } }
+  if (payload?.error && typeof payload.error === "object") {
+    const code = String(payload.error.code || `HTTP_${statusCode}`)
+    const message = String(payload.error.message || fallbackMessage)
+    return { code, message, details: payload.error.details }
+  }
+
+  // FastAPI common shape: { detail: "..." } or { detail: [{loc,msg,type}, ...] }
+  if (typeof payload?.detail === "string") {
+    return {
+      code: `HTTP_${statusCode}`,
+      message: payload.detail,
+      details: payload,
+    }
+  }
+
+  if (Array.isArray(payload?.detail)) {
+    const detailMessages = payload.detail
+      .map((item: any) => {
+        const loc = Array.isArray(item?.loc) ? item.loc.join(".") : ""
+        const msg = typeof item?.msg === "string" ? item.msg : "Validation error"
+        return loc ? `${loc}: ${msg}` : msg
+      })
+      .join("; ")
+
+    return {
+      code: `HTTP_${statusCode}`,
+      message: detailMessages || fallbackMessage,
+      details: payload,
+    }
+  }
+
+  if (typeof payload?.message === "string" && payload.message.trim().length > 0) {
+    return {
+      code: `HTTP_${statusCode}`,
+      message: payload.message,
+      details: payload,
+    }
+  }
+
+  return {
+    code: `HTTP_${statusCode}`,
+    message: fallbackMessage,
+    details: payload,
+  }
+}
+
 class ApiClient {
   private baseUrl: string
   private accessToken: string | null = null
@@ -92,14 +140,11 @@ class ApiClient {
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          error: {
-            code: "UNKNOWN_ERROR",
-            message: response.statusText,
-          },
-        }))
-
-        throw new ApiClientError(response.status, errorData.error || errorData)
+        const errorData = await response.json().catch(() => null)
+        throw new ApiClientError(
+          response.status,
+          normalizeApiError(response.status, errorData, response.statusText || "Request failed")
+        )
       }
 
       // Handle 204 No Content
