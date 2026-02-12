@@ -17,11 +17,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
-import { Building2, AlertCircle, X } from "lucide-react"
+import { Building2, AlertCircle, X, Loader2 } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
+const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
 const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment", "grinding", "logistics"]
+const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc", "logistics"]
 const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 
 interface CreatePartDialogProps {
@@ -172,6 +174,11 @@ export function CreatePartDialog({
     }
   }
 
+  const sortStagesByFlow = (stages: ProductionStage[]): ProductionStage[] => {
+    const uniqueStages = Array.from(new Set(stages))
+    return uniqueStages.sort((a, b) => STAGE_FLOW_ORDER.indexOf(a) - STAGE_FLOW_ORDER.indexOf(b))
+  }
+
   const persistCustomerList = (list: string[]) => {
     if (typeof window === "undefined") return
     localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(list))
@@ -222,8 +229,11 @@ export function CreatePartDialog({
     }
 
     const requiredStages = isCooperation
-      ? COOP_STAGES
-      : [...SHOP_REQUIRED_STAGES, ...selectedOptionalStages]
+      ? sortStagesByFlow([
+          ...COOP_STAGES,
+          ...selectedOptionalStages.filter((stage) => COOP_OPTIONAL_STAGES.includes(stage)),
+        ])
+      : sortStagesByFlow([...SHOP_REQUIRED_STAGES, ...selectedOptionalStages])
     
     // Create stage statuses
     const stageStatuses: StageStatus[] = requiredStages.map(stage => ({
@@ -486,9 +496,9 @@ export function CreatePartDialog({
               {isCooperation ? (
                 <>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Для кооперации этапы фиксированы
+                    Для кооперации обязательны логистика и ОТК. При необходимости можно добавить гальванику после кооперации.
                   </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                     {COOP_STAGES.map((stage) => (
                       <div key={stage} className="flex items-center gap-2 p-2.5 rounded-lg border bg-primary/10 border-primary overflow-hidden min-h-11">
                         <Checkbox checked disabled />
@@ -497,6 +507,31 @@ export function CreatePartDialog({
                           <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
                         </div>
                       </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {COOP_OPTIONAL_STAGES.map((stage) => (
+                      <button
+                        type="button"
+                        key={stage}
+                        className={`
+                          flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer transition-colors overflow-hidden min-h-11
+                          ${selectedOptionalStages.includes(stage)
+                            ? "bg-primary/10 border-primary"
+                            : "bg-muted/50 border-transparent hover:border-muted-foreground/20"
+                          }
+                        `}
+                        onClick={() => toggleOptionalStage(stage)}
+                        aria-pressed={selectedOptionalStages.includes(stage)}
+                      >
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs">
+                          {selectedOptionalStages.includes(stage) ? "✓" : ""}
+                        </span>
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          {STAGE_ICONS[stage]}
+                          <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
+                        </div>
+                      </button>
                     ))}
                   </div>
                 </>
@@ -599,7 +634,12 @@ export function CreatePartDialog({
               onClick={() => void handleCreate()}
               disabled={isSubmitting || !code || !name || !qtyPlan || (!isCooperation && !machineId)}
             >
-              {submitLabel}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Создание...
+                </>
+              ) : submitLabel}
             </Button>
           </DialogFooter>
         </div>

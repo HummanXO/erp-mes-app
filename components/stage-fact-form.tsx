@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Sun, Moon, Plus, TrendingUp, TrendingDown, Minus, CheckCircle, AlertCircle, Paperclip, FileImage, X } from "lucide-react"
+import { Sun, Moon, Plus, TrendingUp, TrendingDown, Minus, CheckCircle, AlertCircle, Paperclip, FileImage, X, Loader2, Pencil } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiClientError } from "@/lib/api-client"
 
@@ -39,6 +39,33 @@ function stageRequiresShift(stage: ProductionStage): boolean {
 // Check if stage requires operator (only machining requires it strictly)
 function stageRequiresOperator(stage: ProductionStage): boolean {
   return stage === "machining"
+}
+
+function toRussianFactError(message: string): string {
+  const value = (message || "").trim()
+  if (!value) return "Не удалось сохранить факт"
+  const normalized = value.toLowerCase()
+
+  if (normalized.includes("failed to fetch") || normalized.includes("network error")) {
+    return "Нет связи с сервером. Проверьте интернет и попробуйте снова."
+  }
+  if (normalized.includes("fact for this date/shift/stage already exists")) {
+    return "Факт за эту дату и смену уже есть. Откройте его через кнопку «Редактировать»."
+  }
+  if (normalized.includes("stage is not enabled for this part")) {
+    return "Этот этап не включён для выбранной детали."
+  }
+  if (normalized.includes("operator_id is required")) {
+    return "Нужно выбрать оператора."
+  }
+  if (normalized.includes("shift_type must be")) {
+    return "Для механообработки нужно выбрать смену: день или ночь."
+  }
+  if (normalized.includes("one operator = one shift")) {
+    return "Один оператор может быть назначен только на одну смену (день или ночь)."
+  }
+
+  return value
 }
 
 interface StageFactFormProps {
@@ -94,6 +121,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const [deviationReason, setDeviationReason] = useState<DeviationReason>(null)
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [submitError, setSubmitError] = useState("")
+  const [savedHint, setSavedHint] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [normQty, setNormQty] = useState("")
   const [isSavingNorm, setIsSavingNorm] = useState(false)
@@ -151,12 +179,16 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const currentFact = stageRequiresShift(stage)
     ? (shiftType === "day" ? dayFact : nightFact)
     : nonMachiningFact
-  
-  // Calculate day totals
-  const dayTotal = dayFact?.qty_good || 0
-  const nightTotal = nightFact?.qty_good || 0
-  const dayTotalWithNew = shiftType === "day" ? (Number(qtyGood) || 0) : dayTotal
-  const nightTotalWithNew = shiftType === "night" ? (Number(qtyGood) || 0) : nightTotal
+  const oppositeShiftFact = stageRequiresShift(stage)
+    ? (shiftType === "day" ? nightFact : dayFact)
+    : undefined
+  const effectiveOperatorId = isOperator ? (currentUser?.id || "") : operatorId
+  const hasOperatorShiftConflict =
+    stage === "machining" &&
+    !!effectiveOperatorId &&
+    !!oppositeShiftFact?.operator_id &&
+    oppositeShiftFact.operator_id === effectiveOperatorId &&
+    (!currentFact || currentFact.id !== oppositeShiftFact.id)
   
   // Performance indicators
   const getPerformanceIndicator = (actual: number, expected: number) => {
@@ -188,8 +220,13 @@ export function StageFactForm({ part }: StageFactFormProps) {
     }
   }, [isOpen, currentFact])
 
+  useEffect(() => {
+    setSavedHint("")
+  }, [stage])
+
   const handleSubmit = async () => {
     setSubmitError("")
+    setSavedHint("")
 
     const normalizedOperatorId = isOperator
       ? (currentUser?.id || "")
@@ -207,40 +244,59 @@ export function StageFactForm({ part }: StageFactFormProps) {
       setSubmitError("Для детали не назначен станок. Обратитесь к администратору.")
       return
     }
+    if (stage === "machining" && hasOperatorShiftConflict) {
+      setSubmitError("Один оператор может быть только в одной смене (день или ночь) за эту дату по этой детали.")
+      return
+    }
 
     try {
       setIsSubmitting(true)
+      const operatorValue = stageRequiresOperator(stage)
+        ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
+        : undefined
+
       if (currentFact) {
-        await updateStageFact(currentFact.id, {
+        const updatePayload: any = {
           machine_id: resolvedMachineId,
-          operator_id: stageRequiresOperator(stage)
-            ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
-            : undefined,
           qty_good: Number.parseInt(qtyGood, 10),
           qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
           qty_expected: expectedQty,
           comment,
           deviation_reason: deviationReason,
           attachments: attachments.length > 0 ? attachments : undefined,
-        })
+        }
+        if (operatorValue) {
+          updatePayload.operator_id = operatorValue
+        }
+        await updateStageFact(currentFact.id, updatePayload)
       } else {
-        await createStageFact({
+        const createPayload: any = {
           date: demoDate,
           shift_type: stageRequiresShift(stage) ? shiftType : "none",
           part_id: part.id,
           stage,
           machine_id: resolvedMachineId,
-          operator_id: stageRequiresOperator(stage)
-            ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
-            : undefined,
           qty_good: Number.parseInt(qtyGood, 10),
           qty_scrap: Number.parseInt(qtyScrap, 10) || 0,
           qty_expected: expectedQty,
           comment,
           deviation_reason: deviationReason,
           attachments: attachments.length > 0 ? attachments : undefined,
-        })
+        }
+        if (operatorValue) {
+          createPayload.operator_id = operatorValue
+        }
+        await createStageFact(createPayload)
       }
+
+      const savedShiftLabel = stageRequiresShift(stage)
+        ? (shiftType === "day" ? "дневную" : "ночную")
+        : ""
+      setSavedHint(
+        stageRequiresShift(stage)
+          ? `Факт за ${savedShiftLabel} смену сохранён.`
+          : "Факт сохранён."
+      )
 
       // Reset form
       setQtyGood("")
@@ -252,9 +308,10 @@ export function StageFactForm({ part }: StageFactFormProps) {
       setIsOpen(false)
     } catch (error) {
       if (error instanceof ApiClientError) {
-        setSubmitError(error.error?.message || error.message || "Не удалось сохранить факт")
+        const message = error.error?.message || error.message || "Не удалось сохранить факт"
+        setSubmitError(toRussianFactError(message))
       } else if (error instanceof Error) {
-        setSubmitError(error.message)
+        setSubmitError(toRussianFactError(error.message))
       } else {
         setSubmitError("Не удалось сохранить факт")
       }
@@ -284,6 +341,14 @@ export function StageFactForm({ part }: StageFactFormProps) {
     }
   }
 
+  const openFactEditor = (targetShift?: ShiftType) => {
+    if (targetShift) {
+      setShiftType(targetShift)
+    }
+    setSubmitError("")
+    setIsOpen(true)
+  }
+
   // Shift summary card component
   const ShiftSummaryCard = ({ 
     shift, 
@@ -302,12 +367,16 @@ export function StageFactForm({ part }: StageFactFormProps) {
     const displayValue = isActive && newValue ? newValue : actual
     const perf = getPerformanceIndicator(displayValue, expected)
     const scrap = fact?.qty_scrap || 0
+    const toneClass = shift === "day"
+      ? "border-amber-200/70 bg-gradient-to-br from-amber-50/80 via-background to-amber-100/40"
+      : "border-indigo-200/70 bg-gradient-to-br from-indigo-50/80 via-background to-indigo-100/40"
     
     return (
       <Card className={cn(
         "flex-1 transition-all",
+        toneClass,
         isActive && "ring-2 ring-primary",
-        fact && !isActive && "opacity-75"
+        fact && !isActive && "opacity-90"
       )}>
         <CardContent className="p-3">
           <div className="flex items-center gap-2 mb-2">
@@ -415,24 +484,107 @@ export function StageFactForm({ part }: StageFactFormProps) {
       )
     }
 
+    const primaryActionLabel = stageRequiresShift(stage)
+      ? (currentFact
+          ? `Редактировать ${shiftType === "day" ? "дневную" : "ночную"} смену`
+          : `Внести факт (${shiftType === "day" ? "дневная" : "ночная"})`)
+      : (currentFact ? "Редактировать факт" : "Внести факт")
+
     return (
       <div className="space-y-4">
-        {/* Current shift status summary */}
-        {(dayFact || nightFact || expectedQty > 0) && (
-          <div className="grid grid-cols-2 gap-3">
-            <ShiftSummaryCard 
-              shift="day" 
-              fact={dayFact} 
-              expected={expectedQty}
-              isActive={false}
-            />
-            <ShiftSummaryCard 
-              shift="night" 
-              fact={nightFact} 
-              expected={expectedQty}
-              isActive={false}
-            />
+        {savedHint && (
+          <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            <CheckCircle className="inline h-4 w-4 mr-2" />
+            {savedHint}
           </div>
+        )}
+
+        {stageRequiresShift(stage) ? (
+          <>
+            {(dayFact || nightFact || expectedQty > 0) && (
+              <div className="grid grid-cols-2 gap-3">
+                <ShiftSummaryCard
+                  shift="day"
+                  fact={dayFact}
+                  expected={expectedQty}
+                  isActive={false}
+                />
+                <ShiftSummaryCard
+                  shift="night"
+                  fact={nightFact}
+                  expected={expectedQty}
+                  isActive={false}
+                />
+              </div>
+            )}
+
+            {(dayFact || nightFact) && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                Факты за смены зафиксированы. Можно открыть и отредактировать любую смену.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  "justify-start bg-transparent",
+                  shiftType === "day" && "border-amber-300 bg-amber-50 text-amber-900"
+                )}
+                onClick={() => setShiftType("day")}
+              >
+                <Sun className="h-4 w-4 mr-2" />
+                День
+                {dayFact && <CheckCircle className="h-3 w-3 ml-auto text-emerald-600" />}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  "justify-start bg-transparent",
+                  shiftType === "night" && "border-indigo-300 bg-indigo-50 text-indigo-900"
+                )}
+                onClick={() => setShiftType("night")}
+              >
+                <Moon className="h-4 w-4 mr-2" />
+                Ночь
+                {nightFact && <CheckCircle className="h-3 w-3 ml-auto text-emerald-600" />}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-transparent"
+                disabled={!dayFact}
+                onClick={() => openFactEditor("day")}
+              >
+                <Pencil className="h-4 w-4 mr-2" />
+                Редактировать день
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-transparent"
+                disabled={!nightFact}
+                onClick={() => openFactEditor("night")}
+              >
+                <Pencil className="h-4 w-4 mr-2" />
+                Редактировать ночь
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            {nonMachiningFact && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                <CheckCircle className="inline h-4 w-4 mr-2" />
+                Факт по этапу «{STAGE_LABELS[stage]}» зафиксирован. Его можно отредактировать.
+              </div>
+            )}
+          </>
         )}
         
         {/* Norm not configured warning */}
@@ -475,9 +627,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
           </div>
         )}
         
-        <Button onClick={() => setIsOpen(true)} className="w-full" disabled={stage === "machining" && !currentMachineId}>
+        <Button onClick={() => openFactEditor()} className="w-full" disabled={stage === "machining" && !currentMachineId}>
           <Plus className="h-4 w-4 mr-2" />
-          Внести факт за смену
+          {primaryActionLabel}
         </Button>
       </div>
     )
@@ -514,23 +666,29 @@ export function StageFactForm({ part }: StageFactFormProps) {
           <div className="grid grid-cols-2 gap-2">
             <Button
               type="button"
-              variant={shiftType === "day" ? "default" : "outline"}
-              className={shiftType === "day" ? "" : "bg-transparent"}
+              variant="outline"
+              className={cn(
+                "bg-transparent justify-start",
+                shiftType === "day" && "border-amber-300 bg-amber-50 text-amber-900"
+              )}
               onClick={() => setShiftType("day")}
             >
               <Sun className="h-4 w-4 mr-2" />
               Дневная
-              {dayFact && <CheckCircle className="h-3 w-3 ml-2" />}
+              {dayFact && <CheckCircle className="h-3 w-3 ml-auto text-emerald-600" />}
             </Button>
             <Button
               type="button"
-              variant={shiftType === "night" ? "default" : "outline"}
-              className={shiftType === "night" ? "" : "bg-transparent"}
+              variant="outline"
+              className={cn(
+                "bg-transparent justify-start",
+                shiftType === "night" && "border-indigo-300 bg-indigo-50 text-indigo-900"
+              )}
               onClick={() => setShiftType("night")}
             >
               <Moon className="h-4 w-4 mr-2" />
               Ночная
-              {nightFact && <CheckCircle className="h-3 w-3 ml-2" />}
+              {nightFact && <CheckCircle className="h-3 w-3 ml-auto text-emerald-600" />}
             </Button>
           </div>
         )}
@@ -606,6 +764,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
             {norm?.is_configured && (
               <Badge variant="outline" className="ml-2 text-xs">Настроено</Badge>
             )}
+          </div>
+        )}
+
+        {stage === "machining" && hasOperatorShiftConflict && (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Для этой даты оператор уже закреплён в другой смене. Выберите другого оператора.
           </div>
         )}
         
@@ -744,10 +908,16 @@ export function StageFactForm({ part }: StageFactFormProps) {
             disabled={isSubmitting ||
               !qtyGood || 
               (stageRequiresOperator(stage) && !isOperator && (!operatorId || operatorId === "none")) ||
+              hasOperatorShiftConflict ||
               (stage === "machining" && !currentMachineId)
             }
           >
-            {isSubmitting ? "Сохраняем..." : currentFact ? "Сохранить изменения" : "Сохранить"}
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Сохраняем...
+              </>
+            ) : currentFact ? "Сохранить изменения" : "Сохранить"}
           </Button>
         </div>
         {submitError && (

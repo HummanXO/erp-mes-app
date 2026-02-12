@@ -10,6 +10,98 @@ from ..auth import get_current_user, PermissionChecker
 
 router = APIRouter(tags=["facts"])
 
+STAGE_LABELS_RU = {
+    "machining": "Механообработка",
+    "fitting": "Слесарка",
+    "galvanic": "Гальваника",
+    "heat_treatment": "Термообработка",
+    "grinding": "Шлифовка",
+    "qc": "ОТК",
+    "logistics": "Логистика",
+}
+
+
+def _ensure_stage_prerequisites(db: Session, part: Part, stage: str) -> None:
+    """Validate basic production flow dependencies for shop parts."""
+    required_stages = set(part.required_stages or [])
+    required_for_stage: list[str] = []
+
+    if part.is_cooperation:
+        if stage == "qc":
+            required_for_stage = [
+                optional_stage
+                for optional_stage in ("galvanic", "heat_treatment", "grinding")
+                if optional_stage in required_stages
+            ]
+    else:
+        if stage == "fitting":
+            required_for_stage = ["machining"]
+        elif stage in {"galvanic", "heat_treatment", "grinding"}:
+            required_for_stage = ["fitting"]
+        elif stage == "qc":
+            # QC should go after fitting and all selected finishing stages.
+            required_for_stage = ["fitting"] + [
+                optional_stage
+                for optional_stage in ("galvanic", "heat_treatment", "grinding")
+                if optional_stage in required_stages
+            ]
+
+    if not required_for_stage:
+        return
+
+    missing: list[str] = []
+    for prerequisite_stage in required_for_stage:
+        if prerequisite_stage not in required_stages:
+            continue
+
+        has_prerequisite_fact = db.query(StageFact.id).filter(
+            StageFact.part_id == part.id,
+            StageFact.stage == prerequisite_stage,
+        ).first()
+
+        if not has_prerequisite_fact:
+            missing.append(prerequisite_stage)
+
+    if missing:
+        current_label = STAGE_LABELS_RU.get(stage, stage)
+        missing_labels = ", ".join(STAGE_LABELS_RU.get(s, s) for s in missing)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Нельзя внести факт по этапу «{current_label}», пока не внесены факты по этапам: {missing_labels}"
+            ),
+        )
+
+
+def _ensure_single_shift_per_operator(
+    db: Session,
+    *,
+    part_id: UUID,
+    date_value,
+    operator_id: UUID | None,
+    shift_type: str,
+    exclude_fact_id: UUID | None = None,
+) -> None:
+    """One operator can be assigned only to one machining shift per part/day."""
+    if not operator_id:
+        return
+
+    query = db.query(StageFact).filter(
+        StageFact.part_id == part_id,
+        StageFact.stage == "machining",
+        StageFact.date == date_value,
+        StageFact.operator_id == operator_id,
+    )
+    if exclude_fact_id:
+        query = query.filter(StageFact.id != exclude_fact_id)
+
+    existing_fact = query.first()
+    if existing_fact and existing_fact.shift_type != shift_type:
+        raise HTTPException(
+            status_code=409,
+            detail="Оператор уже закреплён за другой сменой в этот день по этой детали. Один оператор = одна смена.",
+        )
+
 
 @router.post("/parts/{part_id}/facts", response_model=StageFactResponse, dependencies=[Depends(PermissionChecker("canEditFacts"))])
 def create_stage_fact(
@@ -26,7 +118,7 @@ def create_stage_fact(
     ).first()
     
     if not part:
-        raise HTTPException(status_code=404, detail="Part not found")
+        raise HTTPException(status_code=404, detail="Деталь не найдена")
 
     if current_user.role == "operator":
         if data.stage != "machining":
@@ -40,7 +132,9 @@ def create_stage_fact(
         )
 
     if data.stage not in (part.required_stages or []):
-        raise HTTPException(status_code=400, detail="Stage is not enabled for this part")
+        raise HTTPException(status_code=400, detail="Этап не включён для этой детали")
+
+    _ensure_stage_prerequisites(db, part, data.stage)
     
     # Validate and auto-set shift_type based on stage
     if data.stage == 'machining':
@@ -48,17 +142,17 @@ def create_stage_fact(
         if not data.shift_type or data.shift_type == 'none':
             raise HTTPException(
                 status_code=400,
-                detail="shift_type must be 'day' or 'night' for machining stage"
+                detail="Для механообработки нужно выбрать смену: день или ночь"
             )
         if data.shift_type not in ['day', 'night']:
             raise HTTPException(
                 status_code=400,
-                detail="shift_type must be 'day' or 'night' for machining stage"
+                detail="Для механообработки нужно выбрать смену: день или ночь"
             )
         if not data.operator_id:
             raise HTTPException(
                 status_code=400,
-                detail="operator_id is required for machining stage"
+                detail="Для механообработки нужно выбрать оператора"
             )
         if not part.machine_id:
             raise HTTPException(
@@ -78,9 +172,17 @@ def create_stage_fact(
         if existing:
             raise HTTPException(
                 status_code=409,
-                detail="Fact for this date/shift/stage already exists",
+                detail="Факт за эту дату и смену уже существует",
                 headers={"X-Existing-Fact-Id": str(existing.id)}
             )
+
+        _ensure_single_shift_per_operator(
+            db,
+            part_id=part_id,
+            date_value=data.date,
+            operator_id=data.operator_id,
+            shift_type=data.shift_type,
+        )
     else:
         # For non-machining: shift_type = none
         data.shift_type = 'none'
@@ -220,7 +322,7 @@ def update_stage_fact(
     ).first()
 
     if not fact:
-        raise HTTPException(status_code=404, detail="Fact not found")
+        raise HTTPException(status_code=404, detail="Факт не найден")
 
     if fact.stage == "logistics":
         raise HTTPException(
@@ -233,7 +335,7 @@ def update_stage_fact(
         Part.org_id == current_user.org_id
     ).first()
     if not part:
-        raise HTTPException(status_code=404, detail="Part not found")
+        raise HTTPException(status_code=404, detail="Деталь не найдена")
 
     if current_user.role == "operator":
         if fact.stage != "machining":
@@ -246,10 +348,18 @@ def update_stage_fact(
 
     if fact.stage == "machining":
         if not data.operator_id:
-            raise HTTPException(status_code=400, detail="operator_id is required for machining stage")
+            raise HTTPException(status_code=400, detail="Для механообработки нужно выбрать оператора")
         if not part.machine_id:
             raise HTTPException(status_code=400, detail="Для детали не назначен станок")
         fact.machine_id = part.machine_id
+        _ensure_single_shift_per_operator(
+            db,
+            part_id=part.id,
+            date_value=fact.date,
+            operator_id=data.operator_id,
+            shift_type=fact.shift_type,
+            exclude_fact_id=fact.id,
+        )
     else:
         data.operator_id = None
         fact.machine_id = None
