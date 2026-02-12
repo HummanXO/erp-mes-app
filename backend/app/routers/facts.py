@@ -430,3 +430,88 @@ def update_stage_fact(
         attachments=[AttachmentBase.model_validate(a) for a in fact.attachments],
         created_at=fact.created_at
     )
+
+
+@router.delete("/facts/{fact_id}", status_code=204, dependencies=[Depends(PermissionChecker("canRollbackFacts"))])
+def delete_stage_fact(
+    fact_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Rollback (delete) a stage fact.
+
+    Only high-privilege roles can delete facts. The deletion is audited.
+    """
+    fact = db.query(StageFact).filter(
+        StageFact.id == fact_id,
+        StageFact.org_id == current_user.org_id,
+    ).first()
+    if not fact:
+        raise HTTPException(status_code=404, detail="Факт не найден")
+
+    part = db.query(Part).filter(
+        Part.id == fact.part_id,
+        Part.org_id == current_user.org_id,
+    ).first()
+    if not part:
+        raise HTTPException(status_code=404, detail="Деталь не найдена")
+
+    # Snapshot for audit before delete.
+    deleted_stage = fact.stage
+    deleted_shift = fact.shift_type
+    deleted_qty_good = fact.qty_good
+    deleted_qty_scrap = fact.qty_scrap
+    deleted_date = fact.date
+    deleted_operator_id = fact.operator_id
+
+    db.delete(fact)
+    db.flush()
+
+    # Revert part counters/status (keep existing semantics used on create/update).
+    part.qty_done = max(0, part.qty_done - deleted_qty_good)
+    remaining_facts_count = db.query(StageFact).filter(StageFact.part_id == part.id).count()
+    if part.qty_done >= part.qty_plan:
+        part.status = "done"
+    elif remaining_facts_count > 0:
+        part.status = "in_progress"
+    else:
+        part.status = "not_started"
+
+    # Revert stage status if no facts left for this stage.
+    stage_status = db.query(PartStageStatus).filter(
+        PartStageStatus.part_id == part.id,
+        PartStageStatus.stage == deleted_stage,
+    ).first()
+    if stage_status and stage_status.status != "skipped":
+        stage_facts_left = db.query(StageFact.id).filter(
+            StageFact.part_id == part.id,
+            StageFact.stage == deleted_stage,
+        ).first()
+        if not stage_facts_left:
+            stage_status.status = "pending"
+            stage_status.started_at = None
+            stage_status.completed_at = None
+            stage_status.operator_id = None
+
+    audit = AuditEvent(
+        org_id=current_user.org_id,
+        action="fact_deleted",
+        entity_type="fact",
+        entity_id=fact_id,
+        user_id=current_user.id,
+        user_name=current_user.initials,
+        part_id=part.id,
+        part_code=part.code,
+        details={
+            "stage": deleted_stage,
+            "shift": deleted_shift,
+            "qtyGood": deleted_qty_good,
+            "qtyScrap": deleted_qty_scrap,
+            "date": str(deleted_date),
+            "operatorId": str(deleted_operator_id) if deleted_operator_id else None,
+        },
+    )
+    db.add(audit)
+
+    db.commit()
+    return None

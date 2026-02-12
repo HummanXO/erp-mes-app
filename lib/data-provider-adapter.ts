@@ -167,6 +167,10 @@ export function updateStageFact(factId: string, data: any) {
   return USE_API ? httpProvider.updateStageFact(factId, data) : local().updateStageFact(factId, data)
 }
 
+export function deleteStageFact(factId: string) {
+  return USE_API ? httpProvider.deleteStageFact(factId) : local().deleteStageFact(factId)
+}
+
 export function getLogistics() {
   return local().getLogistics()
 }

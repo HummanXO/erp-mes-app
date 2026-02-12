@@ -516,6 +516,51 @@ export function updateStageFact(
   return updated
 }
 
+export function deleteStageFact(factId: string): void {
+  const facts = getStageFacts()
+  const factIndex = facts.findIndex(f => f.id === factId)
+  if (factIndex === -1) {
+    throw new Error("Факт не найден")
+  }
+
+  const existing = facts[factIndex]
+  facts.splice(factIndex, 1)
+  saveToStorage(STORAGE_KEYS.stageFacts, facts)
+
+  const parts = getParts()
+  const part = parts.find(p => p.id === existing.part_id)
+  if (part) {
+    part.qty_done = Math.max(0, part.qty_done - existing.qty_good)
+
+    const factsForPart = facts.filter(f => f.part_id === part.id)
+    if (part.qty_done >= part.qty_plan) {
+      part.status = "done"
+    } else if (factsForPart.length > 0) {
+      part.status = "in_progress"
+    } else {
+      part.status = "not_started"
+    }
+
+    // Revert stage status if there are no facts left for this stage.
+    if (part.stage_statuses) {
+      const stageStatus = part.stage_statuses.find(s => s.stage === existing.stage)
+      if (stageStatus && stageStatus.status !== "skipped") {
+        const hasFactsForStage = facts.some(
+          f => f.part_id === part.id && f.stage === existing.stage
+        )
+        if (!hasFactsForStage) {
+          stageStatus.status = "pending"
+          stageStatus.started_at = undefined
+          stageStatus.completed_at = undefined
+          stageStatus.operator_id = undefined
+        }
+      }
+    }
+
+    saveToStorage(STORAGE_KEYS.parts, parts)
+  }
+}
+
 // Logistics
 export function getLogistics(): LogisticsEntry[] {
   return safeJsonParse(STORAGE_KEYS.logistics, MOCK_LOGISTICS)
