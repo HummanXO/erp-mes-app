@@ -30,8 +30,15 @@ from ..auth import get_current_user, PermissionChecker, check_permission
 router = APIRouter(prefix="/parts", tags=["parts"])
 
 COOP_REQUIRED_STAGES = {"logistics", "qc"}
+COOP_OPTIONAL_STAGES = {"galvanic"}
+COOP_ALLOWED_STAGES = COOP_REQUIRED_STAGES | COOP_OPTIONAL_STAGES
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
 SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding", "logistics"}
+STAGE_FLOW_ORDER = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc", "logistics"]
+
+
+def _sort_stages_by_flow(stages: set[str]) -> list[str]:
+    return [stage for stage in STAGE_FLOW_ORDER if stage in stages]
 
 
 def _granted_specification_ids_query(db: Session, user: User):
@@ -325,41 +332,49 @@ def create_part(
     """Create new part."""
     requested_stages = set(data.required_stages)
     if not requested_stages:
-        raise HTTPException(status_code=400, detail="required_stages cannot be empty")
+        raise HTTPException(status_code=400, detail="Нужно выбрать хотя бы один этап")
 
     if data.is_cooperation:
-        if requested_stages != COOP_REQUIRED_STAGES:
+        if not COOP_REQUIRED_STAGES.issubset(requested_stages):
             raise HTTPException(
                 status_code=400,
-                detail="Cooperation part must have stages: logistics and qc",
+                detail="Для кооперации обязательны этапы: логистика и ОТК",
+            )
+        invalid_stages = requested_stages - COOP_ALLOWED_STAGES
+        if invalid_stages:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Недопустимые этапы для кооперации: {', '.join(sorted(invalid_stages))}",
             )
         if not (data.cooperation_partner or "").strip():
             raise HTTPException(
                 status_code=400,
-                detail="cooperation_partner is required for cooperation part",
+                detail="Для кооперации нужно указать партнёра-кооператора",
             )
         if data.machine_id is not None:
             raise HTTPException(
                 status_code=400,
-                detail="machine_id must be empty for cooperation part",
+                detail="Для кооперационной детали поле станка должно быть пустым",
             )
     else:
         if not SHOP_REQUIRED_STAGES.issubset(requested_stages):
             raise HTTPException(
                 status_code=400,
-                detail="Shop part must include machining, fitting and qc stages",
+                detail="Для цеховой детали обязательны этапы: механообработка, слесарка и ОТК",
             )
         invalid_stages = requested_stages - SHOP_ALLOWED_STAGES
         if invalid_stages:
             raise HTTPException(
                 status_code=400,
-                detail=f"Unsupported stages for shop part: {', '.join(sorted(invalid_stages))}",
+                detail=f"Недопустимые этапы для цеховой детали: {', '.join(sorted(invalid_stages))}",
             )
         if data.machine_id is None:
             raise HTTPException(
                 status_code=400,
-                detail="machine_id is required for shop part",
+                detail="Для цеховой детали нужно выбрать станок",
             )
+
+    ordered_required_stages = _sort_stages_by_flow(requested_stages)
 
     # Check if code already exists
     existing = db.query(Part).filter(
@@ -373,13 +388,13 @@ def create_part(
     # Create part
     part = Part(
         org_id=current_user.org_id,
-        **data.model_dump()
+        **{**data.model_dump(), "required_stages": ordered_required_stages}
     )
     db.add(part)
     db.flush()
     
     # Create stage statuses for required stages
-    for stage in data.required_stages:
+    for stage in ordered_required_stages:
         stage_status = PartStageStatus(
             part_id=part.id,
             stage=stage,
