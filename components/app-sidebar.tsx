@@ -17,7 +17,6 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar"
 import { 
-  Factory, 
   Package, 
   ListTodo, 
   ClipboardList,
@@ -28,6 +27,7 @@ import {
   Warehouse
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { SidebarBrand } from "@/components/SidebarBrand"
 
 interface AppSidebarProps {
   activeView: "parts" | "tasks" | "inventory" | "specifications"
@@ -55,11 +55,8 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
 
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
-        <div className="flex items-center gap-2">
-          <Factory className="h-6 w-6 text-primary" />
-          <span className="font-semibold text-lg">Производство</span>
-        </div>
+      <SidebarHeader className="px-2 pt-3 pb-2">
+        <SidebarBrand href="/" />
       </SidebarHeader>
       
       <SidebarContent className="px-2">
