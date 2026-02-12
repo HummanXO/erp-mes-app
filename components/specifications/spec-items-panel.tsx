@@ -16,12 +16,13 @@ import { Building2, Filter, PackagePlus, Search } from "lucide-react"
 interface SpecItemsPanelProps {
   items: SpecItem[]
   canManageSpecifications: boolean
+  showFilters?: boolean
   onAddItem: () => void
   onHelp: () => void
   onOpenPart: (partId: string) => void
 }
 
-export function SpecItemsPanel({ items, canManageSpecifications, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
+export function SpecItemsPanel({ items, canManageSpecifications, showFilters = true, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
   const { getPartById, machines, permissions } = useApp()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "not_started" | "done">("all")
@@ -109,76 +110,78 @@ export function SpecItemsPanel({ items, canManageSpecifications, onAddItem, onHe
         <CardTitle className="text-sm">Позиции спецификации ({visibleParts.length})</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <Input
-              placeholder="Поиск по коду, названию или заказчику..."
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              className="h-11 pl-10"
-            />
-          </div>
+        {showFilters && (
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Input
+                placeholder="Поиск по коду, названию или заказчику..."
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                className="h-11 pl-10"
+              />
+            </div>
 
-          <div className="flex flex-wrap gap-3">
-            {permissions.canViewCooperation && (
-              <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as typeof typeFilter)}>
+            <div className="flex flex-wrap gap-3">
+              {permissions.canViewCooperation && (
+                <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as typeof typeFilter)}>
+                  <TabsList>
+                    <TabsTrigger value="all">Все</TabsTrigger>
+                    <TabsTrigger value="own">Своё ({ownCount})</TabsTrigger>
+                    <TabsTrigger value="cooperation" className="gap-1">
+                      <Building2 className="h-3 w-3" aria-hidden="true" />
+                      Кооперация ({cooperationCount})
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              )}
+
+              <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
                 <TabsList>
                   <TabsTrigger value="all">Все</TabsTrigger>
-                  <TabsTrigger value="own">Своё ({ownCount})</TabsTrigger>
-                  <TabsTrigger value="cooperation" className="gap-1">
-                    <Building2 className="h-3 w-3" aria-hidden="true" />
-                    Кооперация ({cooperationCount})
-                  </TabsTrigger>
+                  <TabsTrigger value="in_progress">В работе</TabsTrigger>
+                  <TabsTrigger value="not_started">Ожидают</TabsTrigger>
+                  <TabsTrigger value="done">Готовы</TabsTrigger>
                 </TabsList>
               </Tabs>
-            )}
+            </div>
 
-            <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-              <TabsList>
-                <TabsTrigger value="all">Все</TabsTrigger>
-                <TabsTrigger value="in_progress">В работе</TabsTrigger>
-                <TabsTrigger value="not_started">Ожидают</TabsTrigger>
-                <TabsTrigger value="done">Готовы</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex flex-wrap gap-3">
+              <Select value={machineFilter} onValueChange={setMachineFilter}>
+                <SelectTrigger className="h-11 w-[220px]">
+                  <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
+                  <SelectValue placeholder="Станок" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все станки</SelectItem>
+                  {machines.map((machine) => (
+                    <SelectItem key={machine.id} value={machine.id}>
+                      {machine.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={stageFilter} onValueChange={(value) => setStageFilter(value as ProductionStage | "all")}>
+                <SelectTrigger className="h-11 w-[220px]">
+                  <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
+                  <SelectValue placeholder="Этап" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все этапы</SelectItem>
+                  {(Object.keys(STAGE_LABELS) as ProductionStage[]).map((stage) => (
+                    <SelectItem key={stage} value={stage}>
+                      <span className="flex items-center gap-2">
+                        {STAGE_ICONS[stage]}
+                        {STAGE_LABELS[stage]}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Select value={machineFilter} onValueChange={setMachineFilter}>
-              <SelectTrigger className="h-11 w-[220px]">
-                <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
-                <SelectValue placeholder="Станок" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все станки</SelectItem>
-                {machines.map((machine) => (
-                  <SelectItem key={machine.id} value={machine.id}>
-                    {machine.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={stageFilter} onValueChange={(value) => setStageFilter(value as ProductionStage | "all")}>
-              <SelectTrigger className="h-11 w-[220px]">
-                <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
-                <SelectValue placeholder="Этап" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все этапы</SelectItem>
-                {(Object.keys(STAGE_LABELS) as ProductionStage[]).map((stage) => (
-                  <SelectItem key={stage} value={stage}>
-                    <span className="flex items-center gap-2">
-                      {STAGE_ICONS[stage]}
-                      {STAGE_LABELS[stage]}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        )}
 
         {filteredParts.length === 0 ? (
           <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">

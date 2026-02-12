@@ -22,6 +22,7 @@ interface SpecListPaneProps {
   specifications: Specification[]
   selectedId: string | null
   onSelect: (id: string) => void
+  showFilters?: boolean
   searchQuery: string
   onSearchQueryChange: (value: string) => void
   statusFilter: SpecificationStatus | "all"
@@ -34,6 +35,7 @@ export function SpecListPane({
   specifications,
   selectedId,
   onSelect,
+  showFilters = true,
   searchQuery,
   onSearchQueryChange,
   statusFilter,
@@ -67,36 +69,38 @@ export function SpecListPane({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Фильтры</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <Input
-              className="h-11 pl-9"
-              placeholder="Поиск по номеру, клиенту, примечанию"
-              value={searchQuery}
-              onChange={(event) => onSearchQueryChange(event.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>Статус</Label>
-            <Select value={statusFilter} onValueChange={(value) => onStatusFilterChange(value as SpecificationStatus | "all")}> 
-              <SelectTrigger className="h-11 w-full">
-                <SelectValue placeholder="Все статусы" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Все</SelectItem>
-                <SelectItem value="draft">{SPEC_STATUS_LABELS.draft}</SelectItem>
-                <SelectItem value="active">{SPEC_STATUS_LABELS.active}</SelectItem>
-                <SelectItem value="closed">{SPEC_STATUS_LABELS.closed}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      {showFilters && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Фильтры</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <Input
+                className="h-11 pl-9"
+                placeholder="Поиск по номеру, клиенту, примечанию"
+                value={searchQuery}
+                onChange={(event) => onSearchQueryChange(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Статус</Label>
+              <Select value={statusFilter} onValueChange={(value) => onStatusFilterChange(value as SpecificationStatus | "all")}> 
+                <SelectTrigger className="h-11 w-full">
+                  <SelectValue placeholder="Все статусы" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Все</SelectItem>
+                  <SelectItem value="draft">{SPEC_STATUS_LABELS.draft}</SelectItem>
+                  <SelectItem value="active">{SPEC_STATUS_LABELS.active}</SelectItem>
+                  <SelectItem value="closed">{SPEC_STATUS_LABELS.closed}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-2">
