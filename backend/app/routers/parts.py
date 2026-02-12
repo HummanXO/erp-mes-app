@@ -26,6 +26,7 @@ from ..schemas import (
     MachineNormUpsert, MachineNormResponse
 )
 from ..auth import get_current_user, PermissionChecker, check_permission
+from ..services.part_state import recompute_part_state, validate_stage_flow
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
@@ -322,6 +323,66 @@ def get_part(
         'machine': MachineResponse.model_validate(part.machine) if part.machine else None
     }
     
+    return PartResponse(**response_data)
+
+
+@router.post("/recompute-all", dependencies=[Depends(PermissionChecker("canEditFacts"))])
+def recompute_all_parts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Recompute qty_done/status and stage statuses for all parts in the organization.
+
+    This is intended as a safe one-time repair after business-logic changes.
+    """
+    parts = db.query(Part).filter(Part.org_id == current_user.org_id).all()
+
+    updated = 0
+    violations: list[dict] = []
+
+    for part in parts:
+        totals = recompute_part_state(db, part=part)
+        violation = validate_stage_flow(part, totals)
+        if violation:
+            violations.append({"part_id": str(part.id), "code": part.code, "error": violation})
+            continue
+        updated += 1
+
+    db.commit()
+    return {"updated": updated, "violations": violations}
+
+
+@router.post("/{part_id}/recompute", response_model=PartResponse, dependencies=[Depends(PermissionChecker("canEditFacts"))])
+def recompute_part(
+    part_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Recompute qty_done/status and stage statuses for a single part."""
+    part = db.query(Part).filter(
+        Part.id == part_id,
+        Part.org_id == current_user.org_id,
+    ).first()
+
+    if not part:
+        raise HTTPException(status_code=404, detail="Part not found")
+
+    totals = recompute_part_state(db, part=part)
+    violation = validate_stage_flow(part, totals)
+    if violation:
+        raise HTTPException(status_code=409, detail=violation)
+
+    db.commit()
+    db.refresh(part)
+
+    progress, stage_statuses = calculate_part_progress(db, part)
+    response_data = {
+        **{k: v for k, v in part.__dict__.items() if not k.startswith('_')},
+        'qty_ready': part.qty_done,
+        'progress': progress,
+        'stage_statuses': stage_statuses,
+        'machine': MachineResponse.model_validate(part.machine) if part.machine else None
+    }
     return PartResponse(**response_data)
 
 
