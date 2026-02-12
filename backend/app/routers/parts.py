@@ -42,6 +42,15 @@ def _granted_specification_ids_query(db: Session, user: User):
     )
 
 
+def _operator_visible_specification_ids_query(db: Session, user: User):
+    granted_spec_ids = _granted_specification_ids_query(db, user)
+    return db.query(Specification.id).filter(
+        Specification.org_id == user.org_id,
+        (Specification.published_to_operators.is_(True))
+        | (Specification.id.in_(granted_spec_ids)),
+    )
+
+
 def _part_linked_to_any_spec_exists(db: Session, org_id: UUID):
     return db.query(SpecItem.id).join(
         Specification,
@@ -53,14 +62,14 @@ def _part_linked_to_any_spec_exists(db: Session, org_id: UUID):
 
 
 def _part_linked_to_granted_spec_exists(db: Session, user: User):
-    granted_spec_ids = _granted_specification_ids_query(db, user)
+    visible_spec_ids = _operator_visible_specification_ids_query(db, user)
     return db.query(SpecItem.id).join(
         Specification,
         SpecItem.specification_id == Specification.id,
     ).filter(
         SpecItem.part_id == Part.id,
         Specification.org_id == user.org_id,
-        Specification.id.in_(granted_spec_ids),
+        Specification.id.in_(visible_spec_ids),
     ).exists()
 
 
@@ -94,8 +103,8 @@ def _can_access_part(db: Session, part: Part, current_user: User) -> bool:
     if current_user.role == "operator":
         if not linked_spec_ids:
             return False
-        granted_spec_ids = {row[0] for row in _granted_specification_ids_query(db, current_user).all()}
-        return bool(linked_spec_ids.intersection(granted_spec_ids))
+        visible_spec_ids = {row[0] for row in _operator_visible_specification_ids_query(db, current_user).all()}
+        return bool(linked_spec_ids.intersection(visible_spec_ids))
 
     if not check_permission(current_user, "canViewSpecifications"):
         return not linked_spec_ids
