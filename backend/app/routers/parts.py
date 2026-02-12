@@ -35,6 +35,7 @@ COOP_ALLOWED_STAGES = COOP_REQUIRED_STAGES | COOP_OPTIONAL_STAGES
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
 SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding", "logistics"}
 STAGE_FLOW_ORDER = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc", "logistics"]
+PROGRESS_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
 
 
 def _sort_stages_by_flow(stages: set[str]) -> list[str]:
@@ -170,12 +171,9 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
             completed_at=stage_status.completed_at
         ))
     
-    # qty_ready = MIN(stage_done_qty) for required_stages (excluding skipped) (requirement C)
-    required_stages = [s for s in part.stage_statuses if s.status not in ['skipped', 'pending']]
-    if required_stages:
-        qty_ready = min(stage_done_quantities.get(s.stage, 0) for s in required_stages)
-    else:
-        qty_ready = 0
+    # qty_ready = MIN(stage_done_qty) across production stages (excluding logistics and skipped).
+    progress_stages = [s for s in stage_statuses_ordered if s.status != "skipped" and s.stage in PROGRESS_STAGES]
+    qty_ready = min((stage_done_quantities.get(s.stage, 0) for s in progress_stages), default=0)
     
     # overall_percent = floor(qty_ready / qty_plan * 100) (requirement C)
     if part.qty_plan > 0:
@@ -185,8 +183,8 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
     
     # bottleneck_stage = stage with minimum qty_done (requirement C)
     bottleneck_stage = None
-    if required_stages:
-        bottleneck_stage = min(required_stages, key=lambda s: stage_done_quantities.get(s.stage, 0)).stage
+    if progress_stages:
+        bottleneck_stage = min(progress_stages, key=lambda s: stage_done_quantities.get(s.stage, 0)).stage
     
     progress = PartProgressResponse(
         overall_percent=overall_percent,
