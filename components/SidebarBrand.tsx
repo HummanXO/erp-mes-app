@@ -11,6 +11,7 @@ export type SidebarBrandProps = {
   onClick?: React.MouseEventHandler<HTMLAnchorElement | HTMLButtonElement>
   className?: string
   iconSrc?: string
+  logoSrc?: string
 }
 
 function FallbackMark({ className }: { className?: string }) {
@@ -37,8 +38,10 @@ export function SidebarBrand({
   onClick,
   className,
   iconSrc = "/dok-alliance-mark.png",
+  logoSrc = "/dok-alliance-logo.png",
 }: SidebarBrandProps) {
-  const [imageFailed, setImageFailed] = React.useState(false)
+  const [markFailed, setMarkFailed] = React.useState(false)
+  const [logoFailed, setLogoFailed] = React.useState(false)
   const shouldUseButton = href === undefined && typeof onClick === "function"
   const resolvedHref = href ?? "/"
 
@@ -50,21 +53,42 @@ export function SidebarBrand({
           "group-data-[collapsible=icon]:justify-center"
         )}
       >
-        <div className="relative h-6 w-6">
-          {imageFailed ? (
-            <FallbackMark className="h-6 w-6 text-sidebar-foreground" />
-          ) : (
-            <Image
-              src={iconSrc}
-              alt=""
-              width={24}
-              height={24}
-              priority
-              onError={() => setImageFailed(true)}
-              // The provided PNG is white; make it black on light theme and keep white in dark theme.
-              className="h-6 w-6 object-contain brightness-0 dark:brightness-100"
-            />
-          )}
+        <div className="hidden group-data-[collapsible=icon]:block">
+          <div className="relative h-6 w-6">
+            {markFailed ? (
+              <FallbackMark className="h-6 w-6 text-sidebar-foreground" />
+            ) : (
+              <Image
+                src={iconSrc}
+                alt=""
+                width={24}
+                height={24}
+                priority
+                onError={() => setMarkFailed(true)}
+                // The provided PNG is white; make it black on light theme and keep white in dark theme.
+                className="h-6 w-6 object-contain brightness-0 dark:brightness-100"
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="block group-data-[collapsible=icon]:hidden">
+          <div className="relative h-6">
+            {logoFailed ? (
+              <FallbackMark className="h-6 w-6 text-sidebar-foreground" />
+            ) : (
+              <Image
+                src={logoSrc}
+                alt=""
+                width={420}
+                height={115}
+                priority
+                onError={() => setLogoFailed(true)}
+                // The provided PNG is white; make it black on light theme and keep white in dark theme.
+                className="h-6 w-auto max-w-[11rem] object-contain brightness-0 dark:brightness-100"
+              />
+            )}
+          </div>
         </div>
       </div>
 
