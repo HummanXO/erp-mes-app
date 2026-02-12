@@ -245,6 +245,7 @@ export function SpecificationsView() {
 
               <SpecItemsPanel
                 items={selectedSpecItems}
+                canManageSpecifications={canManageSpecifications}
                 onAddItem={() => setAddItemOpen(true)}
                 onHelp={() => openHowItWorks("items")}
                 onOpenPart={openPartDetails}
@@ -275,7 +276,7 @@ export function SpecificationsView() {
 
       {selectedSpecification && (
         <SpecItemDialog
-          open={addItemOpen}
+          open={addItemOpen && canManageSpecifications}
           onOpenChange={setAddItemOpen}
           specificationId={selectedSpecification.id}
           defaultCustomer={selectedSpecification.customer}

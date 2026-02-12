@@ -171,6 +171,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
+        "canViewSpecifications": True,
+        "canManageSpecifications": True,
     },
     "director": {
         "canViewAll": True,
@@ -183,6 +185,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
+        "canViewSpecifications": True,
+        "canManageSpecifications": True,
     },
     "chief_engineer": {
         "canViewAll": True,
@@ -195,6 +199,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": False,
+        "canViewSpecifications": True,
+        "canManageSpecifications": True,
     },
     "shop_head": {
         "canViewAll": True,
@@ -207,6 +213,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
+        "canViewSpecifications": True,
+        "canManageSpecifications": True,
     },
     "supply": {
         "canViewAll": True,
@@ -219,6 +227,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
+        "canViewSpecifications": True,
+        "canManageSpecifications": True,
     },
     "master": {
         "canViewAll": True,
@@ -231,6 +241,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": False,
+        "canViewSpecifications": True,
+        "canManageSpecifications": True,
     },
     "operator": {
         "canViewAll": False,
@@ -243,6 +255,8 @@ ROLE_PERMISSIONS = {
         "canCreateParts": False,
         "canEditParts": False,
         "canManageLogistics": False,
+        "canViewSpecifications": True,
+        "canManageSpecifications": False,
     },
 }
 
