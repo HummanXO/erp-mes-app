@@ -129,21 +129,34 @@ def change_password(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid current password"
         )
-    
-    # Update password
-    current_user.password_hash = hash_password(request.new_password)
-    current_user.must_change_password = False
-    
-    # Audit log
-    audit = AuditEvent(
-        org_id=current_user.org_id,
-        action="password_changed",
-        entity_type="user",
-        entity_id=current_user.id,
-        user_id=current_user.id,
-        user_name=current_user.initials,
-    )
-    db.add(audit)
-    db.commit()
-    
+
+    # Persist password change first, so audit issues do not block login recovery.
+    try:
+        current_user.password_hash = hash_password(request.new_password)
+        current_user.must_change_password = False
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Failed to persist password change")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to change password",
+        )
+
+    # Best-effort audit.
+    try:
+        audit = AuditEvent(
+            org_id=current_user.org_id,
+            action="password_changed",
+            entity_type="user",
+            entity_id=current_user.id,
+            user_id=current_user.id,
+            user_name=current_user.initials,
+        )
+        db.add(audit)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Failed to write password change audit event")
+
     return {"message": "Password changed successfully"}
