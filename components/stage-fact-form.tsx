@@ -87,7 +87,6 @@ export function StageFactForm({ part }: StageFactFormProps) {
     const inProgressStage = stageStatuses.find(s => s.status === "in_progress" && s.stage !== "logistics")?.stage
     return inProgressStage || availableStages[0] || "machining"
   })
-  const [machineId, setMachineId] = useState<string>(part.machine_id || "")
   const [operatorId, setOperatorId] = useState<string>(currentUser?.role === "operator" ? currentUser.id : "")
   const [qtyGood, setQtyGood] = useState("")
   const [qtyScrap, setQtyScrap] = useState("")
@@ -130,9 +129,13 @@ export function StageFactForm({ part }: StageFactFormProps) {
   
   // Filter machines for machining stage
   const machiningMachines = machines.filter(m => m.department === "machining")
+  const assignedMachineId = part.machine_id || ""
+  const assignedMachine = assignedMachineId
+    ? machiningMachines.find((machine) => machine.id === assignedMachineId)
+    : undefined
   
   // Get norm for current machine/part/stage
-  const currentMachineId = stage === "machining" ? machineId : undefined
+  const currentMachineId = stage === "machining" ? assignedMachineId : undefined
   const norm = currentMachineId ? getMachineNorm(currentMachineId, part.id, stage) : undefined
   const expectedQty = norm?.qty_per_shift || 0
   
@@ -191,6 +194,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
     const normalizedOperatorId = isOperator
       ? (currentUser?.id || "")
       : (operatorId === "none" ? "" : operatorId)
+    const resolvedMachineId = stage === "machining" ? assignedMachineId : undefined
 
     // For machining, operator is required. For other stages, it's optional
     if (!qtyGood) return
@@ -199,8 +203,8 @@ export function StageFactForm({ part }: StageFactFormProps) {
       return
     }
 
-    if (stage === "machining" && !machineId) {
-      setSubmitError("Выберите станок")
+    if (stage === "machining" && !resolvedMachineId) {
+      setSubmitError("Для детали не назначен станок. Обратитесь к администратору.")
       return
     }
 
@@ -208,7 +212,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
       setIsSubmitting(true)
       if (currentFact) {
         await updateStageFact(currentFact.id, {
-          machine_id: stage === "machining" ? machineId : undefined,
+          machine_id: resolvedMachineId,
           operator_id: stageRequiresOperator(stage)
             ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
             : undefined,
@@ -225,7 +229,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           shift_type: stageRequiresShift(stage) ? shiftType : "none",
           part_id: part.id,
           stage,
-          machine_id: stage === "machining" ? machineId : undefined,
+          machine_id: resolvedMachineId,
           operator_id: stageRequiresOperator(stage)
             ? (normalizedOperatorId || currentUser?.id || operators[0]?.id || "")
             : undefined,
@@ -260,12 +264,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
   }
 
   const handleSaveNorm = async () => {
-    if (!machineId || !normQty) return
+    if (!assignedMachineId || !normQty) return
     setNormError("")
     try {
       setIsSavingNorm(true)
       await setMachineNorm({
-        machine_id: machineId,
+        machine_id: assignedMachineId,
         part_id: part.id,
         stage: "machining",
         qty_per_shift: Number(normQty),
@@ -432,7 +436,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
         )}
         
         {/* Norm not configured warning */}
-        {!norm && stage === "machining" && machineId && (
+        {!norm && stage === "machining" && currentMachineId && (
           <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-2">
             <AlertCircle className="h-4 w-4 text-amber-500 mt-0.5" />
             <div className="text-sm">
@@ -442,7 +446,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           </div>
         )}
 
-        {stage === "machining" && machineId && (
+        {stage === "machining" && currentMachineId && (
           <div className="p-3 rounded-lg border space-y-2">
             <div className="text-sm font-medium">Пусконаладочная норма (шт/смена)</div>
             <div className="flex gap-2">
@@ -464,8 +468,14 @@ export function StageFactForm({ part }: StageFactFormProps) {
             {normError && <div className="text-xs text-destructive" role="status" aria-live="polite">{normError}</div>}
           </div>
         )}
+
+        {stage === "machining" && !currentMachineId && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+            Для этой детали не назначен станок. Ввод факта недоступен, пока станок не будет указан в карточке детали.
+          </div>
+        )}
         
-        <Button onClick={() => setIsOpen(true)} className="w-full">
+        <Button onClick={() => setIsOpen(true)} className="w-full" disabled={stage === "machining" && !currentMachineId}>
           <Plus className="h-4 w-4 mr-2" />
           Внести факт за смену
         </Button>
@@ -560,19 +570,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {/* Machine selection - only for machining */}
         {stage === "machining" && (
           <div className="space-y-2">
-            <Label htmlFor={machineFieldId}>Станок</Label>
-            <Select value={machineId} onValueChange={setMachineId}>
-              <SelectTrigger id={machineFieldId}>
-                <SelectValue placeholder="Выберите станок" />
-              </SelectTrigger>
-              <SelectContent>
-                {machiningMachines.map(m => (
-                  <SelectItem key={m.id} value={m.id}>
-                    {m.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor={machineFieldId}>Станок (из детали)</Label>
+            <Input
+              id={machineFieldId}
+              value={assignedMachine?.name || "Станок не назначен"}
+              readOnly
+            />
           </div>
         )}
         
@@ -740,7 +743,8 @@ export function StageFactForm({ part }: StageFactFormProps) {
             onClick={handleSubmit} 
             disabled={isSubmitting ||
               !qtyGood || 
-              (stageRequiresOperator(stage) && !isOperator && (!operatorId || operatorId === "none"))
+              (stageRequiresOperator(stage) && !isOperator && (!operatorId || operatorId === "none")) ||
+              (stage === "machining" && !currentMachineId)
             }
           >
             {isSubmitting ? "Сохраняем..." : currentFact ? "Сохранить изменения" : "Сохранить"}
