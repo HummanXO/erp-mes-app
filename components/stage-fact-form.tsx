@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { Sun, Moon, Plus, TrendingUp, TrendingDown, Minus, CheckCircle, AlertCircle, Paperclip, FileImage, X, Loader2, Pencil } from "lucide-react"
+import { Sun, Moon, Plus, TrendingUp, TrendingDown, Minus, CheckCircle, AlertCircle, Paperclip, FileImage, X, Loader2, Pencil, Trash2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiClientError } from "@/lib/api-client"
 
@@ -49,6 +49,9 @@ function toRussianFactError(message: string): string {
   if (normalized.includes("failed to fetch") || normalized.includes("network error")) {
     return "Нет связи с сервером. Проверьте интернет и попробуйте снова."
   }
+  if (normalized.includes("permission denied") || normalized.includes("forbidden")) {
+    return "Недостаточно прав для выполнения операции."
+  }
   if (normalized.includes("fact for this date/shift/stage already exists")) {
     return "Факт за эту дату и смену уже есть. Откройте его через кнопку «Редактировать»."
   }
@@ -76,7 +79,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const { 
     createStageFact, 
     updateStageFact,
+    deleteStageFact,
     currentUser, 
+    permissions,
     demoDate, 
     machines, 
     getOperators,
@@ -123,6 +128,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const [submitError, setSubmitError] = useState("")
   const [savedHint, setSavedHint] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeletingFact, setIsDeletingFact] = useState(false)
   const [normQty, setNormQty] = useState("")
   const [isSavingNorm, setIsSavingNorm] = useState(false)
   const [normError, setNormError] = useState("")
@@ -317,6 +323,33 @@ export function StageFactForm({ part }: StageFactFormProps) {
       }
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleDeleteFact = async () => {
+    if (!currentFact) return
+
+    const confirmed = window.confirm("Удалить этот факт? Действие необратимо.")
+    if (!confirmed) return
+
+    try {
+      setIsDeletingFact(true)
+      setSubmitError("")
+      setSavedHint("")
+      await deleteStageFact(currentFact.id)
+      setSavedHint("Факт удалён.")
+      setIsOpen(false)
+    } catch (error) {
+      if (error instanceof ApiClientError) {
+        const message = error.error?.message || error.message || "Не удалось удалить факт"
+        setSubmitError(toRussianFactError(message))
+      } else if (error instanceof Error) {
+        setSubmitError(toRussianFactError(error.message))
+      } else {
+        setSubmitError("Не удалось удалить факт")
+      }
+    } finally {
+      setIsDeletingFact(false)
     }
   }
 
@@ -899,13 +932,39 @@ export function StageFactForm({ part }: StageFactFormProps) {
         
         {/* Actions */}
         <div className="flex gap-2">
-          <Button variant="outline" className="flex-1 bg-transparent" onClick={() => setIsOpen(false)}>
+          {currentFact && permissions.canRollbackFacts && (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleDeleteFact}
+              disabled={isSubmitting || isDeletingFact}
+            >
+              {isDeletingFact ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Удаляем...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Удалить
+                </>
+              )}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            className="flex-1 bg-transparent"
+            onClick={() => setIsOpen(false)}
+            disabled={isDeletingFact}
+          >
             Отмена
           </Button>
           <Button 
             className="flex-1" 
             onClick={handleSubmit} 
             disabled={isSubmitting ||
+              isDeletingFact ||
               !qtyGood || 
               (stageRequiresOperator(stage) && !isOperator && (!operatorId || operatorId === "none")) ||
               hasOperatorShiftConflict ||

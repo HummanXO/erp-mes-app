@@ -73,6 +73,7 @@ interface AppContextType {
     factId: string,
     data: Omit<StageFact, "id" | "created_at" | "part_id" | "stage" | "date" | "shift_type">
   ) => Promise<StageFact>
+  deleteStageFact: (factId: string) => Promise<void>
   
   // Task operations
   createTask: (task: Omit<Task, "id" | "created_at" | "read_by">) => Promise<Task>
@@ -440,6 +441,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updatedFact = await dataProvider.updateStageFact(factId, data)
     await refreshData()
     return updatedFact
+  }, [refreshData])
+
+  const deleteStageFact = useCallback(async (factId: string) => {
+    await dataProvider.deleteStageFact(factId)
+    await refreshData()
   }, [refreshData])
 
   const createTask = useCallback(async (task: Omit<Task, "id" | "created_at" | "read_by">) => {
@@ -1055,6 +1061,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatePartStageStatus,
         createStageFact,
         updateStageFact,
+        deleteStageFact,
         createTask,
         updateTask,
 markTaskAsRead,

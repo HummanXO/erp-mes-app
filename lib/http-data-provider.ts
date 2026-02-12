@@ -358,6 +358,10 @@ export async function updateStageFact(
   return transformStageFact(response)
 }
 
+export async function deleteStageFact(factId: string): Promise<void> {
+  await apiClient.deleteStageFact(factId)
+}
+
 // Machine norms
 export async function getMachineNorms(): Promise<MachineNorm[]> {
   if (!isAuthenticated()) return []

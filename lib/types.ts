@@ -398,6 +398,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   canViewAll: boolean
   canViewCooperation: boolean // Может видеть кооперацию
   canEditFacts: boolean
+  canRollbackFacts: boolean // Может откатывать (удалять) факты
   canCreateTasks: boolean
   canManageUsers: boolean
   canDeleteData: boolean
@@ -417,6 +418,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: true,
     canEditFacts: true,
+    canRollbackFacts: true,
     canCreateTasks: true,
     canManageUsers: true,
     canDeleteData: true,
@@ -436,6 +438,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: true,
     canEditFacts: true,
+    canRollbackFacts: true,
     canCreateTasks: true,
     canManageUsers: false,
     canDeleteData: false,
@@ -455,6 +458,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: true,
     canEditFacts: false,
+    canRollbackFacts: false,
     canCreateTasks: true,
     canManageUsers: false,
     canDeleteData: false,
@@ -474,6 +478,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: true,
     canEditFacts: true,
+    canRollbackFacts: true,
     canCreateTasks: true,
     canManageUsers: false,
     canDeleteData: false,
@@ -493,6 +498,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: true,
     canEditFacts: false, // Снабжение НЕ вносит факты производства
+    canRollbackFacts: false,
     canCreateTasks: true,
     canManageUsers: false,
     canDeleteData: false,
@@ -512,6 +518,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: true,
     canViewCooperation: false, // Мастер НЕ видит кооперацию
     canEditFacts: true,
+    canRollbackFacts: true,
     canCreateTasks: true, // Мастер может создавать задачи операторам по производству
     canManageUsers: false,
     canDeleteData: false,
@@ -531,6 +538,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewAll: false,
     canViewCooperation: false, // Оператор НЕ видит кооперацию
     canEditFacts: true, // Оператор вносит факты производства
+    canRollbackFacts: false,
     canCreateTasks: false, // Оператор НЕ может создавать задачи
     canManageUsers: false,
     canDeleteData: false,
