@@ -261,7 +261,11 @@ export function CreatePartDialog({
       resetForm()
       onOpenChange(false)
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Не удалось создать деталь")
+      if (error instanceof Error && error.message?.trim()) {
+        setFormError(error.message)
+      } else {
+        setFormError("Не удалось создать деталь (проверьте поля и уникальность кода)")
+      }
     } finally {
       setIsSubmitting(false)
     }
