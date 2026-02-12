@@ -339,14 +339,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ? ROLE_PERMISSIONS[currentUser.role] 
     : defaultPermissions
 
-  const operatorGrantedSpecificationIds = useMemo(() => {
+  const operatorVisibleSpecificationIds = useMemo(() => {
     if (!currentUser || currentUser.role !== "operator") return new Set<string>()
-    return new Set(
+    const ids = new Set(
       accessGrants
         .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "specification")
         .map(grant => grant.entity_id)
     )
-  }, [currentUser, accessGrants])
+    for (const specification of specifications) {
+      if (specification.published_to_operators) {
+        ids.add(specification.id)
+      }
+    }
+    return ids
+  }, [currentUser, accessGrants, specifications])
 
   const visiblePartIds = useMemo(() => {
     if (!currentUser) return new Set<string>()
@@ -365,7 +371,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const grantedPartIds = new Set<string>()
       for (const item of specItems) {
         if (!item.part_id) continue
-        if (operatorGrantedSpecificationIds.has(item.specification_id)) {
+        if (operatorVisibleSpecificationIds.has(item.specification_id)) {
           grantedPartIds.add(item.part_id)
         }
       }
@@ -383,7 +389,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     permissions.canViewSpecifications,
     parts,
     specItems,
-    operatorGrantedSpecificationIds,
+    operatorVisibleSpecificationIds,
   ])
 
   const visibleParts = useMemo(
@@ -947,8 +953,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const getSpecificationsForCurrentUser = useCallback(() => {
     if (!currentUser) return []
     if (currentUser.role !== "operator") return specifications
-    return specifications.filter(spec => operatorGrantedSpecificationIds.has(spec.id))
-  }, [currentUser, specifications, operatorGrantedSpecificationIds])
+    return specifications.filter(spec => operatorVisibleSpecificationIds.has(spec.id))
+  }, [currentUser, specifications, operatorVisibleSpecificationIds])
 
   const getSpecItemsBySpecification = useCallback((specificationId: string) => {
     return specItems
@@ -970,12 +976,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "work_order")
         .map(grant => grant.entity_id)
     )
+    const publishedSpecIds = new Set(
+      specifications
+        .filter(spec => spec.published_to_operators)
+        .map(spec => spec.id)
+    )
     return workOrders.filter(order =>
       order.assigned_operator_id === currentUser.id ||
       specGrantIds.has(order.specification_id) ||
+      publishedSpecIds.has(order.specification_id) ||
       workOrderGrantIds.has(order.id)
     )
-  }, [currentUser, workOrders, accessGrants])
+  }, [currentUser, workOrders, accessGrants, specifications])
 
   const getWorkOrdersForSpecification = useCallback((specificationId: string) => {
     return workOrders
