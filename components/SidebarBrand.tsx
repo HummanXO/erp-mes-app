@@ -37,12 +37,14 @@ function FallbackMark({ className }: { className?: string }) {
 }
 
 export function SidebarBrand({
-  href = "/",
+  href,
   onClick,
   className,
   iconSrc = "/dok-alliance-mark.png",
 }: SidebarBrandProps) {
   const [imageFailed, setImageFailed] = React.useState(false)
+  const shouldUseButton = href === undefined && typeof onClick === "function"
+  const resolvedHref = href ?? "/"
 
   const content = (
     <>
@@ -91,7 +93,7 @@ export function SidebarBrand({
     className
   )
 
-  if (!href) {
+  if (shouldUseButton) {
     return (
       <button type="button" className={sharedClassName} onClick={onClick}>
         {content}
@@ -100,9 +102,8 @@ export function SidebarBrand({
   }
 
   return (
-    <Link href={href} className={sharedClassName} onClick={onClick}>
+    <Link href={resolvedHref} className={sharedClassName} onClick={onClick}>
       {content}
     </Link>
   )
 }
-
