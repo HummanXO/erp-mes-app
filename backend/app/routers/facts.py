@@ -28,6 +28,11 @@ def create_stage_fact(
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
 
+    if current_user.role == "operator":
+        if data.stage != "machining":
+            raise HTTPException(status_code=403, detail="Оператор может вносить факт только по механообработке")
+        data.operator_id = current_user.id
+
     if data.stage == "logistics":
         raise HTTPException(
             status_code=400,
@@ -222,6 +227,13 @@ def update_stage_fact(
     ).first()
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
+
+    if current_user.role == "operator":
+        if fact.stage != "machining":
+            raise HTTPException(status_code=403, detail="Оператор может редактировать факт только по механообработке")
+        if fact.operator_id and fact.operator_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Оператор может редактировать только свои факты")
+        data.operator_id = current_user.id
 
     old_qty_good = fact.qty_good
 
