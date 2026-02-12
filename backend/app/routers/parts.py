@@ -16,19 +16,91 @@ from ..models import (
     Task,
     LogisticsEntry,
     MachineNorm,
+    AccessGrant,
+    SpecItem,
+    Specification,
 )
 from ..schemas import (
     PartCreate, PartUpdate, PartResponse, StageStatusResponse,
     PartProgressResponse, PartForecastResponse, MachineResponse,
     MachineNormUpsert, MachineNormResponse
 )
-from ..auth import get_current_user, PermissionChecker
+from ..auth import get_current_user, PermissionChecker, check_permission
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
 COOP_REQUIRED_STAGES = {"logistics", "qc"}
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
 SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding", "logistics"}
+
+
+def _granted_specification_ids_query(db: Session, user: User):
+    return db.query(AccessGrant.entity_id).filter(
+        AccessGrant.org_id == user.org_id,
+        AccessGrant.entity_type == "specification",
+        AccessGrant.user_id == user.id,
+    )
+
+
+def _part_linked_to_any_spec_exists(db: Session, org_id: UUID):
+    return db.query(SpecItem.id).join(
+        Specification,
+        SpecItem.specification_id == Specification.id,
+    ).filter(
+        SpecItem.part_id == Part.id,
+        Specification.org_id == org_id,
+    ).exists()
+
+
+def _part_linked_to_granted_spec_exists(db: Session, user: User):
+    granted_spec_ids = _granted_specification_ids_query(db, user)
+    return db.query(SpecItem.id).join(
+        Specification,
+        SpecItem.specification_id == Specification.id,
+    ).filter(
+        SpecItem.part_id == Part.id,
+        Specification.org_id == user.org_id,
+        Specification.id.in_(granted_spec_ids),
+    ).exists()
+
+
+def _apply_part_visibility_scope(query, db: Session, current_user: User):
+    if check_permission(current_user, "canManageSpecifications"):
+        return query
+    if current_user.role == "operator":
+        return query.filter(_part_linked_to_granted_spec_exists(db, current_user))
+    if not check_permission(current_user, "canViewSpecifications"):
+        return query.filter(~_part_linked_to_any_spec_exists(db, current_user.org_id))
+    return query
+
+
+def _can_access_part(db: Session, part: Part, current_user: User) -> bool:
+    if part.org_id != current_user.org_id:
+        return False
+    if check_permission(current_user, "canManageSpecifications"):
+        return True
+
+    linked_spec_ids = {
+        row[0]
+        for row in db.query(SpecItem.specification_id).join(
+            Specification,
+            SpecItem.specification_id == Specification.id,
+        ).filter(
+            SpecItem.part_id == part.id,
+            Specification.org_id == current_user.org_id,
+        ).distinct().all()
+    }
+
+    if current_user.role == "operator":
+        if not linked_spec_ids:
+            return False
+        granted_spec_ids = {row[0] for row in _granted_specification_ids_query(db, current_user).all()}
+        return bool(linked_spec_ids.intersection(granted_spec_ids))
+
+    if not check_permission(current_user, "canViewSpecifications"):
+        return not linked_spec_ids
+
+    return True
 
 
 def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressResponse, list[StageStatusResponse]]:
@@ -168,6 +240,7 @@ def get_parts(
 ):
     """Get list of parts with filters."""
     query = db.query(Part).filter(Part.org_id == current_user.org_id)
+    query = _apply_part_visibility_scope(query, db, current_user)
     
     # Apply filters
     if status:
@@ -215,16 +288,8 @@ def get_part(
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
     
-    # RBAC: operator can only view parts they worked on (requirement D)
-    if current_user.role == "operator":
-        from ..models import StageFact
-        has_worked = db.query(StageFact).filter(
-            StageFact.part_id == part_id,
-            StageFact.operator_id == current_user.id
-        ).first()
-        
-        if not has_worked:
-            raise HTTPException(status_code=403, detail="Access denied: you haven't worked on this part")
+    if not _can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Calculate progress and forecast
     progress, stage_statuses = calculate_part_progress(db, part)

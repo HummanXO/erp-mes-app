@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react"
 import type {
   User,
   Machine,
@@ -339,6 +339,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ? ROLE_PERMISSIONS[currentUser.role] 
     : defaultPermissions
 
+  const operatorGrantedSpecificationIds = useMemo(() => {
+    if (!currentUser || currentUser.role !== "operator") return new Set<string>()
+    return new Set(
+      accessGrants
+        .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "specification")
+        .map(grant => grant.entity_id)
+    )
+  }, [currentUser, accessGrants])
+
+  const visiblePartIds = useMemo(() => {
+    if (!currentUser) return new Set<string>()
+
+    if (permissions.canManageSpecifications) {
+      return new Set(parts.map(part => part.id))
+    }
+
+    const specLinkedPartIds = new Set(
+      specItems
+        .map(item => item.part_id)
+        .filter((partId): partId is string => Boolean(partId))
+    )
+
+    if (currentUser.role === "operator") {
+      const grantedPartIds = new Set<string>()
+      for (const item of specItems) {
+        if (!item.part_id) continue
+        if (operatorGrantedSpecificationIds.has(item.specification_id)) {
+          grantedPartIds.add(item.part_id)
+        }
+      }
+      return grantedPartIds
+    }
+
+    if (!permissions.canViewSpecifications) {
+      return new Set(parts.filter(part => !specLinkedPartIds.has(part.id)).map(part => part.id))
+    }
+
+    return new Set(parts.map(part => part.id))
+  }, [
+    currentUser,
+    permissions.canManageSpecifications,
+    permissions.canViewSpecifications,
+    parts,
+    specItems,
+    operatorGrantedSpecificationIds,
+  ])
+
+  const visibleParts = useMemo(
+    () => parts.filter(part => visiblePartIds.has(part.id)),
+    [parts, visiblePartIds]
+  )
+
   const createPart = useCallback(async (part: Omit<Part, "id">) => {
     const newPart = await dataProvider.createPart(part)
     await refreshData()
@@ -636,7 +688,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [refreshData])
 
   const getPartProgress = useCallback((partId: string) => {
-    const part = parts.find(p => p.id === partId)
+    const part = visibleParts.find(p => p.id === partId)
     if (!part) return { qtyDone: 0, qtyPlan: 0, percent: 0, qtyScrap: 0, stageProgress: [] }
 
     const facts = stageFacts.filter(f => f.part_id === partId)
@@ -674,10 +726,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       qtyScrap,
       stageProgress,
     }
-  }, [parts, stageFacts])
+  }, [visibleParts, stageFacts])
 
   const getPartForecast = useCallback((partId: string) => {
-    const part = parts.find(p => p.id === partId)
+    const part = visibleParts.find(p => p.id === partId)
     const machine = part?.machine_id ? machines.find(m => m.id === part.machine_id) : undefined
 
     if (!part) {
@@ -778,7 +830,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       shiftsNeeded: totalShiftsNeeded,
       stageForecasts,
     }
-  }, [parts, machines, stageFacts, machineNorms, demoDate])
+  }, [visibleParts, machines, stageFacts, machineNorms, demoDate])
 
   const getMachineTodayProgress = useCallback((machineId: string) => {
     const machine = machines.find(m => m.id === machineId)
@@ -796,32 +848,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [machines, stageFacts, demoDate])
 
   const getPartsForMachine = useCallback((machineId: string) => {
-    return parts.filter(p => p.machine_id === machineId)
-  }, [parts])
+    return visibleParts.filter(p => p.machine_id === machineId)
+  }, [visibleParts])
 
   const getPartsByStage = useCallback((stage: ProductionStage) => {
-    return parts.filter(p => {
+    return visibleParts.filter(p => {
       const stageStatuses = p.stage_statuses || []
       const stageStatus = stageStatuses.find(s => s.stage === stage)
       return stageStatus && stageStatus.status !== "skipped"
     })
-  }, [parts])
+  }, [visibleParts])
 
   const getPartsInProgressAtStage = useCallback((stage: ProductionStage) => {
-    return parts.filter(p => {
+    return visibleParts.filter(p => {
       const stageStatuses = p.stage_statuses || []
       const stageStatus = stageStatuses.find(s => s.stage === stage)
       return stageStatus && stageStatus.status === "in_progress"
     })
-  }, [parts])
+  }, [visibleParts])
 
   const getCooperationParts = useCallback(() => {
-    return parts.filter(p => p.is_cooperation)
-  }, [parts])
+    return visibleParts.filter(p => p.is_cooperation)
+  }, [visibleParts])
 
   const getOwnProductionParts = useCallback(() => {
-    return parts.filter(p => !p.is_cooperation)
-  }, [parts])
+    return visibleParts.filter(p => !p.is_cooperation)
+  }, [visibleParts])
 
   const getTasksForPart = useCallback((partId: string) => {
     return tasks.filter(t => t.part_id === partId)
@@ -866,7 +918,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [stageFacts, demoDate])
 
   const getCurrentStage = useCallback((partId: string) => {
-    const part = parts.find(p => p.id === partId)
+    const part = visibleParts.find(p => p.id === partId)
     if (!part || !part.stage_statuses) return null
 
     const inProgress = part.stage_statuses.find(s => s.status === "in_progress")
@@ -876,10 +928,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (pending) return pending.stage
 
     return null
-  }, [parts])
+  }, [visibleParts])
 
   const getStageCompletion = useCallback((partId: string) => {
-    const part = parts.find(p => p.id === partId)
+    const part = visibleParts.find(p => p.id === partId)
     if (!part || !part.stage_statuses) return { completed: 0, total: 0, percent: 0 }
 
     const completed = part.stage_statuses.filter(s => s.status === "done").length
@@ -890,24 +942,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       total,
       percent: total > 0 ? Math.round((completed / total) * 100) : 0,
     }
-  }, [parts])
+  }, [visibleParts])
 
   const getSpecificationsForCurrentUser = useCallback(() => {
     if (!currentUser) return []
     if (currentUser.role !== "operator") return specifications
-
-    const grants = accessGrants.filter(
-      grant => grant.user_id === currentUser.id && grant.entity_type === "specification"
-    )
-    const grantedSpecIds = new Set(grants.map(grant => grant.entity_id))
-    workOrders
-      .filter(order => order.assigned_operator_id === currentUser.id)
-      .forEach(order => grantedSpecIds.add(order.specification_id))
-
-    return specifications.filter(spec =>
-      spec.published_to_operators || grantedSpecIds.has(spec.id)
-    )
-  }, [currentUser, specifications, accessGrants, workOrders])
+    return specifications.filter(spec => operatorGrantedSpecificationIds.has(spec.id))
+  }, [currentUser, specifications, operatorGrantedSpecificationIds])
 
   const getSpecItemsBySpecification = useCallback((specificationId: string) => {
     return specItems
@@ -929,19 +970,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .filter(grant => grant.user_id === currentUser.id && grant.entity_type === "work_order")
         .map(grant => grant.entity_id)
     )
-    const publishedSpecIds = new Set(
-      specifications
-        .filter(spec => spec.published_to_operators)
-        .map(spec => spec.id)
-    )
-
     return workOrders.filter(order =>
       order.assigned_operator_id === currentUser.id ||
       specGrantIds.has(order.specification_id) ||
-      publishedSpecIds.has(order.specification_id) ||
       workOrderGrantIds.has(order.id)
     )
-  }, [currentUser, workOrders, accessGrants, specifications])
+  }, [currentUser, workOrders, accessGrants])
 
   const getWorkOrdersForSpecification = useCallback((specificationId: string) => {
     return workOrders
@@ -964,8 +998,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [machines])
 
   const getPartById = useCallback((id: string) => {
-    return parts.find(p => p.id === id)
-  }, [parts])
+    return visibleParts.find(p => p.id === id)
+  }, [visibleParts])
 
   const getOperators = useCallback(() => {
     return users.filter(u => u.role === "operator")
@@ -987,7 +1021,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setDemoDate,
         users,
         machines,
-        parts,
+        parts: visibleParts,
         stageFacts,
         tasks,
         logistics,
