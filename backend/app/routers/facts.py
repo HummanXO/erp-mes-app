@@ -60,6 +60,12 @@ def create_stage_fact(
                 status_code=400,
                 detail="operator_id is required for machining stage"
             )
+        if not part.machine_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Для детали не назначен станок"
+            )
+        data.machine_id = part.machine_id
         
         # Check for duplicate (same part, stage, date, shift)
         existing = db.query(StageFact).filter(
@@ -78,6 +84,7 @@ def create_stage_fact(
     else:
         # For non-machining: shift_type = none
         data.shift_type = 'none'
+        data.machine_id = None
     
     # Create fact
     fact = StageFact(
@@ -240,8 +247,12 @@ def update_stage_fact(
     if fact.stage == "machining":
         if not data.operator_id:
             raise HTTPException(status_code=400, detail="operator_id is required for machining stage")
+        if not part.machine_id:
+            raise HTTPException(status_code=400, detail="Для детали не назначен станок")
+        fact.machine_id = part.machine_id
     else:
         data.operator_id = None
+        fact.machine_id = None
 
     fact.operator_id = data.operator_id
     fact.qty_good = data.qty_good
