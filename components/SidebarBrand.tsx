@@ -61,7 +61,8 @@ export function SidebarBrand({
               height={24}
               priority
               onError={() => setImageFailed(true)}
-              className="h-6 w-6 object-contain"
+              // The provided PNG is white; make it black on light theme and keep white in dark theme.
+              className="h-6 w-6 object-contain brightness-0 dark:brightness-100"
             />
           )}
         </div>
