@@ -495,7 +495,10 @@ def delete_stage_fact(
 
     audit = AuditEvent(
         org_id=current_user.org_id,
-        action="fact_deleted",
+        # NOTE: audit_events.action has a strict CHECK constraint in production.
+        # Until we roll out a DB migration to allow "fact_deleted", record as "fact_updated"
+        # with an explicit event marker in details.
+        action="fact_updated",
         entity_type="fact",
         entity_id=fact_id,
         user_id=current_user.id,
@@ -503,6 +506,7 @@ def delete_stage_fact(
         part_id=part.id,
         part_code=part.code,
         details={
+            "event": "fact_deleted",
             "stage": deleted_stage,
             "shift": deleted_shift,
             "qtyGood": deleted_qty_good,
