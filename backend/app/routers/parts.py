@@ -137,8 +137,12 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
     stage_statuses_data = []
     stage_done_quantities = {}  # stage -> qty_done
     total_scrap = sum(f.qty_scrap for f in facts)
+    stage_statuses_ordered = sorted(
+        part.stage_statuses,
+        key=lambda item: STAGE_FLOW_ORDER.index(item.stage) if item.stage in STAGE_FLOW_ORDER else len(STAGE_FLOW_ORDER)
+    )
     
-    for stage_status in part.stage_statuses:
+    for stage_status in stage_statuses_ordered:
         stage_facts = [f for f in facts if f.stage == stage_status.stage]
         qty_good = sum(f.qty_good for f in stage_facts)
         qty_scrap = sum(f.qty_scrap for f in stage_facts)
