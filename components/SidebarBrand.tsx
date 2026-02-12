@@ -16,21 +16,17 @@ export type SidebarBrandProps = {
 function FallbackMark({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 40 41"
       aria-hidden="true"
       className={cn("shrink-0", className)}
-      fill="none"
     >
       <path
-        d="M12 3.5L22 21H2L12 3.5Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
+        d="M7.839 40.783 23.869 12.729 20 6 0 40.783h7.839Z"
+        fill="currentColor"
       />
       <path
-        d="M12 8.8L16.4 16.5H7.6L12 8.8Z"
+        d="M16.053 40.783H40L27.99 19.894l-4.02 7.032 3.976 6.914H20.02l-3.967 6.943Z"
         fill="currentColor"
-        opacity="0.18"
       />
     </svg>
   )

@@ -56,7 +56,11 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
   return (
     <Sidebar>
       <SidebarHeader className="px-2 pt-3 pb-2">
-        <SidebarBrand href="/" />
+        <SidebarBrand
+          onClick={() =>
+            onViewChange(permissions.canViewSpecifications ? "specifications" : "parts")
+          }
+        />
       </SidebarHeader>
       
       <SidebarContent className="px-2">
