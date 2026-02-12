@@ -72,12 +72,18 @@ export function SpecDetailHeader({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button className="h-11" onClick={onAddItem} disabled={actionBusy}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Добавить позицию
-          </Button>
-        </div>
+        {canManageSpecifications ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button className="h-11" onClick={onAddItem} disabled={actionBusy}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Добавить позицию
+            </Button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+            Только чтение. Изменение позиций недоступно для этой роли.
+          </div>
+        )}
 
         {canManageSpecifications && (
           <div className="flex flex-wrap items-center gap-3 rounded-lg border p-3">

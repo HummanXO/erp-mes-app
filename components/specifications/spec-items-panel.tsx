@@ -15,12 +15,13 @@ import { Building2, Filter, PackagePlus, Search } from "lucide-react"
 
 interface SpecItemsPanelProps {
   items: SpecItem[]
+  canManageSpecifications: boolean
   onAddItem: () => void
   onHelp: () => void
   onOpenPart: (partId: string) => void
 }
 
-export function SpecItemsPanel({ items, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
+export function SpecItemsPanel({ items, canManageSpecifications, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
   const { getPartById, machines, permissions } = useApp()
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "not_started" | "done">("all")
@@ -42,11 +43,19 @@ export function SpecItemsPanel({ items, onAddItem, onHelp, onOpenPart }: SpecIte
     return (
       <EmptyStateCard
         title="Позиции ещё не добавлены"
-        description="Позиции описывают, что нужно изготовить у себя или отдать в кооперацию. Начните с первой позиции."
-        actionLabel="Добавить позицию"
-        onAction={onAddItem}
+        description={
+          canManageSpecifications
+            ? "Позиции описывают, что нужно изготовить у себя или отдать в кооперацию. Начните с первой позиции."
+            : "Позиции ещё не заведены. Для вашей роли доступен только просмотр и ввод фактов."
+        }
+        actionLabel={canManageSpecifications ? "Добавить позицию" : "Только чтение"}
+        onAction={() => {
+          if (!canManageSpecifications) return
+          onAddItem()
+        }}
         onHelp={onHelp}
         icon={<PackagePlus className="h-5 w-5" aria-hidden="true" />}
+        disabled={!canManageSpecifications}
       />
     )
   }

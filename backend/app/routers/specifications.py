@@ -4,7 +4,6 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..auth import check_permission, get_current_user
@@ -45,7 +44,7 @@ SPEC_ITEM_STATUSES = {"open", "partial", "fulfilled", "blocked", "canceled"}
 
 
 def _ensure_manage_specifications(current_user: User) -> None:
-    if current_user.role == "operator" or not check_permission(current_user, "canCreateParts"):
+    if not check_permission(current_user, "canManageSpecifications"):
         raise HTTPException(status_code=403, detail="Permission denied")
 
 
@@ -60,8 +59,6 @@ def _get_specification_or_404(db: Session, specification_id: UUID, org_id: UUID)
 
 
 def _operator_can_access_specification(db: Session, specification: Specification, user: User) -> bool:
-    if specification.published_to_operators:
-        return True
     grant_exists = db.query(AccessGrant.id).filter(
         AccessGrant.org_id == user.org_id,
         AccessGrant.entity_type == "specification",
@@ -170,12 +167,7 @@ def get_specifications(
             AccessGrant.entity_type == "specification",
             AccessGrant.user_id == current_user.id,
         )
-        query = query.filter(
-            or_(
-                Specification.published_to_operators.is_(True),
-                Specification.id.in_(granted_spec_ids),
-            )
-        )
+        query = query.filter(Specification.id.in_(granted_spec_ids))
 
     specifications = query.order_by(Specification.created_at.desc()).all()
     return [SpecificationResponse.model_validate(specification) for specification in specifications]
@@ -426,12 +418,7 @@ def get_spec_items(
             AccessGrant.entity_type == "specification",
             AccessGrant.user_id == current_user.id,
         )
-        query = query.filter(
-            or_(
-                Specification.published_to_operators.is_(True),
-                Specification.id.in_(granted_spec_ids),
-            )
-        )
+        query = query.filter(Specification.id.in_(granted_spec_ids))
 
     items = query.order_by(SpecItem.created_at.desc()).all()
 
