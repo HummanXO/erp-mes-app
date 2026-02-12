@@ -724,12 +724,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    const qtyDone = stageProgress.length > 0
-      ? Math.min(...stageProgress.map(sp => sp.qtyDone))
+    // Overall progress = average across production stages (machining..qc), for a more intuitive "work progress".
+    // Logistics is excluded by PROGRESS_STAGES, so overall progress can reach 100% when QC is complete.
+    const overallPercent = stageProgress.length > 0
+      ? Math.round(stageProgress.reduce((sum, sp) => sum + sp.percent, 0) / stageProgress.length)
       : 0
-    const overallPercent = part.qty_plan > 0
-      ? Math.min(100, Math.round((qtyDone / part.qty_plan) * 100))
-      : 0
+
+    // Display-only quantity (derived from overall percent). The real "ready qty" comes from backend part.qty_done.
+    const qtyDone = Math.round((overallPercent / 100) * part.qty_plan)
 
     return {
       qtyDone,

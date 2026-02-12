@@ -33,6 +33,15 @@ const STAGE_ORDER: ProductionStage[] = [
   "logistics",
 ]
 
+const OVERALL_PROGRESS_STAGES: ProductionStage[] = [
+  "machining",
+  "fitting",
+  "galvanic",
+  "heat_treatment",
+  "grinding",
+  "qc",
+]
+
 interface StageProgressSummaryProps {
   part: Part
   showDetails?: boolean
@@ -90,23 +99,27 @@ export function StageProgressSummary({ part, showDetails = true }: StageProgress
       }
     })
   }, [activeStages, getStageFactsForPartAndStage, getMachineNorm, part.id, part.machine_id, part.qty_plan])
+
+  const overallStages = useMemo(() => {
+    return stageProgress.filter(stage => OVERALL_PROGRESS_STAGES.includes(stage.stage))
+  }, [stageProgress])
   
   // Overall progress - weighted average of all stage progress percentages
   // Each stage contributes equally to the overall progress
   const overallProgress = useMemo(() => {
-    if (stageProgress.length === 0) return 0
+    if (overallStages.length === 0) return 0
     
     // Calculate average progress across all stages
     // Each stage's progress (0-100%) contributes equally
-    const totalProgress = stageProgress.reduce((sum, stage) => {
+    const totalProgress = overallStages.reduce((sum, stage) => {
       // For done stages, count as 100%
       if (stage.status === "done") return sum + 100
       // For in_progress/pending, use actual percent based on qty
       return sum + stage.percent
     }, 0)
     
-    return Math.round(totalProgress / stageProgress.length)
-  }, [stageProgress])
+    return Math.round(totalProgress / overallStages.length)
+  }, [overallStages])
   
   // Calculate overall qty done based on overall progress
   const overallQtyDone = useMemo(() => {
@@ -164,7 +177,7 @@ export function StageProgressSummary({ part, showDetails = true }: StageProgress
         <div className="space-y-1">
           <Progress value={overallProgress} className="h-2" />
           <div className="flex justify-between text-xs text-muted-foreground">
-            <span>{stageProgress.filter(s => s.status === "done").length} из {stageProgress.length} этапов</span>
+            <span>{overallStages.filter(s => s.status === "done").length} из {overallStages.length} этапов</span>
             <span>{overallQtyDone.toLocaleString()} / {part.qty_plan.toLocaleString()} шт</span>
           </div>
         </div>

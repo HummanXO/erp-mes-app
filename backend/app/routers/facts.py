@@ -1,24 +1,21 @@
 """Stage Facts endpoints."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 from uuid import UUID
 from ..database import get_db
-from ..models import User, Part, StageFact, StageFactAttachment, PartStageStatus, AuditEvent
+from ..models import User, Part, StageFact, StageFactAttachment, AuditEvent
 from ..schemas import StageFactCreate, StageFactUpdate, StageFactResponse, UserBrief, AttachmentBase
 from ..auth import get_current_user, PermissionChecker
+from ..services.part_state import (
+    STAGE_LABELS_RU,
+    StageTotals,
+    compute_stage_totals,
+    recompute_part_state,
+    stage_prerequisites,
+    validate_stage_flow,
+)
 
 router = APIRouter(tags=["facts"])
-
-STAGE_LABELS_RU = {
-    "machining": "Механообработка",
-    "fitting": "Слесарка",
-    "galvanic": "Гальваника",
-    "heat_treatment": "Термообработка",
-    "grinding": "Шлифовка",
-    "qc": "ОТК",
-    "logistics": "Логистика",
-}
 
 
 def _ensure_stage_prerequisites(db: Session, part: Part, stage: str) -> None:
@@ -135,6 +132,26 @@ def create_stage_fact(
         raise HTTPException(status_code=400, detail="Этап не включён для этой детали")
 
     _ensure_stage_prerequisites(db, part, data.stage)
+
+    # Enforce flow quantity constraints (for downstream stages).
+    if data.stage != "machining":
+        prereq = stage_prerequisites(part, data.stage)
+        if prereq:
+            totals_before = compute_stage_totals(db, part=part)
+            available = min(totals_before.get(s, StageTotals()).good for s in prereq)
+            processed_before = totals_before.get(data.stage, StageTotals()).processed
+            processed_after = processed_before + data.qty_good + data.qty_scrap
+            if processed_after > available:
+                stage_label = STAGE_LABELS_RU.get(data.stage, data.stage)
+                prereq_labels = ", ".join(STAGE_LABELS_RU.get(s, s) for s in prereq)
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Нельзя внести факт по этапу «{stage_label}»: "
+                        f"после сохранения будет обработано {processed_after} шт (годные+брак), "
+                        f"но доступно после этапов ({prereq_labels}) только {available} шт."
+                    ),
+                )
     
     # Validate and auto-set shift_type based on stage
     if data.stage == 'machining':
@@ -213,25 +230,13 @@ def create_stage_fact(
             **att_data.model_dump()
         )
         db.add(attachment)
-    
-    # Update part qty_done
-    part.qty_done += data.qty_good
-    if part.status == 'not_started':
-        part.status = 'in_progress'
-    if part.qty_done >= part.qty_plan:
-        part.status = 'done'
-    
-    # Update stage status
-    stage_status = db.query(PartStageStatus).filter(
-        PartStageStatus.part_id == part_id,
-        PartStageStatus.stage == data.stage
-    ).first()
-    
-    if stage_status and stage_status.status == 'pending':
-        stage_status.status = 'in_progress'
-        stage_status.started_at = func.now()
-        if data.operator_id:
-            stage_status.operator_id = data.operator_id
+
+    totals_after = compute_stage_totals(db, part=part)
+    violation = validate_stage_flow(part, totals_after)
+    if violation:
+        raise HTTPException(status_code=409, detail=violation)
+
+    recompute_part_state(db, part=part, stage_totals=totals_after)
     
     # Audit log
     audit = AuditEvent(
@@ -381,15 +386,12 @@ def update_stage_fact(
         )
         db.add(attachment)
 
-    delta_good = fact.qty_good - old_qty_good
-    part.qty_done = max(0, part.qty_done + delta_good)
-    part_facts_count = db.query(StageFact).filter(StageFact.part_id == part.id).count()
-    if part.qty_done >= part.qty_plan:
-        part.status = "done"
-    elif part_facts_count > 0:
-        part.status = "in_progress"
-    else:
-        part.status = "not_started"
+    totals_after = compute_stage_totals(db, part=part)
+    violation = validate_stage_flow(part, totals_after)
+    if violation:
+        raise HTTPException(status_code=409, detail=violation)
+
+    recompute_part_state(db, part=part, stage_totals=totals_after)
 
     # Audit log
     audit = AuditEvent(
@@ -467,31 +469,12 @@ def delete_stage_fact(
     db.delete(fact)
     db.flush()
 
-    # Revert part counters/status (keep existing semantics used on create/update).
-    part.qty_done = max(0, part.qty_done - deleted_qty_good)
-    remaining_facts_count = db.query(StageFact).filter(StageFact.part_id == part.id).count()
-    if part.qty_done >= part.qty_plan:
-        part.status = "done"
-    elif remaining_facts_count > 0:
-        part.status = "in_progress"
-    else:
-        part.status = "not_started"
+    totals_after = compute_stage_totals(db, part=part)
+    violation = validate_stage_flow(part, totals_after)
+    if violation:
+        raise HTTPException(status_code=409, detail=violation)
 
-    # Revert stage status if no facts left for this stage.
-    stage_status = db.query(PartStageStatus).filter(
-        PartStageStatus.part_id == part.id,
-        PartStageStatus.stage == deleted_stage,
-    ).first()
-    if stage_status and stage_status.status != "skipped":
-        stage_facts_left = db.query(StageFact.id).filter(
-            StageFact.part_id == part.id,
-            StageFact.stage == deleted_stage,
-        ).first()
-        if not stage_facts_left:
-            stage_status.status = "pending"
-            stage_status.started_at = None
-            stage_status.completed_at = None
-            stage_status.operator_id = None
+    recompute_part_state(db, part=part, stage_totals=totals_after)
 
     audit = AuditEvent(
         org_id=current_user.org_id,

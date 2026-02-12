@@ -125,37 +125,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   
   // Calculate stages progress with null safety
   const stageStatuses = part.stage_statuses || []
-  const stagesTotal = stageStatuses.filter(s => s.status !== "skipped").length
-  const stagesDone = stageStatuses.filter(s => s.status === "done").length
 
-  // Calculate overall progress based on stage completion (consistent with StageProgressSummary)
-  const activeStages = stageStatuses.filter(s => s.status !== "skipped")
-  
-  // Calculate progress for each active stage
-  const stageProgressData = activeStages.map(stageStatus => {
-    const facts = stageFacts.filter(f => f.stage === stageStatus.stage)
-    const totalGood = facts.reduce((sum, f) => sum + f.qty_good, 0)
-    const percent = part.qty_plan > 0 
-      ? Math.round((totalGood / part.qty_plan) * 100)
-      : 0
-    return {
-      stage: stageStatus.stage,
-      status: stageStatus.status,
-      totalGood,
-      percent: Math.min(percent, 100)
-    }
-  })
-  
-  // Overall progress - weighted average across all stages
-  const overallProgressPercent = stageProgressData.length > 0
-    ? Math.round(stageProgressData.reduce((sum, stage) => {
-        if (stage.status === "done") return sum + 100
-        return sum + stage.percent
-      }, 0) / stageProgressData.length)
-    : 0
-    
-  // Calculate "ready" quantity based on overall progress
-  const overallQtyDone = Math.round((overallProgressPercent / 100) * part.qty_plan)
+  // Work progress (average across production stages). Ready quantity is tracked separately in backend via part.qty_done.
+  const overallProgressPercent = progress.percent
+  const overallQtyDone = progress.qtyDone
   
   // Sort facts by date descending
   const sortedFacts = [...stageFacts].sort((a, b) => {
