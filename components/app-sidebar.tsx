@@ -24,14 +24,15 @@ import {
   RefreshCw,
   Calendar,
   User,
+  Users,
   Warehouse
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { SidebarBrand } from "@/components/SidebarBrand"
 
 interface AppSidebarProps {
-  activeView: "parts" | "tasks" | "inventory" | "specifications"
-  onViewChange: (view: "parts" | "tasks" | "inventory" | "specifications") => void
+  activeView: "parts" | "tasks" | "inventory" | "specifications" | "adminUsers"
+  onViewChange: (view: "parts" | "tasks" | "inventory" | "specifications" | "adminUsers") => void
 }
 
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
@@ -130,6 +131,19 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
                     {lowStockCount}
                   </span>
                 )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+
+          {usingApi && permissions.canManageUsers && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                isActive={activeView === "adminUsers"}
+                onClick={() => onViewChange("adminUsers")}
+                className="justify-start"
+              >
+                <Users className="h-4 w-4" />
+                <span>Пользователи</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           )}
