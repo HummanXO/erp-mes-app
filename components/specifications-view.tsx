@@ -118,6 +118,7 @@ export function SpecificationsView() {
   )
 
   const canManageSpecifications = permissions.canManageSpecifications
+  const canGrantSpecificationAccess = permissions.canGrantSpecificationAccess
   const isOperator = currentUser?.role === "operator"
 
   const openPartDetails = (partId: string) => {
@@ -254,12 +255,12 @@ export function SpecificationsView() {
                 onOpenPart={openPartDetails}
               />
 
-              {!isOperator && canManageSpecifications && (
+              {!isOperator && canGrantSpecificationAccess && (
                 <SpecAccessPanel
                   grants={selectedGrants}
                   operators={users.filter((user) => user.role === "operator")}
                   getUserName={(userId) => getUserById(userId)?.initials ?? userId}
-                  canManageSpecifications={canManageSpecifications}
+                  canGrantSpecificationAccess={canGrantSpecificationAccess}
                   onGrant={(userId, permission) => {
                     if (!selectedSpecification) return
                     void runAction(async () => {

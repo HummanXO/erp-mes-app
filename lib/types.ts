@@ -413,6 +413,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   canManageInventory: boolean // Может изменять склад (движения/редактирование)
   canViewSpecifications: boolean // Может видеть спецификации и задания
   canManageSpecifications: boolean // Может создавать/редактировать спецификации
+  canGrantSpecificationAccess: boolean // Может выдавать операторам доступ к спецификации/деталям
   canManageWorkOrders: boolean // Может управлять очередью и запуском заданий
 }> = {
   admin: {
@@ -434,6 +435,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageInventory: true,
     canViewSpecifications: true,
     canManageSpecifications: true,
+    canGrantSpecificationAccess: true,
     canManageWorkOrders: true,
   },
   director: {
@@ -455,6 +457,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageInventory: true,
     canViewSpecifications: true,
     canManageSpecifications: true,
+    canGrantSpecificationAccess: true,
     canManageWorkOrders: true,
   },
   chief_engineer: {
@@ -477,6 +480,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewSpecifications: true,
     // Главный инженер может видеть спецификации (включая черновики), но не должен создавать/редактировать/публиковать.
     canManageSpecifications: false,
+    canGrantSpecificationAccess: false,
     canManageWorkOrders: true,
   },
   shop_head: {
@@ -498,6 +502,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageInventory: true,
     canViewSpecifications: true,
     canManageSpecifications: true,
+    canGrantSpecificationAccess: true,
     canManageWorkOrders: true,
   },
   supply: {
@@ -520,6 +525,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewSpecifications: true,
     // Снабжение может видеть спецификации (включая черновики), но не должно создавать/редактировать/публиковать.
     canManageSpecifications: false,
+    canGrantSpecificationAccess: false,
     canManageWorkOrders: false,
   },
   master: {
@@ -540,7 +546,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewInventory: true,
     canManageInventory: false,
     canViewSpecifications: true,
-    canManageSpecifications: true,
+    canManageSpecifications: false,
+    canGrantSpecificationAccess: true,
     canManageWorkOrders: true,
   },
   operator: {
@@ -562,6 +569,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageInventory: false,
     canViewSpecifications: true,
     canManageSpecifications: false,
+    canGrantSpecificationAccess: false,
     canManageWorkOrders: false,
   },
 }

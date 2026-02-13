@@ -48,6 +48,11 @@ def _ensure_manage_specifications(current_user: User) -> None:
         raise HTTPException(status_code=403, detail="Permission denied")
 
 
+def _ensure_grant_specification_access(current_user: User) -> None:
+    if not check_permission(current_user, "canGrantSpecificationAccess"):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+
 def _get_specification_or_404(db: Session, specification_id: UUID, org_id: UUID) -> Specification:
     specification = db.query(Specification).filter(
         Specification.id == specification_id,
@@ -518,7 +523,10 @@ def grant_access(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ensure_manage_specifications(current_user)
+    if data.entity_type == "specification":
+        _ensure_grant_specification_access(current_user)
+    else:
+        _ensure_manage_specifications(current_user)
 
     user = db.query(User).filter(
         User.id == data.user_id,
@@ -562,14 +570,17 @@ def revoke_access(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _ensure_manage_specifications(current_user)
-
     grant = db.query(AccessGrant).filter(
         AccessGrant.id == grant_id,
         AccessGrant.org_id == current_user.org_id,
     ).first()
     if not grant:
         raise HTTPException(status_code=404, detail="Access grant not found")
+
+    if grant.entity_type == "specification":
+        _ensure_grant_specification_access(current_user)
+    else:
+        _ensure_manage_specifications(current_user)
 
     db.delete(grant)
     db.commit()
