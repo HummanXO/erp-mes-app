@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         """Get CORS origins as list."""
-        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",") if origin.strip()]
     
     @property
     def allowed_extensions_list(self) -> list[str]:

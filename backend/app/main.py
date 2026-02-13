@@ -14,8 +14,14 @@ app = FastAPI(
 # Production safety checks (fail closed on insecure cookie config).
 if settings.ENV.lower() == "production" and not settings.AUTH_REFRESH_COOKIE_SECURE:
     raise RuntimeError("AUTH_REFRESH_COOKIE_SECURE must be true in production (requires HTTPS).")
+if settings.ENV.lower() == "production" and not settings.cors_origins:
+    raise RuntimeError("ALLOWED_ORIGINS must be set in production (explicit frontend origin required).")
 if settings.ENV.lower() == "production" and any(origin.strip() == "*" for origin in settings.cors_origins):
     raise RuntimeError("ALLOWED_ORIGINS must be explicit in production (no wildcard when using credentials).")
+if settings.ENV.lower() == "production" and any(
+    origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1") for origin in settings.cors_origins
+):
+    raise RuntimeError("ALLOWED_ORIGINS contains localhost in production; set it to your real frontend origin.")
 
 # CORS
 cors_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
