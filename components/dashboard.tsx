@@ -10,12 +10,13 @@ import { PartsView } from "@/components/parts-view"
 import { AllTasksView } from "@/components/all-tasks-view"
 import { InventoryView } from "@/components/inventory/inventory-view"
 import { SpecificationsView } from "@/components/specifications-view"
+import { AdminUsersView } from "@/components/admin-users-view"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import * as dataProvider from "@/lib/data-provider-adapter"
 
-type View = "parts" | "tasks" | "inventory" | "specifications"
+type View = "parts" | "tasks" | "inventory" | "specifications" | "adminUsers"
 
 export function Dashboard() {
   const { currentUser, getUnreadTasksCount, permissions } = useApp()
@@ -91,7 +92,9 @@ export function Dashboard() {
                 ? "Все задачи"
                 : activeView === "inventory"
                   ? permissions.canViewInventory ? "Склад" : "Детали"
-                  : permissions.canViewSpecifications ? "Спецификации" : "Детали"}
+                  : activeView === "adminUsers"
+                    ? "Пользователи"
+                    : permissions.canViewSpecifications ? "Спецификации" : "Детали"}
           </h1>
           <div className="flex items-center gap-2 ml-auto">
             {/* Unread tasks badge */}
@@ -113,6 +116,8 @@ export function Dashboard() {
             <AllTasksView />
           ) : activeView === "inventory" && permissions.canViewInventory ? (
             <InventoryView />
+          ) : activeView === "adminUsers" ? (
+            <AdminUsersView />
           ) : activeView === "specifications" && permissions.canViewSpecifications ? (
             <SpecificationsView />
           ) : (

@@ -27,6 +27,13 @@ export interface TokenResponse {
   must_change_password?: boolean
 }
 
+export interface AdminResetPasswordResponse {
+  user: any
+  temporary_password: string
+  must_change_password?: boolean
+  warning?: string
+}
+
 export class ApiClientError extends Error {
   constructor(
     public statusCode: number,
@@ -365,6 +372,10 @@ class ApiClient {
     return this.request<any>("/directory/users")
   }
 
+  async getUsersAdmin() {
+    return this.request<any>("/users")
+  }
+
   async getUserById(id: string) {
     return this.request<any>(`/directory/users/${id}`)
   }
@@ -379,6 +390,14 @@ class ApiClient {
     const users = await this.request<any>("/directory/users")
     const list = users.data || users
     return Array.isArray(list) ? list.filter((u: any) => u?.role === role) : []
+  }
+
+  async adminResetPassword(username: string): Promise<AdminResetPasswordResponse> {
+    const uname = (username || "").trim()
+    return this.request<AdminResetPasswordResponse>("/auth/admin/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ username: uname }),
+    })
   }
 
   // Machines
