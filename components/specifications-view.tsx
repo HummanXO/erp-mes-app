@@ -254,7 +254,7 @@ export function SpecificationsView() {
                 onOpenPart={openPartDetails}
               />
 
-              {!isOperator && (
+              {!isOperator && canManageSpecifications && (
                 <SpecAccessPanel
                   grants={selectedGrants}
                   operators={users.filter((user) => user.role === "operator")}
