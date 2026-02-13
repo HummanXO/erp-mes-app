@@ -1,4 +1,10 @@
 """Stage Facts endpoints."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -6,6 +12,8 @@ from ..database import get_db
 from ..models import User, Part, StageFact, StageFactAttachment, AuditEvent
 from ..schemas import StageFactCreate, StageFactUpdate, StageFactResponse, UserBrief, AttachmentBase
 from ..auth import get_current_user, PermissionChecker
+from ..config import settings
+from ..security import can_access_part, require_org_entity
 from ..services.part_state import (
     STAGE_LABELS_RU,
     StageTotals,
@@ -16,6 +24,53 @@ from ..services.part_state import (
 )
 
 router = APIRouter(tags=["facts"])
+
+_SAFE_FILENAME_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[A-Za-z0-9]{1,16}$"
+)
+
+
+def _extract_attachment_filename(url: str) -> str | None:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        path = parsed.path or ""
+    except Exception:
+        return None
+
+    prefixes = (
+        "/api/v1/attachments/serve/",
+        "/attachments/serve/",
+        "/uploads/",
+    )
+    filename = None
+    for prefix in prefixes:
+        if path.startswith(prefix):
+            filename = path[len(prefix) :]
+            break
+    if not filename:
+        return None
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return None
+    if Path(filename).name != filename:
+        return None
+    if not _SAFE_FILENAME_RE.match(filename):
+        return None
+    return filename
+
+
+def _normalize_attachment_url(filename: str) -> str:
+    return f"/api/v1/attachments/serve/{filename}"
+
+
+def _assert_attachment_files_exist(*, filenames: list[str], current_user: User) -> None:
+    base_dir = Path(settings.UPLOAD_DIR) / str(current_user.org_id)
+    for name in filenames:
+        path = base_dir / name
+        if not path.exists() or not path.is_file():
+            raise HTTPException(status_code=400, detail="Attachment not found")
 
 
 def _ensure_stage_prerequisites(db: Session, part: Part, stage: str) -> None:
@@ -109,13 +164,16 @@ def create_stage_fact(
 ):
     """Create stage fact."""
     # Get part
-    part = db.query(Part).filter(
-        Part.id == part_id,
-        Part.org_id == current_user.org_id
-    ).first()
-    
-    if not part:
-        raise HTTPException(status_code=404, detail="Деталь не найдена")
+    part = require_org_entity(
+        db,
+        Part,
+        entity_id=part_id,
+        org_id=current_user.org_id,
+        not_found="Деталь не найдена",
+    )
+
+    if not can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if current_user.role == "operator":
         if data.stage != "machining":
@@ -171,6 +229,14 @@ def create_stage_fact(
                 status_code=400,
                 detail="Для механообработки нужно выбрать оператора"
             )
+        operator = db.query(User).filter(
+            User.id == data.operator_id,
+            User.org_id == current_user.org_id,
+            User.is_active == True,
+            User.role == "operator",
+        ).first()
+        if not operator:
+            raise HTTPException(status_code=404, detail="Оператор не найден")
         if not part.machine_id:
             raise HTTPException(
                 status_code=400,
@@ -224,10 +290,22 @@ def create_stage_fact(
     db.flush()
     
     # Add attachments
+    filenames: list[str] = []
     for att_data in data.attachments:
+        filename = _extract_attachment_filename(att_data.url)
+        if not filename:
+            raise HTTPException(status_code=400, detail="Invalid attachment url")
+        filenames.append(filename)
+    if filenames:
+        _assert_attachment_files_exist(filenames=filenames, current_user=current_user)
+
+    for att_data, filename in zip(data.attachments, filenames):
         attachment = StageFactAttachment(
             stage_fact_id=fact.id,
-            **att_data.model_dump()
+            name=att_data.name,
+            url=_normalize_attachment_url(filename),
+            type=att_data.type,
+            size=att_data.size,
         )
         db.add(attachment)
 
@@ -262,7 +340,11 @@ def create_stage_fact(
     db.refresh(fact)
     
     # Build response
-    operator = db.query(User).filter(User.id == data.operator_id).first() if data.operator_id else None
+    operator = (
+        db.query(User).filter(User.id == data.operator_id, User.org_id == current_user.org_id).first()
+        if data.operator_id
+        else None
+    )
     
     return StageFactResponse(
         id=fact.id,
@@ -287,6 +369,16 @@ def get_part_facts(
     db: Session = Depends(get_db)
 ):
     """Get all facts for a part."""
+    part = require_org_entity(
+        db,
+        Part,
+        entity_id=part_id,
+        org_id=current_user.org_id,
+        not_found="Деталь не найдена",
+    )
+    if not can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     facts = db.query(StageFact).filter(
         StageFact.part_id == part_id,
         StageFact.org_id == current_user.org_id
@@ -294,7 +386,11 @@ def get_part_facts(
     
     responses = []
     for fact in facts:
-        operator = db.query(User).filter(User.id == fact.operator_id).first() if fact.operator_id else None
+        operator = (
+            db.query(User).filter(User.id == fact.operator_id, User.org_id == current_user.org_id).first()
+            if fact.operator_id
+            else None
+        )
         responses.append(StageFactResponse(
             id=fact.id,
             stage=fact.stage,
@@ -335,12 +431,15 @@ def update_stage_fact(
             detail="Для этапа логистика факты производства не ведутся"
         )
 
-    part = db.query(Part).filter(
-        Part.id == fact.part_id,
-        Part.org_id == current_user.org_id
-    ).first()
-    if not part:
-        raise HTTPException(status_code=404, detail="Деталь не найдена")
+    part = require_org_entity(
+        db,
+        Part,
+        entity_id=fact.part_id,
+        org_id=current_user.org_id,
+        not_found="Деталь не найдена",
+    )
+    if not can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     if current_user.role == "operator":
         if fact.stage != "machining":
@@ -354,6 +453,14 @@ def update_stage_fact(
     if fact.stage == "machining":
         if not data.operator_id:
             raise HTTPException(status_code=400, detail="Для механообработки нужно выбрать оператора")
+        operator = db.query(User).filter(
+            User.id == data.operator_id,
+            User.org_id == current_user.org_id,
+            User.is_active == True,
+            User.role == "operator",
+        ).first()
+        if not operator:
+            raise HTTPException(status_code=404, detail="Оператор не найден")
         if not part.machine_id:
             raise HTTPException(status_code=400, detail="Для детали не назначен станок")
         fact.machine_id = part.machine_id
@@ -379,10 +486,22 @@ def update_stage_fact(
     db.query(StageFactAttachment).filter(
         StageFactAttachment.stage_fact_id == fact.id
     ).delete(synchronize_session=False)
+    filenames: list[str] = []
     for att_data in data.attachments:
+        filename = _extract_attachment_filename(att_data.url)
+        if not filename:
+            raise HTTPException(status_code=400, detail="Invalid attachment url")
+        filenames.append(filename)
+    if filenames:
+        _assert_attachment_files_exist(filenames=filenames, current_user=current_user)
+
+    for att_data, filename in zip(data.attachments, filenames):
         attachment = StageFactAttachment(
             stage_fact_id=fact.id,
-            **att_data.model_dump()
+            name=att_data.name,
+            url=_normalize_attachment_url(filename),
+            type=att_data.type,
+            size=att_data.size,
         )
         db.add(attachment)
 
@@ -417,7 +536,11 @@ def update_stage_fact(
     db.commit()
     db.refresh(fact)
 
-    operator = db.query(User).filter(User.id == fact.operator_id).first() if fact.operator_id else None
+    operator = (
+        db.query(User).filter(User.id == fact.operator_id, User.org_id == current_user.org_id).first()
+        if fact.operator_id
+        else None
+    )
     return StageFactResponse(
         id=fact.id,
         stage=fact.stage,
@@ -451,12 +574,15 @@ def delete_stage_fact(
     if not fact:
         raise HTTPException(status_code=404, detail="Факт не найден")
 
-    part = db.query(Part).filter(
-        Part.id == fact.part_id,
-        Part.org_id == current_user.org_id,
-    ).first()
-    if not part:
-        raise HTTPException(status_code=404, detail="Деталь не найдена")
+    part = require_org_entity(
+        db,
+        Part,
+        entity_id=fact.part_id,
+        org_id=current_user.org_id,
+        not_found="Деталь не найдена",
+    )
+    if not can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Snapshot for audit before delete.
     deleted_stage = fact.stage

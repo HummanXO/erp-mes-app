@@ -3,8 +3,10 @@
 import { useApp } from "@/lib/app-context"
 import { ROLE_LABELS } from "@/lib/types"
 import type { UserRole } from "@/lib/types"
+import * as dataProvider from "@/lib/data-provider-adapter"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Users, Shield, Factory, Wrench, UserCog, Truck } from "lucide-react"
 
 const ROLE_ICONS: Record<UserRole, typeof Shield> = {
@@ -19,6 +21,7 @@ const ROLE_ICONS: Record<UserRole, typeof Shield> = {
 
 export function LoginPage() {
   const { users, login } = useApp()
+  const demoMode = dataProvider.isDemoMode()
 
   // Group users by role
   const usersByRole = users.reduce((acc, user) => {
@@ -37,6 +40,17 @@ export function LoginPage() {
           <CardDescription>Выберите пользователя для входа</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {demoMode && (
+            <Alert variant="destructive">
+              <AlertTitle className="text-base">
+                DEMO MODE: нет реальной аутентификации
+              </AlertTitle>
+              <AlertDescription className="text-sm">
+                Приложение запущено без backend API. Любой пользователь может войти без пароля.
+                Никогда не используйте этот режим в продакшене.
+              </AlertDescription>
+            </Alert>
+          )}
           {roleOrder.map(role => {
             const roleUsers = usersByRole[role]
             if (!roleUsers) return null

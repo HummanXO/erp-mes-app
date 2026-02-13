@@ -1,10 +1,8 @@
 """FastAPI application."""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 from .config import settings
-from .routers import auth, users, parts, facts, tasks, uploads, telegram, machines, audit, specifications
+from .routers import auth, users, parts, facts, tasks, uploads, telegram, machines, audit, specifications, directory
 
 # Create app
 app = FastAPI(
@@ -13,17 +11,30 @@ app = FastAPI(
     description="Backend API for ERP/MES Production Control System"
 )
 
+# Production safety checks (fail closed on insecure cookie config).
+if settings.ENV.lower() == "production" and not settings.AUTH_REFRESH_COOKIE_SECURE:
+    raise RuntimeError("AUTH_REFRESH_COOKIE_SECURE must be true in production (requires HTTPS).")
+if settings.ENV.lower() == "production" and any(origin.strip() == "*" for origin in settings.cors_origins):
+    raise RuntimeError("ALLOWED_ORIGINS must be explicit in production (no wildcard when using credentials).")
+
 # CORS
+cors_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+# If you add new custom headers, whitelist them explicitly (required when using cookies + credentials).
+cors_headers = ["Authorization", "Content-Type", "X-CSRF-Token"]
+if settings.ENV.lower() != "production":
+    cors_headers = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=cors_methods,
+    allow_headers=cors_headers,
 )
 
 # Include routers
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(directory.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(parts.router, prefix="/api/v1")
 app.include_router(facts.router, prefix="/api/v1")
@@ -33,11 +44,6 @@ app.include_router(telegram.router, prefix="/api/v1")
 app.include_router(machines.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(specifications.router, prefix="/api/v1")
-
-# Serve uploaded files
-upload_dir = Path(settings.UPLOAD_DIR)
-upload_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 
 
 @app.get("/api/v1/system/health")

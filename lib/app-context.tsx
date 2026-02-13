@@ -30,8 +30,11 @@ import { ApiClientError } from "./api-client"
 interface AppContextType {
   // Auth
   currentUser: User | null
+  // When user is authenticated but must change password, keep them out of the app UI.
+  passwordChangeRequiredUser: User | null
   login: (userId: string) => void
   loginWithCredentials: (username: string, password: string) => Promise<void>
+  completePasswordChange: (user: User) => Promise<void>
   logout: () => void
   permissions: typeof ROLE_PERMISSIONS["admin"]
   
@@ -185,6 +188,7 @@ const AppContext = createContext<AppContextType | null>(null)
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [passwordChangeRequiredUser, setPasswordChangeRequiredUser] = useState<User | null>(null)
   const [demoDate, setDemoDateState] = useState<string>("2026-01-31")
   const [users, setUsers] = useState<User[]>([])
   const [machines, setMachines] = useState<Machine[]>([])
@@ -265,28 +269,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const init = async () => {
       dataProvider.initializeData()
 
-      if (dataProvider.isUsingApi()) {
-        // API mode: попробуем восстановить пользователя по токену
-        if (dataProvider.loadCurrentUserFromToken) {
-          try {
-            const user = await dataProvider.loadCurrentUserFromToken()
-            if (isMounted && user) {
-              setCurrentUser(user)
-              await refreshData()
-            }
-          } catch (e) {
-            // 401/403 on /auth/me is expected when an old token remains in browser storage.
-            if (!(e instanceof ApiClientError && (e.statusCode === 401 || e.statusCode === 403))) {
-              console.error("Failed to restore user from token", e)
-            }
-          }
-        }
-      } else {
-        // LocalStorage mode: старая логика
-        const user = dataProvider.getCurrentUser()
-        setCurrentUser(user)
-        await refreshData()
-      }
+	      if (dataProvider.isUsingApi()) {
+	        // API mode: access token is memory-only; restore via refresh cookie.
+	        if (dataProvider.restoreSession) {
+	          try {
+	            const user = await dataProvider.restoreSession()
+	            if (isMounted && user) {
+	              if (Boolean((user as any).must_change_password)) {
+	                setPasswordChangeRequiredUser(user)
+	                setCurrentUser(null)
+	              } else {
+	                setPasswordChangeRequiredUser(null)
+	                setCurrentUser(user)
+	                await refreshData()
+	              }
+	            }
+	          } catch (e) {
+	            // 401/403 on /auth/me is expected when session is missing/expired.
+	            if (!(e instanceof ApiClientError && (e.statusCode === 401 || e.statusCode === 403))) {
+	              console.error("Failed to restore session", e)
+	            }
+	          }
+	        }
+	      } else {
+	        // LocalStorage mode: старая логика
+	        setPasswordChangeRequiredUser(null)
+	        const user = dataProvider.getCurrentUser()
+	        setCurrentUser(user)
+	        await refreshData()
+	      }
 
       const date = dataProvider.getDemoDate()
       setDemoDateState(date)
@@ -300,41 +311,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  const login = useCallback((userId: string) => {
-    dataProvider.setCurrentUser(userId)
-    setCurrentUser(dataProvider.getUserById(userId) || null)
-  }, [])
+	  const login = useCallback((userId: string) => {
+	    dataProvider.setCurrentUser(userId)
+	    setPasswordChangeRequiredUser(null)
+	    setCurrentUser(dataProvider.getUserById(userId) || null)
+	  }, [])
 
-  const loginWithCredentials = useCallback(async (username: string, password: string) => {
-    if (!dataProvider.login) {
-      throw new Error("Login not available in localStorage mode")
-    }
-    
-    const user = await dataProvider.login(username, password)
-    setCurrentUser(user)
-    refreshData()
-  }, [refreshData])
+		  const loginWithCredentials = useCallback(async (username: string, password: string) => {
+	    if (!dataProvider.login) {
+	      throw new Error("Login not available in localStorage mode")
+	    }
+	    
+		    const response = await dataProvider.login(username, password)
+		    const user = response?.user as User | undefined
+		    const mustChange = Boolean(response?.must_change_password ?? (user as any)?.must_change_password)
 
-  const logout = useCallback(async () => {
-    // Call API logout if available
-    if (dataProvider.logout) {
-      await dataProvider.logout()
-    }
-    dataProvider.setCurrentUser(null)
-    setCurrentUser(null)
-  }, [])
+	    if (!user) {
+	      throw new Error("Invalid login response")
+	    }
+
+		    if (mustChange) {
+		      setPasswordChangeRequiredUser(user)
+		      setCurrentUser(null)
+		      return
+		    }
+
+	    setPasswordChangeRequiredUser(null)
+		    setCurrentUser(user)
+		    refreshData()
+		  }, [refreshData])
+
+	  const completePasswordChange = useCallback(async (user: User) => {
+	    setPasswordChangeRequiredUser(null)
+	    setCurrentUser(user)
+	    await refreshData()
+	  }, [refreshData])
+
+	  const logout = useCallback(async () => {
+	    // Call API logout if available
+	    if (dataProvider.logout) {
+	      await dataProvider.logout()
+	    }
+	    dataProvider.setCurrentUser(null)
+	    setPasswordChangeRequiredUser(null)
+	    setCurrentUser(null)
+	  }, [])
 
   const setDemoDate = useCallback((date: string) => {
     dataProvider.setDemoDate(date)
     setDemoDateState(date)
   }, [])
 
-  const resetData = useCallback(() => {
-    dataProvider.resetData()
-    refreshData()
-    setCurrentUser(null)
-    setDemoDateState(dataProvider.getDemoDate())
-  }, [refreshData])
+	  const resetData = useCallback(() => {
+	    dataProvider.resetData()
+	    refreshData()
+	    setPasswordChangeRequiredUser(null)
+	    setCurrentUser(null)
+	    setDemoDateState(dataProvider.getDemoDate())
+	  }, [refreshData])
 
   const permissions = currentUser 
     ? ROLE_PERMISSIONS[currentUser.role] 
@@ -1033,8 +1067,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider
       value={{
         currentUser,
+        passwordChangeRequiredUser,
         login,
         loginWithCredentials,
+        completePasswordChange,
         logout,
         permissions,
         demoDate,
