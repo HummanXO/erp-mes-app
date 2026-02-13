@@ -68,6 +68,10 @@ docker-compose -f docker-compose.prod.yml logs frontend -f
 - `ALLOWED_ORIGINS=https://docalliance.info` (явный origin, без `*`, только `scheme://host[:port]`)
 - `CSRF_TRUSTED_ORIGINS=https://docalliance.info` (если отличается от `ALLOWED_ORIGINS`)
 
+Где задаётся env:
+- На сервере должен быть файл `.env` рядом с `docker-compose.prod.yml` (Docker Compose подхватывает его автоматически),
+  либо переменные должны быть экспортированы в окружение перед запуском `docker compose`.
+
 Важно: значение origin должно совпадать 1-в-1 с заголовком браузера `Origin`.
 Частая ошибка: сайт открыт как `https://www.docalliance.info`, а в allowlist указан только `https://docalliance.info`.
 В этом случае login/refresh/logout/change-password будут получать `403 {"detail":"CSRF origin denied"}`.
