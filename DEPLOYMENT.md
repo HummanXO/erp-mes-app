@@ -1,7 +1,7 @@
 # Deployment Guide - Oracle Cloud
 
 ## Текущий статус:
-- ✅ Backend API работает: `https://152.67.72.212/api/v1/` (HTTP должен редиректить на HTTPS)
+- ✅ Backend API работает: `https://docalliance.info/api/v1/` (HTTP должен редиректить на HTTPS)
 - ✅ База данных PostgreSQL с тестовыми данными
 - ✅ Redis + Celery worker для уведомлений
 - ✅ Nginx настроен
@@ -27,7 +27,7 @@ docker-compose -f docker-compose.prod.yml ps
 docker-compose -f docker-compose.prod.yml logs frontend -f
 
 # После успешной сборки откройте в браузере:
-# https://152.67.72.212/
+# https://docalliance.info/
 ```
 
 ## Аутентификация (prod)
@@ -65,13 +65,21 @@ docker-compose -f docker-compose.prod.yml logs frontend -f
 - `ENV=production`
 - `AUTH_REFRESH_COOKIE_SECURE=true`
 - `TRUST_PROXY_HEADERS=true` (если backend за nginx)
-- `ALLOWED_ORIGINS=https://152.67.72.212` (явный origin, без `*`)
-- `CSRF_TRUSTED_ORIGINS=https://152.67.72.212` (если отличается от `ALLOWED_ORIGINS`)
+- `ALLOWED_ORIGINS=https://docalliance.info` (явный origin, без `*`, только `scheme://host[:port]`)
+- `CSRF_TRUSTED_ORIGINS=https://docalliance.info` (если отличается от `ALLOWED_ORIGINS`)
+
+Важно: значение origin должно совпадать 1-в-1 с заголовком браузера `Origin`.
+Частая ошибка: сайт открыт как `https://www.docalliance.info`, а в allowlist указан только `https://docalliance.info`.
+В этом случае login/refresh/logout/change-password будут получать `403 {"detail":"CSRF origin denied"}`.
+
+Пример для двух возможных доменов (если реально используете оба):
+- `ALLOWED_ORIGINS=https://docalliance.info,https://www.docalliance.info`
+- `CSRF_TRUSTED_ORIGINS=https://docalliance.info,https://www.docalliance.info`
 
 ## Проверка работы:
-- Главная: https://152.67.72.212/
-- API Docs: https://152.67.72.212/docs
-- API: https://152.67.72.212/api/v1/
+- Главная: https://docalliance.info/
+- API Docs: https://docalliance.info/docs
+- API: https://docalliance.info/api/v1/
 
 ## Если фронтенд не запускается:
 ```bash
