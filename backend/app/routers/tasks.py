@@ -1,32 +1,87 @@
 """Task endpoints."""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from urllib.parse import urlparse
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, func
 from uuid import UUID
 from typing import Optional
 from ..database import get_db
-from ..models import User, Part, Task, TaskComment, TaskReadStatus, TaskAttachment, AuditEvent, NotificationOutbox
+from ..models import (
+    Machine,
+    Part,
+    Task,
+    TaskAttachment,
+    TaskComment,
+    TaskReadStatus,
+    AuditEvent,
+    NotificationOutbox,
+    User,
+)
 from ..schemas import (
     TaskCreate, TaskResponse, TaskCommentCreate, TaskCommentResponse,
     TaskReviewRequest, UserBrief, PartBrief, AttachmentBase, TaskReadInfo
 )
-from ..auth import get_current_user, PermissionChecker, ROLE_PERMISSIONS
+from ..auth import get_current_user, PermissionChecker
 from ..celery_app import create_notification_for_task
+from ..config import settings
+from ..security import can_view_task, is_task_assigned_to_user, require_org_entity
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 PRODUCTION_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
 
+_SAFE_FILENAME_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[A-Za-z0-9]{1,16}$"
+)
 
-def is_task_assigned_to_user(task: Task, user: User) -> bool:
-    """Check if task is assigned to user."""
-    if task.assignee_type == "all":
-        return True
-    if task.assignee_type == "role" and task.assignee_role == user.role:
-        return True
-    if task.assignee_type == "user" and task.assignee_id == user.id:
-        return True
-    return False
+
+def _extract_attachment_filename(url: str) -> str | None:
+    """Accept only internal attachment URLs and return the safe filename."""
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        path = parsed.path or ""
+    except Exception:
+        return None
+
+    prefixes = (
+        "/api/v1/attachments/serve/",
+        "/attachments/serve/",
+        "/uploads/",
+    )
+    filename = None
+    for prefix in prefixes:
+        if path.startswith(prefix):
+            filename = path[len(prefix) :]
+            break
+    if not filename:
+        return None
+
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return None
+    if Path(filename).name != filename:
+        return None
+    if not _SAFE_FILENAME_RE.match(filename):
+        return None
+    return filename
+
+
+def _normalize_attachment_url(filename: str) -> str:
+    return f"/api/v1/attachments/serve/{filename}"
+
+
+def _assert_attachment_files_exist(*, filenames: list[str], current_user: User) -> None:
+    base_dir = Path(settings.UPLOAD_DIR) / str(current_user.org_id)
+    for name in filenames:
+        path = base_dir / name
+        if not path.exists() or not path.is_file():
+            raise HTTPException(status_code=400, detail="Attachment not found")
 
 
 def get_task_assignee_user(db: Session, org_id, assignee_id):
@@ -94,10 +149,22 @@ def validate_task_assignment_rules(db: Session, current_user: User, data: TaskCr
 
 def task_to_response(db: Session, task: Task, current_user: User) -> TaskResponse:
     """Convert task to response with all relations."""
-    creator = db.query(User).filter(User.id == task.creator_id).first()
-    accepted_by = db.query(User).filter(User.id == task.accepted_by_id).first() if task.accepted_by_id else None
-    reviewed_by = db.query(User).filter(User.id == task.reviewed_by_id).first() if task.reviewed_by_id else None
-    part = db.query(Part).filter(Part.id == task.part_id).first() if task.part_id else None
+    creator = db.query(User).filter(User.id == task.creator_id, User.org_id == task.org_id).first()
+    accepted_by = (
+        db.query(User).filter(User.id == task.accepted_by_id, User.org_id == task.org_id).first()
+        if task.accepted_by_id
+        else None
+    )
+    reviewed_by = (
+        db.query(User).filter(User.id == task.reviewed_by_id, User.org_id == task.org_id).first()
+        if task.reviewed_by_id
+        else None
+    )
+    part = (
+        db.query(Part).filter(Part.id == task.part_id, Part.org_id == task.org_id).first()
+        if task.part_id
+        else None
+    )
     
     # Check if read
     is_read = db.query(TaskReadStatus).filter(
@@ -124,7 +191,7 @@ def task_to_response(db: Session, task: Task, current_user: User) -> TaskRespons
     # Get comments with attachments
     comments = []
     for comment in task.comments:
-        comment_user = db.query(User).filter(User.id == comment.user_id).first()
+        comment_user = db.query(User).filter(User.id == comment.user_id, User.org_id == task.org_id).first()
         comments.append(TaskCommentResponse(
             id=comment.id,
             user=UserBrief.model_validate(comment_user) if comment_user else None,
@@ -265,6 +332,26 @@ def create_task(
     if data.assignee_type == "role" and not data.assignee_role:
         raise HTTPException(status_code=400, detail="assignee_role required for role assignment")
     validate_task_assignment_rules(db, current_user, data)
+
+    # Multi-tenant boundary: validate foreign keys belong to current org.
+    part = None
+    if data.part_id:
+        part = require_org_entity(
+            db,
+            Part,
+            entity_id=data.part_id,
+            org_id=current_user.org_id,
+            not_found="Part not found",
+        )
+
+    if data.machine_id:
+        require_org_entity(
+            db,
+            Machine,
+            entity_id=data.machine_id,
+            org_id=current_user.org_id,
+            not_found="Machine not found",
+        )
     
     # Create task
     task = Task(
@@ -280,7 +367,6 @@ def create_task(
     db.add(read_status)
     
     # Audit log
-    part = db.query(Part).filter(Part.id == data.part_id).first() if data.part_id else None
     audit = AuditEvent(
         org_id=current_user.org_id,
         action="task_created",
@@ -555,13 +641,26 @@ def add_comment(
     db: Session = Depends(get_db)
 ):
     """Add comment to task."""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.org_id == current_user.org_id
-    ).first()
+    task = require_org_entity(
+        db,
+        Task,
+        entity_id=task_id,
+        org_id=current_user.org_id,
+        not_found="Task not found",
+    )
     
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    if not can_view_task(task, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Validate attachment URLs up-front to avoid storing arbitrary/external URLs.
+    filenames: list[str] = []
+    for att_data in data.attachments:
+        filename = _extract_attachment_filename(att_data.url)
+        if not filename:
+            raise HTTPException(status_code=400, detail="Invalid attachment url")
+        filenames.append(filename)
+    if filenames:
+        _assert_attachment_files_exist(filenames=filenames, current_user=current_user)
     
     # Create comment
     comment = TaskComment(
@@ -573,10 +672,13 @@ def add_comment(
     db.flush()
     
     # Add attachments
-    for att_data in data.attachments:
+    for att_data, filename in zip(data.attachments, filenames):
         attachment = TaskAttachment(
             comment_id=comment.id,
-            **att_data.model_dump()
+            name=att_data.name,
+            url=_normalize_attachment_url(filename),
+            type=att_data.type,
+            size=att_data.size,
         )
         db.add(attachment)
     
@@ -613,13 +715,16 @@ def mark_as_read(
     db: Session = Depends(get_db)
 ):
     """Mark task as read."""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.org_id == current_user.org_id
-    ).first()
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = require_org_entity(
+        db,
+        Task,
+        entity_id=task_id,
+        org_id=current_user.org_id,
+        not_found="Task not found",
+    )
+
+    if not can_view_task(task, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
     
     # Check if already read
     read_status = db.query(TaskReadStatus).filter(
@@ -635,5 +740,4 @@ def mark_as_read(
     return {"message": "Marked as read"}
 
 
-# Import func for timestamps
-from sqlalchemy import func
+# NOTE: sqlalchemy.func is imported at module top.

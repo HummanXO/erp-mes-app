@@ -26,6 +26,18 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UserDirectoryItem(BaseModel):
+    """Minimal user directory entry (safe to show to all authenticated users)."""
+
+    id: UUID
+    initials: str
+    role: str
+    name: str
+    username: str
+    is_active: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
 class UserBrief(BaseModel):
     """Brief user info for nested responses."""
     id: UUID
@@ -53,14 +65,15 @@ class ChangePasswordRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None
     expires_in: int
     user: UserResponse
     must_change_password: bool = False
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    # Legacy body-based refresh token is not used in production.
+    refresh_token: Optional[str] = None
 
 
 # Part schemas

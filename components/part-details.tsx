@@ -40,7 +40,8 @@ import {
   Clock,
   Package,
   Upload,
-  Link
+  Link,
+  Loader2
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { StageFactForm } from "./stage-fact-form"
@@ -49,6 +50,7 @@ import { LogisticsList } from "./logistics-list"
 import { FactJournal } from "./fact-journal"
 import { StageProgressSummary } from "./stage-progress-summary"
 import { AuditLogView } from "./audit-log-view"
+import { apiClient } from "@/lib/api-client"
 
 interface PartDetailsProps {
   part: Part
@@ -75,6 +77,8 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState("")
   const [drawingError, setDrawingError] = useState(false)
+  const [drawingBlobUrl, setDrawingBlobUrl] = useState<string | null>(null)
+  const [isLoadingDrawingBlob, setIsLoadingDrawingBlob] = useState(false)
   const [drawingActionError, setDrawingActionError] = useState("")
   const [isUploadingDrawing, setIsUploadingDrawing] = useState(false)
   const [isSavingDrawing, setIsSavingDrawing] = useState(false)
@@ -116,6 +120,58 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   useEffect(() => {
     setDrawingError(false)
   }, [drawingUrl])
+
+  const isProtectedAttachmentUrl = (value: string) => {
+    const candidate = value.trim()
+    if (!candidate) return false
+    if (candidate.startsWith("/uploads/") || candidate.startsWith("/api/v1/attachments/serve/")) return true
+    if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+      try {
+        const u = new URL(candidate)
+        return u.pathname.startsWith("/uploads/") || u.pathname.startsWith("/api/v1/attachments/serve/")
+      } catch {
+        return false
+      }
+    }
+    return false
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    if (drawingBlobUrl) {
+      URL.revokeObjectURL(drawingBlobUrl)
+      setDrawingBlobUrl(null)
+    }
+
+    const value = drawingUrlValue
+    if (!value) return
+
+    if (!isImageDrawing) return
+    if (value.startsWith("data:") || value.startsWith("blob:")) return
+    if (!isProtectedAttachmentUrl(value)) return
+
+    setIsLoadingDrawingBlob(true)
+    void (async () => {
+      try {
+        const blob = await apiClient.fetchBlob(value)
+        if (cancelled) return
+        const blobUrl = URL.createObjectURL(blob)
+        setDrawingBlobUrl(blobUrl)
+        setDrawingError(false)
+      } catch {
+        if (cancelled) return
+        setDrawingError(true)
+      } finally {
+        if (cancelled) return
+        setIsLoadingDrawingBlob(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [drawingUrlValue, isImageDrawing])
   
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const progress = getPartProgress(part.id)
@@ -186,6 +242,27 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     } finally {
       setIsUploadingDrawing(false)
       event.target.value = ""
+    }
+  }
+
+  const handleOpenDrawing = async () => {
+    if (!drawingUrlValue) return
+    const value = drawingUrlValue
+    if (value.startsWith("data:") || value.startsWith("blob:")) {
+      window.open(value, "_blank", "noopener,noreferrer")
+      return
+    }
+    if (!isProtectedAttachmentUrl(value)) {
+      window.open(value, "_blank", "noopener,noreferrer")
+      return
+    }
+    try {
+      const blob = await apiClient.fetchBlob(value)
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, "_blank", "noopener,noreferrer")
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    } catch {
+      setDrawingActionError("Не удалось открыть файл")
     }
   }
 
@@ -369,13 +446,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-7">
+        <TabsList className={cn("grid w-full", permissions.canViewAudit ? "grid-cols-7" : "grid-cols-6")}>
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="facts">Факт</TabsTrigger>
           <TabsTrigger value="journal">Журнал</TabsTrigger>
           <TabsTrigger value="logistics">Логистика</TabsTrigger>
           <TabsTrigger value="tasks">Задачи</TabsTrigger>
-          <TabsTrigger value="audit">События</TabsTrigger>
+          {permissions.canViewAudit ? <TabsTrigger value="audit">События</TabsTrigger> : null}
           <TabsTrigger value="drawing">Чертёж</TabsTrigger>
         </TabsList>
         
@@ -509,7 +586,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         </TabsContent>
         
         <TabsContent value="audit">
-          <AuditLogView partId={part.id} />
+          {permissions.canViewAudit ? <AuditLogView partId={part.id} /> : null}
         </TabsContent>
         
         <TabsContent value="drawing" className="space-y-4">
@@ -522,12 +599,19 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 <div className="space-y-3">
                   <div className="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
                     {isImageDrawing && !drawingError ? (
-                      <img
-                        src={drawingUrlValue || "/placeholder.svg"}
-                        alt={`Чертёж ${part.code}`}
-                        className="max-w-full max-h-full object-contain"
-                        onError={() => setDrawingError(true)}
-                      />
+                      isLoadingDrawingBlob ? (
+                        <div className="text-center text-muted-foreground p-6">
+                          <Loader2 className="h-10 w-10 mx-auto mb-2 animate-spin opacity-60" />
+                          <p>Загружаем файл...</p>
+                        </div>
+                      ) : (
+                        <img
+                          src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
+                          alt={`Чертёж ${part.code}`}
+                          className="max-w-full max-h-full object-contain"
+                          onError={() => setDrawingError(true)}
+                        />
+                      )
                     ) : (
                       <div className="text-center text-muted-foreground p-6">
                         {isPdfDrawing ? (
@@ -552,11 +636,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                     )}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Button variant="outline" className="w-full bg-transparent" asChild>
-                      <a href={drawingUrlValue} target="_blank" rel="noopener noreferrer">
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        Открыть в новой вкладке
-                      </a>
+                    <Button variant="outline" className="w-full bg-transparent" onClick={() => void handleOpenDrawing()}>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Открыть в новой вкладке
                     </Button>
                     {permissions.canEditFacts && (
                       <AlertDialog>

@@ -6,12 +6,42 @@
  */
 
 import * as httpProvider from "./http-data-provider"
-import { getApiBaseUrl, isApiConfigured } from "./env"
+import { getApiBaseUrl } from "./env"
 
 type LocalProvider = typeof import("./data-provider")
 
 const API_BASE_URL = getApiBaseUrl()
-const USE_API = isApiConfigured()
+
+const NODE_ENV =
+  (typeof process !== "undefined" && process.env ? process.env.NODE_ENV : "") || "development"
+const IS_PROD = NODE_ENV === "production"
+
+const DEMO_MODE =
+  (
+    (typeof process !== "undefined" && process.env
+      ? (process.env.NEXT_PUBLIC_DEMO_MODE || process.env.DEMO_MODE || "")
+      : "") || ""
+  )
+    .toLowerCase()
+    .trim() === "true"
+
+const HAS_API = API_BASE_URL.length > 0
+
+// Fail closed: never silently fall back to demo auth in production (or dev unless explicitly enabled).
+if (!HAS_API) {
+  if (IS_PROD) {
+    throw new Error(
+      "NEXT_PUBLIC_API_BASE_URL is required in production. Refusing to start without API authentication."
+    )
+  }
+  if (!DEMO_MODE) {
+    throw new Error(
+      "NEXT_PUBLIC_API_BASE_URL is not set. To run in demo mode, explicitly set NEXT_PUBLIC_DEMO_MODE=true."
+    )
+  }
+}
+
+const USE_API = HAS_API
 
 let _local: LocalProvider | null = null
 function local(): LocalProvider {
@@ -25,7 +55,7 @@ if (typeof window !== "undefined") {
   console.log(
     USE_API
       ? `🌐 Using HTTP API: ${API_BASE_URL}`
-      : "💾 Using localStorage (no API base URL configured)"
+      : "⚠️ DEMO MODE ENABLED (localStorage). NO real authentication. DO NOT use in production."
   )
 }
 
@@ -460,6 +490,7 @@ export function getStageCompletion(partId: string) {
 
 export const login = USE_API ? httpProvider.login : undefined
 export const logout = USE_API ? httpProvider.logout : undefined
-export const loadCurrentUserFromToken = USE_API ? httpProvider.loadCurrentUserFromToken : undefined
+export const restoreSession = USE_API ? httpProvider.restoreSession : undefined
 
 export const isUsingApi = () => USE_API
+export const isDemoMode = () => !USE_API

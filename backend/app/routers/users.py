@@ -5,14 +5,14 @@ from uuid import UUID
 from ..database import get_db
 from ..models import User
 from ..schemas import UserResponse
-from ..auth import get_current_user
+from ..auth import PermissionChecker
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("", response_model=list[UserResponse])
 def get_users(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(PermissionChecker("canManageUsers")),
     db: Session = Depends(get_db)
 ):
     """Get all users."""
@@ -22,7 +22,7 @@ def get_users(
 
 @router.get("/operators", response_model=list[UserResponse])
 def get_operators(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(PermissionChecker("canManageUsers")),
     db: Session = Depends(get_db)
 ):
     """Get all operators."""
@@ -36,7 +36,7 @@ def get_operators(
 @router.get("/by-role/{role}", response_model=list[UserResponse])
 def get_users_by_role(
     role: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(PermissionChecker("canManageUsers")),
     db: Session = Depends(get_db)
 ):
     """Get users by role."""
@@ -50,7 +50,7 @@ def get_users_by_role(
 @router.get("/{user_id}", response_model=UserResponse)
 def get_user(
     user_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(PermissionChecker("canManageUsers")),
     db: Session = Depends(get_db)
 ):
     """Get user by ID."""

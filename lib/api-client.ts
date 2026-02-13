@@ -19,6 +19,14 @@ export interface ApiError {
   details?: any
 }
 
+export interface TokenResponse {
+  access_token: string
+  refresh_token?: string | null
+  expires_in: number
+  user: any
+  must_change_password?: boolean
+}
+
 export class ApiClientError extends Error {
   constructor(
     public statusCode: number,
@@ -80,28 +88,66 @@ function normalizeApiError(statusCode: number, payload: any, fallbackMessage: st
 class ApiClient {
   private baseUrl: string
   private accessToken: string | null = null
+  private refreshInFlight: Promise<boolean> | null = null
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl
-    // Load token from localStorage
-    if (typeof window !== "undefined") {
-      this.accessToken = localStorage.getItem("access_token")
-    }
   }
 
   setAccessToken(token: string | null) {
     this.accessToken = token
-    if (typeof window !== "undefined") {
-      if (token) {
-        localStorage.setItem("access_token", token)
-      } else {
-        localStorage.removeItem("access_token")
-      }
-    }
   }
 
   getAccessToken(): string | null {
     return this.accessToken
+  }
+
+  private shouldAttemptRefresh(endpoint: string): boolean {
+    // Never refresh while calling auth endpoints, to avoid recursion loops.
+    return endpoint !== "/auth/login" && endpoint !== "/auth/refresh"
+  }
+
+  private async withCrossTabRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Prefer Web Locks API for cross-tab synchronization (prevents refresh-token reuse across tabs).
+    const locks = typeof navigator !== "undefined" ? (navigator as any).locks : null
+    if (locks && typeof locks.request === "function") {
+      return await locks.request("pc.auth.refresh", { mode: "exclusive" }, fn)
+    }
+    return await fn()
+  }
+
+  async refresh(): Promise<boolean> {
+    // Single-flight within this tab.
+    if (this.refreshInFlight) return await this.refreshInFlight
+
+    this.refreshInFlight = this.withCrossTabRefreshLock(async () => {
+      try {
+        const refreshUrl = `${this.baseUrl}/auth/refresh`
+        const refreshResponse = await fetch(refreshUrl, {
+          method: "POST",
+          credentials: "include",
+        })
+
+        if (!refreshResponse.ok) {
+          // Refresh failed; clear access token to avoid infinite retry.
+          this.setAccessToken(null)
+          return false
+        }
+
+        const refreshed = (await refreshResponse.json()) as TokenResponse
+        if (refreshed?.access_token) this.setAccessToken(refreshed.access_token)
+        return Boolean(refreshed?.access_token)
+      } catch {
+        this.setAccessToken(null)
+        return false
+      }
+    })
+
+    try {
+      return await this.refreshInFlight
+    } finally {
+      this.refreshInFlight = null
+    }
   }
 
   private async request<T>(
@@ -134,10 +180,31 @@ class ApiClient {
     }
 
     try {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      })
+      const doFetch = () =>
+        fetch(url, {
+          ...options,
+          headers,
+          credentials: "include",
+        })
+
+      let response = await doFetch()
+
+      // If access token expired, attempt refresh once and retry the original request.
+      if (
+        response.status === 401 &&
+        this.shouldAttemptRefresh(endpoint) &&
+        true
+      ) {
+        const refreshed = await this.refresh()
+        if (refreshed) {
+          if (this.accessToken) {
+            headers["Authorization"] = `Bearer ${this.accessToken}`
+          } else {
+            delete headers["Authorization"]
+          }
+          response = await doFetch()
+        }
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => null)
@@ -166,18 +233,107 @@ class ApiClient {
     }
   }
 
+  private apiOrigin(): string | null {
+    if (this.baseUrl.startsWith("http://") || this.baseUrl.startsWith("https://")) {
+      try {
+        return new URL(this.baseUrl).origin
+      } catch {
+        return null
+      }
+    }
+    return null
+  }
+
+  private normalizeAttachmentUrl(rawUrl: string): string {
+    if (!rawUrl) return rawUrl
+    if (rawUrl.startsWith("data:") || rawUrl.startsWith("blob:")) return rawUrl
+
+    // Rewrite legacy /uploads/* to the authenticated endpoint.
+    const rewriteUploadsPath = (pathname: string): string | null => {
+      if (!pathname.startsWith("/uploads/")) return null
+      const filename = pathname.split("/").pop()
+      if (!filename) return null
+      return `/api/v1/attachments/serve/${filename}`
+    }
+
+    if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
+      try {
+        const u = new URL(rawUrl)
+        const rewritten = rewriteUploadsPath(u.pathname)
+        if (rewritten) {
+          u.pathname = rewritten
+          u.search = ""
+          u.hash = ""
+          return u.toString()
+        }
+      } catch {
+        return rawUrl
+      }
+      return rawUrl
+    }
+
+    if (rawUrl.startsWith("/uploads/")) {
+      const rewritten = rewriteUploadsPath(rawUrl)
+      return rewritten || rawUrl
+    }
+
+    return rawUrl
+  }
+
+  private resolveResourceUrl(rawUrl: string): string {
+    const normalized = this.normalizeAttachmentUrl(rawUrl)
+    if (!normalized) return normalized
+    if (normalized.startsWith("http://") || normalized.startsWith("https://")) return normalized
+    if (!normalized.startsWith("/")) return normalized
+    const origin = this.apiOrigin()
+    return origin ? `${origin}${normalized}` : normalized
+  }
+
+  async fetchBlob(rawUrl: string): Promise<Blob> {
+    const url = this.resolveResourceUrl(rawUrl)
+    if (!url) throw new ApiClientError(0, { code: "INVALID_URL", message: "Invalid attachment URL" })
+
+    const headers: Record<string, string> = {}
+    if (this.accessToken) headers["Authorization"] = `Bearer ${this.accessToken}`
+
+    const doFetch = () =>
+      fetch(url, {
+        method: "GET",
+        headers,
+        credentials: "include",
+      })
+
+    let response = await doFetch()
+
+    if (response.status === 401) {
+      const refreshed = await this.refresh()
+      if (refreshed && this.accessToken) {
+        headers["Authorization"] = `Bearer ${this.accessToken}`
+        response = await doFetch()
+      }
+    }
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "")
+      throw new ApiClientError(response.status, {
+        code: `HTTP_${response.status}`,
+        message: text || response.statusText || "Failed to fetch attachment",
+        details: { url },
+      })
+    }
+
+    return await response.blob()
+  }
+
   // Auth
-  async login(username: string, password: string) {
-    const response = await this.request<any>("/auth/login", {
+  async login(username: string, password: string): Promise<TokenResponse> {
+    const response = await this.request<TokenResponse>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     })
     
-    // Save tokens
+    // Save access token in-memory only (no localStorage/sessionStorage).
     this.setAccessToken(response.access_token)
-    if (response.refresh_token) {
-      localStorage.setItem("refresh_token", response.refresh_token)
-    }
     
     return response
   }
@@ -187,7 +343,6 @@ class ApiClient {
       await this.request("/auth/logout", { method: "POST" })
     } finally {
       this.setAccessToken(null)
-      localStorage.removeItem("refresh_token")
     }
   }
 
@@ -195,28 +350,35 @@ class ApiClient {
     return this.request<any>("/auth/me")
   }
 
-  async changePassword(oldPassword: string, newPassword: string) {
-    return this.request<any>("/auth/change-password", {
+  async changePassword(oldPassword: string, newPassword: string): Promise<TokenResponse> {
+    const response = await this.request<TokenResponse>("/auth/change-password", {
       method: "POST",
       body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
     })
+    // Password change revokes old tokens; save the new tokens from response.
+    this.setAccessToken(response.access_token)
+    return response
   }
 
   // Users
   async getUsers() {
-    return this.request<any>("/users")
+    return this.request<any>("/directory/users")
   }
 
   async getUserById(id: string) {
-    return this.request<any>(`/users/${id}`)
+    return this.request<any>(`/directory/users/${id}`)
   }
 
   async getOperators() {
-    return this.request<any>("/users/operators")
+    const users = await this.request<any>("/directory/users")
+    const list = users.data || users
+    return Array.isArray(list) ? list.filter((u: any) => u?.role === "operator") : []
   }
 
   async getUsersByRole(role: string) {
-    return this.request<any>(`/users/by-role/${role}`)
+    const users = await this.request<any>("/directory/users")
+    const list = users.data || users
+    return Array.isArray(list) ? list.filter((u: any) => u?.role === role) : []
   }
 
   // Machines
@@ -282,6 +444,7 @@ class ApiClient {
         method: "POST",
         headers,
         body: formData,
+        credentials: "include",
       })
 
       if (!response.ok) {

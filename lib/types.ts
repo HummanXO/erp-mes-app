@@ -403,6 +403,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
   canManageUsers: boolean
   canDeleteData: boolean
   canViewReports: boolean
+  canViewAudit: boolean
   canCreateParts: boolean // Может создавать детали
   canCreateOwnParts: boolean // Может создавать цеховые детали
   canCreateCoopParts: boolean // Может создавать кооперационные детали
@@ -423,6 +424,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: true,
     canDeleteData: true,
     canViewReports: true,
+    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
@@ -443,6 +445,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: true,
+    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
@@ -463,6 +466,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: true,
+    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
@@ -483,6 +487,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: true,
+    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
@@ -503,6 +508,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: true,
+    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: false, // Снабжение НЕ может создавать цеховые детали
     canCreateCoopParts: true, // Снабжение может создавать только кооперацию
@@ -523,6 +529,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: true,
+    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true, // Мастер может создавать только цеховые детали
     canCreateCoopParts: false, // Мастер НЕ может создавать кооперацию
@@ -543,6 +550,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canManageUsers: false,
     canDeleteData: false,
     canViewReports: false,
+    canViewAudit: false,
     canCreateParts: false, // Оператор НЕ может создавать детали
     canCreateOwnParts: false,
     canCreateCoopParts: false,
