@@ -475,7 +475,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewInventory: true,
     canManageInventory: false,
     canViewSpecifications: true,
-    canManageSpecifications: true,
+    // Главный инженер может видеть спецификации (включая черновики), но не должен создавать/редактировать/публиковать.
+    canManageSpecifications: false,
     canManageWorkOrders: true,
   },
   shop_head: {
@@ -517,7 +518,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, {
     canViewInventory: true,
     canManageInventory: true,
     canViewSpecifications: true,
-    canManageSpecifications: true,
+    // Снабжение может видеть спецификации (включая черновики), но не должно создавать/редактировать/публиковать.
+    canManageSpecifications: false,
     canManageWorkOrders: false,
   },
   master: {
