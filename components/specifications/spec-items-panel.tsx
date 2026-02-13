@@ -68,8 +68,8 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
 
   let filteredParts = [...visibleParts]
 
-  if (searchQuery) {
-    const query = searchQuery.toLowerCase()
+  const query = searchQuery.trim().toLowerCase()
+  if (query) {
     filteredParts = filteredParts.filter((part) =>
       part.code.toLowerCase().includes(query)
       || part.name.toLowerCase().includes(query)
