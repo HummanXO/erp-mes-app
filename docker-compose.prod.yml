@@ -44,8 +44,10 @@ services:
       JWT_SECRET_KEY: [REDACTED]
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
       AUTH_REFRESH_COOKIE_SECURE: ${AUTH_REFRESH_COOKIE_SECURE:-true}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+      # Default to the production frontend origin to prevent accidental outage when ENV vars are missing.
+      # Override via server .env if you deploy under a different domain.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://docalliance.info}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://docalliance.info}
       TELEGRAM_BOT_TOKEN: [REDACTED]
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       TELEGRAM_WEBHOOK_SECRET: [REDACTED]
