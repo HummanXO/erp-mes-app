@@ -293,6 +293,7 @@ ROLE_PERMISSIONS = {
         "canManageLogistics": True,
         "canViewSpecifications": True,
         "canManageSpecifications": True,
+        "canGrantSpecificationAccess": True,
     },
     "director": {
         "canViewAll": True,
@@ -309,6 +310,7 @@ ROLE_PERMISSIONS = {
         "canManageLogistics": True,
         "canViewSpecifications": True,
         "canManageSpecifications": True,
+        "canGrantSpecificationAccess": True,
     },
     "chief_engineer": {
         "canViewAll": True,
@@ -326,6 +328,7 @@ ROLE_PERMISSIONS = {
         "canViewSpecifications": True,
         # Chief engineer can view specs (including drafts), but must not create/edit/publish to operators.
         "canManageSpecifications": False,
+        "canGrantSpecificationAccess": False,
     },
     "shop_head": {
         "canViewAll": True,
@@ -342,6 +345,7 @@ ROLE_PERMISSIONS = {
         "canManageLogistics": True,
         "canViewSpecifications": True,
         "canManageSpecifications": True,
+        "canGrantSpecificationAccess": True,
     },
     "supply": {
         "canViewAll": True,
@@ -359,6 +363,7 @@ ROLE_PERMISSIONS = {
         "canViewSpecifications": True,
         # Supply can view specs (including drafts), but must not create/edit/publish to operators.
         "canManageSpecifications": False,
+        "canGrantSpecificationAccess": False,
     },
     "master": {
         "canViewAll": True,
@@ -374,7 +379,9 @@ ROLE_PERMISSIONS = {
         "canEditParts": True,
         "canManageLogistics": False,
         "canViewSpecifications": True,
-        "canManageSpecifications": True,
+        # Master must not create/edit/publish specifications, but can grant operators access to linked parts via spec access.
+        "canManageSpecifications": False,
+        "canGrantSpecificationAccess": True,
     },
     "operator": {
         "canViewAll": False,
@@ -391,6 +398,7 @@ ROLE_PERMISSIONS = {
         "canManageLogistics": False,
         "canViewSpecifications": True,
         "canManageSpecifications": False,
+        "canGrantSpecificationAccess": False,
     },
 }
 

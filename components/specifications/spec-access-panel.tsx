@@ -33,7 +33,7 @@ interface SpecAccessPanelProps {
   grants: AccessGrant[]
   operators: User[]
   getUserName: (userId: string) => string
-  canManageSpecifications: boolean
+  canGrantSpecificationAccess: boolean
   onGrant: (userId: string, permission: AccessPermission) => void
   onRevoke: (grantId: string) => void
   actionBusy?: boolean
@@ -49,7 +49,7 @@ export function SpecAccessPanel({
   grants,
   operators,
   getUserName,
-  canManageSpecifications,
+  canGrantSpecificationAccess,
   onGrant,
   onRevoke,
   actionBusy,
@@ -61,7 +61,7 @@ export function SpecAccessPanel({
   const hasOperators = operators.length > 0
 
   const openGrantModal = () => {
-    if (!canManageSpecifications || !hasOperators) return
+    if (!canGrantSpecificationAccess || !hasOperators) return
     setGrantModalOpen(true)
   }
 
@@ -78,7 +78,7 @@ export function SpecAccessPanel({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
           <CardTitle className="text-sm">Доступ операторов</CardTitle>
-          {canManageSpecifications && (
+          {canGrantSpecificationAccess && (
             <Button
               variant="outline"
               className="h-11"
@@ -92,7 +92,7 @@ export function SpecAccessPanel({
           )}
         </CardHeader>
         <CardContent className="space-y-3">
-          {!hasOperators && canManageSpecifications && (
+          {!hasOperators && canGrantSpecificationAccess && (
             <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
               Нет пользователей с ролью «Оператор». Создайте оператора, затем выдайте доступ.
             </div>
@@ -102,17 +102,17 @@ export function SpecAccessPanel({
             <EmptyStateCard
               title="Доступы пока не выданы"
               description={
-                canManageSpecifications
+                canGrantSpecificationAccess
                   ? "Выдайте доступ точечно, чтобы оператор видел только эту спецификацию и её позиции."
                   : "Доступ к этой спецификации пока никому не выдан."
               }
-              actionLabel={canManageSpecifications ? "Выдать доступ" : "Понятно"}
+              actionLabel={canGrantSpecificationAccess ? "Выдать доступ" : "Понятно"}
               onAction={() => {
-                if (!canManageSpecifications) return
+                if (!canGrantSpecificationAccess) return
                 openGrantModal()
               }}
               helpLabel="Как это работает"
-              disabled={!canManageSpecifications || !hasOperators}
+              disabled={!canGrantSpecificationAccess || !hasOperators}
             />
           ) : (
             <div className="space-y-2">
@@ -124,7 +124,7 @@ export function SpecAccessPanel({
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge tone={PERMISSION_TONES[grant.permission]}>{PERMISSION_LABELS[grant.permission]}</StatusBadge>
-                    {canManageSpecifications && (
+                    {canGrantSpecificationAccess && (
                       <Button
                         variant="outline"
                         size="sm"
