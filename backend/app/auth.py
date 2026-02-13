@@ -324,7 +324,8 @@ ROLE_PERMISSIONS = {
         "canEditParts": True,
         "canManageLogistics": False,
         "canViewSpecifications": True,
-        "canManageSpecifications": True,
+        # Chief engineer can view specs (including drafts), but must not create/edit/publish to operators.
+        "canManageSpecifications": False,
     },
     "shop_head": {
         "canViewAll": True,
@@ -356,7 +357,8 @@ ROLE_PERMISSIONS = {
         "canEditParts": True,
         "canManageLogistics": True,
         "canViewSpecifications": True,
-        "canManageSpecifications": True,
+        # Supply can view specs (including drafts), but must not create/edit/publish to operators.
+        "canManageSpecifications": False,
     },
     "master": {
         "canViewAll": True,
