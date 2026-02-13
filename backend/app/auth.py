@@ -2,6 +2,9 @@
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
+import secrets
+import time
+from uuid import UUID
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -17,6 +20,38 @@ logger = logging.getLogger(__name__)
 
 # Bearer token scheme
 security = HTTPBearer()
+
+
+TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+
+
+def generate_temporary_password(length: int | None = None) -> str:
+    """Generate a cryptographically strong temporary password (returned only once)."""
+    size = length or settings.TEMP_PASSWORD_LENGTH
+    if size < 16:
+        # Enforce a safe minimum regardless of env misconfiguration.
+        size = 16
+    return "".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(size))
+
+
+def validate_new_password(*, new_password: str, username: str | None = None) -> None:
+    """Server-side password policy validation."""
+    if new_password is None:
+        raise HTTPException(status_code=400, detail="New password is required")
+
+    pwd = new_password.strip("\n")
+    if len(pwd) < settings.PASSWORD_MIN_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must be at least {settings.PASSWORD_MIN_LENGTH} characters",
+        )
+    if len(pwd) > settings.PASSWORD_MAX_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Password must be at most {settings.PASSWORD_MAX_LENGTH} characters",
+        )
+    if username and pwd.lower() == username.lower():
+        raise HTTPException(status_code=400, detail="Password must not match username")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -41,11 +76,12 @@ hash_password = get_password_hash
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token."""
     to_encode = data.copy()
+    now = int(time.time())
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        exp = now + int(expires_delta.total_seconds())
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire, "type": "access"})
+        exp = now + int(settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES) * 60
+    to_encode.update({"exp": exp, "iat": now, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
@@ -53,8 +89,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """Create JWT refresh token."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "type": "refresh"})
+    now = int(time.time())
+    exp = now + int(settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS) * 86400
+    to_encode.update({"exp": exp, "iat": now, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
@@ -62,12 +99,101 @@ def create_refresh_token(data: dict) -> str:
 def decode_token(token: str) -> dict:
     """Decode JWT token."""
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        payload = jwt.decode(
+            token,
+            settings.JWT_SECRET_KEY,
+            algorithms=[settings.JWT_ALGORITHM],
+            options={"verify_exp": False},
+        )
+        now = int(time.time())
+        exp = payload.get("exp")
+        if exp is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            exp_int = int(exp)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if now > exp_int + int(settings.JWT_LEEWAY_SECONDS):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        iat = payload.get("iat")
+        if iat is not None:
+            try:
+                iat_int = int(iat)
+                # Reject tokens issued far in the future (clock skew / malicious tokens).
+                if iat_int > now + int(settings.JWT_LEEWAY_SECONDS):
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Could not validate credentials",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Could not validate credentials",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
         return payload
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def _parse_token_subject(payload: dict) -> UUID:
+    """Parse and validate JWT subject as UUID."""
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        return UUID(str(sub))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def _get_token_version(payload: dict) -> int:
+    """Return token version from JWT payload (legacy tokens default to 0)."""
+    ver = payload.get("ver", 0)
+    try:
+        return int(ver)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def _assert_token_not_revoked(user: User, payload: dict) -> None:
+    token_ver = _get_token_version(payload)
+    if user.token_version != token_ver:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been revoked",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -86,19 +212,15 @@ def get_current_user(
             detail="Invalid token type"
         )
     
-    user_id: str = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials"
-        )
-    
+    user_id = _parse_token_subject(payload)
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive"
         )
+
+    _assert_token_not_revoked(user, payload)
     
     if user.must_change_password:
         raise HTTPException(
@@ -123,19 +245,15 @@ def get_current_user_allow_password_change(
             detail="Invalid token type"
         )
     
-    user_id: str = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials"
-        )
-    
+    user_id = _parse_token_subject(payload)
     user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive"
         )
+
+    _assert_token_not_revoked(user, payload)
     
     return user
 
@@ -169,6 +287,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": True,
         "canDeleteData": True,
         "canViewReports": True,
+        "canViewAudit": True,
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
@@ -184,6 +303,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": True,
+        "canViewAudit": True,
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
@@ -199,6 +319,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": True,
+        "canViewAudit": True,
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": False,
@@ -214,6 +335,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": True,
+        "canViewAudit": True,
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
@@ -229,6 +351,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": True,
+        "canViewAudit": True,
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": True,
@@ -244,6 +367,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": True,
+        "canViewAudit": True,
         "canCreateParts": True,
         "canEditParts": True,
         "canManageLogistics": False,
@@ -259,6 +383,7 @@ ROLE_PERMISSIONS = {
         "canManageUsers": False,
         "canDeleteData": False,
         "canViewReports": False,
+        "canViewAudit": False,
         "canCreateParts": False,
         "canEditParts": False,
         "canManageLogistics": False,

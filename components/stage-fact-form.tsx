@@ -80,6 +80,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
     createStageFact, 
     updateStageFact,
     deleteStageFact,
+    uploadAttachment,
     currentUser, 
     permissions,
     demoDate, 
@@ -126,6 +127,8 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const [deviationReason, setDeviationReason] = useState<DeviationReason>(null)
   const [attachments, setAttachments] = useState<TaskAttachment[]>([])
   const [submitError, setSubmitError] = useState("")
+  const [attachmentError, setAttachmentError] = useState("")
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
   const [savedHint, setSavedHint] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeletingFact, setIsDeletingFact] = useState(false)
@@ -881,19 +884,27 @@ export function StageFactForm({ part }: StageFactFormProps) {
             id={attachmentId}
             type="file"
             ref={fileInputRef}
-            onChange={(e) => {
+            onChange={async (e) => {
               const files = e.target.files
               if (!files) return
-              Array.from(files).forEach(file => {
-                const mockUrl = URL.createObjectURL(file)
-                const isImage = file.type.startsWith("image/")
-                setAttachments(prev => [...prev, {
-                  id: `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  name: file.name,
-                  url: mockUrl,
-                  type: isImage ? "image" : "file"
-                }])
-              })
+              setAttachmentError("")
+              setIsUploadingAttachment(true)
+              try {
+                for (const file of Array.from(files)) {
+                  const uploaded = await uploadAttachment(file)
+                  setAttachments((prev) => [...prev, uploaded])
+                }
+              } catch (err) {
+                const message =
+                  err instanceof ApiClientError
+                    ? toRussianFactError(err.error?.message || "")
+                    : err instanceof Error
+                    ? toRussianFactError(err.message)
+                    : "Не удалось загрузить файл"
+                setAttachmentError(message)
+              } finally {
+                setIsUploadingAttachment(false)
+              }
               if (fileInputRef.current) {
                 fileInputRef.current.value = ""
               }
@@ -907,10 +918,14 @@ export function StageFactForm({ part }: StageFactFormProps) {
             variant="outline" 
             className="w-full bg-transparent" 
             onClick={() => fileInputRef.current?.click()}
+            disabled={isUploadingAttachment}
           >
             <Paperclip className="h-4 w-4 mr-2" />
-            Прикрепить фото
+            {isUploadingAttachment ? "Загружаем..." : "Прикрепить фото"}
           </Button>
+          {attachmentError && (
+            <p className="text-xs text-destructive">{attachmentError}</p>
+          )}
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 p-2 bg-muted rounded-lg">
               {attachments.map(att => (

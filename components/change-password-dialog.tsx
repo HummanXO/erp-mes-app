@@ -15,6 +15,9 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { AlertCircle, Loader2 } from "lucide-react"
 
+const PASSWORD_MIN_LENGTH = 12
+const PASSWORD_MAX_LENGTH = 256
+
 interface ChangePasswordDialogProps {
   open: boolean
   onPasswordChanged: () => void
@@ -42,8 +45,13 @@ export function ChangePasswordDialog({
       return
     }
 
-    if (newPassword.length < 6) {
-      setError("Новый пароль должен быть не менее 6 символов")
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
+      setError(`Новый пароль должен быть не менее ${PASSWORD_MIN_LENGTH} символов`)
+      return
+    }
+
+    if (newPassword.length > PASSWORD_MAX_LENGTH) {
+      setError(`Новый пароль должен быть не более ${PASSWORD_MAX_LENGTH} символов`)
       return
     }
 
@@ -108,7 +116,7 @@ export function ChangePasswordDialog({
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Минимум 6 символов"
+                placeholder={`Минимум ${PASSWORD_MIN_LENGTH} символов`}
                 disabled={loading}
               />
             </div>

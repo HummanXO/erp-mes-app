@@ -24,7 +24,7 @@ import type {
   SpecItemStatus,
 } from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
-import { apiClient, ApiClientError } from "./api-client"
+import { apiClient, ApiClientError, type TokenResponse } from "./api-client"
 import { getApiBaseUrl, isApiConfigured as isApiConfiguredEnv } from "./env"
 
 // Helper to check if user is authenticated
@@ -42,7 +42,7 @@ function transformPart(backendPart: any): Part {
     qty_done: backendPart.qty_ready || backendPart.qty_done, // Use qty_ready (alias)
     deadline: backendPart.deadline,
     status: backendPart.status,
-    drawing_url: backendPart.drawing_url,
+    drawing_url: backendPart.drawing_url ? resolveUploadUrl(String(backendPart.drawing_url)) : undefined,
     description: backendPart.description,
     is_cooperation: backendPart.is_cooperation,
     cooperation_partner: backendPart.cooperation_partner,
@@ -59,7 +59,10 @@ function transformComment(backendComment: any, taskId?: string): TaskComment {
     task_id: taskId ?? backendComment.task_id,
     user_id: backendComment.user?.id,
     message: backendComment.message,
-    attachments: backendComment.attachments || [],
+    attachments: (backendComment.attachments || []).map((a: any) => ({
+      ...a,
+      url: resolveUploadUrl(String(a?.url || "")),
+    })),
     created_at: backendComment.created_at,
   }
 }
@@ -111,7 +114,10 @@ function transformStageFact(
     comment: backendFact.comment || "",
     deviation_reason: backendFact.deviation_reason,
     created_at: backendFact.created_at,
-    attachments: backendFact.attachments || [],
+    attachments: (backendFact.attachments || []).map((a: any) => ({
+      ...a,
+      url: resolveUploadUrl(String(a?.url || "")),
+    })),
   }
 }
 
@@ -180,7 +186,7 @@ function resolveUploadUrl(url: string): string {
       return `${apiBase.replace(/\/$/, "")}/attachments/serve/${filename}`
     }
     try {
-      return new URL(`/attachments/serve/${filename}`, apiBase).toString()
+      return new URL(`${apiBase.replace(/\/$/, "")}/attachments/serve/${filename}`).toString()
     } catch {
       return url
     }
@@ -215,7 +221,8 @@ export async function getUserById(id: string): Promise<User | undefined> {
 
 export async function getOperators(): Promise<User[]> {
   const response = await apiClient.getOperators()
-  return response.data || response
+  const data = (response as any)?.data ?? response
+  return Array.isArray(data) ? (data as User[]) : []
 }
 
 // Get current user synchronously (checks if token exists)
@@ -451,14 +458,15 @@ export async function addTaskComment(
 }
 
 // Try to restore current user from existing access token (for session persistence)
-export async function loadCurrentUserFromToken(): Promise<User | null> {
-  if (!apiClient.getAccessToken()) return null
+export async function restoreSession(): Promise<User | null> {
+  // Access token is memory-only; restore by refreshing via HttpOnly cookie.
+  const refreshed = await apiClient.refresh()
+  if (!refreshed) return null
   try {
     const me = await apiClient.getMe()
     return me as User
   } catch (error) {
     if (error instanceof ApiClientError && (error.statusCode === 401 || error.statusCode === 403)) {
-      // Token invalid – clear it
       apiClient.setAccessToken(null)
       return null
     }
@@ -498,9 +506,8 @@ export function getDemoDate(): string {
 }
 
 // Login helper
-export async function login(username: string, password: string): Promise<User> {
-  const response = await apiClient.login(username, password)
-  return response.user
+export async function login(username: string, password: string): Promise<TokenResponse> {
+  return apiClient.login(username, password)
 }
 
 // Logout helper
