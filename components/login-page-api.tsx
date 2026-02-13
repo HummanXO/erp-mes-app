@@ -39,10 +39,15 @@ export function LoginPageApi() {
       await loginWithCredentials(username, password)
     } catch (err) {
       if (err instanceof ApiClientError) {
-        if (err.statusCode === 401 || err.statusCode === 403) {
+        const msg = String(err.error?.message || "")
+        if (err.statusCode === 403 && /csrf|origin/i.test(msg)) {
+          setError(
+            "Сервер отклонил запрос из-за CSRF/Origin allowlist. Проверьте ALLOWED_ORIGINS/CSRF_TRUSTED_ORIGINS на бэкенде."
+          )
+        } else if (err.statusCode === 401) {
           setError("Неверный логин или пароль")
         } else {
-          setError(err.error?.message || "Ошибка авторизации")
+          setError(msg || "Ошибка авторизации")
         }
       } else {
         setError(err instanceof Error ? err.message : "Ошибка авторизации")
