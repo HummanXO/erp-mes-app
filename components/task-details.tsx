@@ -4,8 +4,9 @@ import React from "react"
 
 import { useState, useRef, useEffect } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Task, TaskStatus } from "@/lib/types"
+import type { Task, TaskStatus, TaskAttachment } from "@/lib/types"
 import { TASK_STATUS_LABELS, TASK_CATEGORY_LABELS, STAGE_LABELS, ROLE_LABELS, ASSIGNEE_ROLE_GROUPS } from "@/lib/types"
+import { apiClient, ApiClientError } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -63,14 +64,17 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
     startTask,
     getPartById,
     demoDate,
-    isTaskAssignedToUser
+    isTaskAssignedToUser,
+    uploadAttachment,
   } = useApp()
   
   const [newMessage, setNewMessage] = useState("")
   const [showReviewDialog, setShowReviewDialog] = useState(false)
   const [reviewComment, setReviewComment] = useState("")
   const [isApproving, setIsApproving] = useState(false)
-  const [pendingAttachments, setPendingAttachments] = useState<Array<{id: string, name: string, url: string, type: "image" | "file"}>>([])
+  const [pendingAttachments, setPendingAttachments] = useState<TaskAttachment[]>([])
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false)
+  const [attachmentError, setAttachmentError] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
@@ -108,22 +112,29 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
     return "Не назначено"
   }
   
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
-    
-    // Mock file upload - in production, upload to storage and get URL
-    Array.from(files).forEach(file => {
-      const mockUrl = URL.createObjectURL(file)
-      const isImage = file.type.startsWith("image/")
-      setPendingAttachments(prev => [...prev, {
-        id: `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        name: file.name,
-        url: mockUrl,
-        type: isImage ? "image" : "file"
-      }])
-    })
-    
+
+    setAttachmentError("")
+    setIsUploadingAttachments(true)
+    try {
+      for (const file of Array.from(files)) {
+        const uploaded = await uploadAttachment(file)
+        setPendingAttachments((prev) => [...prev, uploaded])
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiClientError
+          ? err.error?.message || "Не удалось загрузить файл"
+          : err instanceof Error
+          ? err.message
+          : "Не удалось загрузить файл"
+      setAttachmentError(message)
+    } finally {
+      setIsUploadingAttachments(false)
+    }
+
     // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
@@ -132,6 +143,46 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
   
   const removePendingAttachment = (id: string) => {
     setPendingAttachments(prev => prev.filter(a => a.id !== id))
+  }
+
+  const openAttachment = async (att: { url: string; name: string }) => {
+    if (!att?.url) return
+
+    // Demo mode attachments are data URLs; external URLs should open directly.
+    if (att.url.startsWith("data:") || att.url.startsWith("blob:")) {
+      window.open(att.url, "_blank", "noopener,noreferrer")
+      return
+    }
+    if (att.url.startsWith("http://") || att.url.startsWith("https://")) {
+      try {
+        const u = new URL(att.url)
+        const isProtected = u.pathname.startsWith("/api/v1/attachments/serve/") || u.pathname.startsWith("/uploads/")
+        if (!isProtected) {
+          window.open(att.url, "_blank", "noopener,noreferrer")
+          return
+        }
+      } catch {
+        window.open(att.url, "_blank", "noopener,noreferrer")
+        return
+      }
+    }
+
+    try {
+      const blob = await apiClient.fetchBlob(att.url)
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = blobUrl
+      a.download = att.name || "attachment"
+      a.target = "_blank"
+      a.rel = "noopener noreferrer"
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
+    } catch (err) {
+      console.error("Failed to open attachment", err)
+      setAttachmentError("Не удалось открыть вложение")
+    }
   }
   
   const handleSendMessage = () => {
@@ -393,16 +444,15 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
                       {comment.attachments && comment.attachments.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           {comment.attachments.map(att => (
-                            <a 
-                              key={att.id}
-                              href={att.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <button
+                              key={att.id || att.url}
+                              type="button"
+                              onClick={() => void openAttachment({ url: att.url, name: att.name })}
                               className="flex items-center gap-1 text-xs underline"
                             >
                               <FileImage className="h-3 w-3" />
                               {att.name}
-                            </a>
+                            </button>
                           ))}
                         </div>
                       )}
@@ -436,6 +486,9 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
               ))}
             </div>
           )}
+          {attachmentError && (
+            <p className="text-xs text-destructive">{attachmentError}</p>
+          )}
           
           <div className="flex gap-2">
             <input
@@ -453,6 +506,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
               onClick={() => fileInputRef.current?.click()}
               className="bg-transparent shrink-0 h-11 w-11"
               title="Прикрепить файл"
+              disabled={isUploadingAttachments}
             >
               <Paperclip className="h-4 w-4" />
             </Button>
@@ -468,7 +522,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
               aria-label="Отправить сообщение"
               className="h-11 w-11"
               onClick={handleSendMessage} 
-              disabled={!newMessage.trim() && pendingAttachments.length === 0}
+              disabled={isUploadingAttachments || (!newMessage.trim() && pendingAttachments.length === 0)}
             >
               <Send className="h-4 w-4" />
             </Button>

@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import PermissionChecker
 from ..database import get_db
 from ..models import AuditEvent, User
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/audit-events", tags=["audit"])
 def get_audit_events(
     part_id: Optional[UUID] = None,
     limit: int = Query(200, ge=1, le=1000),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(PermissionChecker("canViewAudit")),
     db: Session = Depends(get_db),
 ):
     """Get recent audit events for organization (optionally scoped to part)."""

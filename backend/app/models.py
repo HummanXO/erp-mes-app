@@ -36,13 +36,17 @@ class User(Base):
     org_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id"), index=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
+    # When the password was last changed (user-initiated change or admin reset).
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
+    # Monotonically increasing version used to revoke previously issued tokens.
+    token_version = Column(Integer, nullable=False, default=0)
     name = Column(String(255), nullable=False)
     initials = Column(String(50), nullable=False)
     role = Column(String(50), nullable=False, index=True)
     telegram_chat_id = Column(String(50), nullable=True)  # Can be NULL if unlinked/blocked
     email = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
-    must_change_password = Column(Boolean, default=False)  # Force password change on first login
+    must_change_password = Column(Boolean, default=False, nullable=False)  # Force password change on first login
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -57,6 +61,32 @@ class User(Base):
     organization = relationship("Organization", back_populates="users")
     created_tasks = relationship("Task", foreign_keys="Task.creator_id", back_populates="creator")
     accepted_tasks = relationship("Task", foreign_keys="Task.accepted_by_id", back_populates="accepted_by")
+
+
+class RefreshSession(Base):
+    """Refresh session for refresh-token rotation (server-side replay protection)."""
+
+    __tablename__ = "refresh_sessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # JWT ID (jti) stored server-side to detect refresh token replay.
+    jti = Column(String(64), nullable=False, unique=True, index=True)
+    issued_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    replaced_by_jti = Column(String(64), nullable=True)
+    created_ip = Column(String(64), nullable=True)
+    user_agent = Column(String(512), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    # Relationships
+    user = relationship("User")
 
 
 class TelegramLinkToken(Base):
@@ -526,7 +556,10 @@ class AuditEvent(Base):
                 'task_created', 'task_status_changed', 'task_accepted', 'task_comment_added',
                 'task_sent_for_review', 'task_approved', 'task_returned', 'task_attachment_added',
                 'fact_added', 'fact_updated', 'part_created', 'part_updated', 'part_stage_changed',
-                'norm_configured', 'user_login', 'user_logout', 'password_changed'
+                'norm_configured', 'user_login', 'user_logout', 'password_changed',
+                # Auth hardening / onboarding events
+                'LOGIN_FAILED', 'LOGIN_RATE_LIMITED',
+                'USER_CREATED_WITH_TEMP_PASSWORD', 'PASSWORD_RESET_BY_ADMIN',
             ]),
             name='chk_audit_action'
         ),

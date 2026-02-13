@@ -16,16 +16,14 @@ from ..models import (
     Task,
     LogisticsEntry,
     MachineNorm,
-    AccessGrant,
-    SpecItem,
-    Specification,
 )
 from ..schemas import (
     PartCreate, PartUpdate, PartResponse, StageStatusResponse,
     PartProgressResponse, PartForecastResponse, MachineResponse,
     MachineNormUpsert, MachineNormResponse
 )
-from ..auth import get_current_user, PermissionChecker, check_permission
+from ..auth import get_current_user, PermissionChecker
+from ..security import apply_part_visibility_scope, can_access_part
 from ..services.part_state import recompute_part_state, validate_stage_flow
 
 router = APIRouter(prefix="/parts", tags=["parts"])
@@ -41,84 +39,6 @@ PROGRESS_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grindi
 
 def _sort_stages_by_flow(stages: set[str]) -> list[str]:
     return [stage for stage in STAGE_FLOW_ORDER if stage in stages]
-
-
-def _granted_specification_ids_query(db: Session, user: User):
-    return db.query(AccessGrant.entity_id).filter(
-        AccessGrant.org_id == user.org_id,
-        AccessGrant.entity_type == "specification",
-        AccessGrant.user_id == user.id,
-    )
-
-
-def _operator_visible_specification_ids_query(db: Session, user: User):
-    granted_spec_ids = _granted_specification_ids_query(db, user)
-    return db.query(Specification.id).filter(
-        Specification.org_id == user.org_id,
-        (Specification.published_to_operators.is_(True))
-        | (Specification.id.in_(granted_spec_ids)),
-    )
-
-
-def _part_linked_to_any_spec_exists(db: Session, org_id: UUID):
-    return db.query(SpecItem.id).join(
-        Specification,
-        SpecItem.specification_id == Specification.id,
-    ).filter(
-        SpecItem.part_id == Part.id,
-        Specification.org_id == org_id,
-    ).exists()
-
-
-def _part_linked_to_granted_spec_exists(db: Session, user: User):
-    visible_spec_ids = _operator_visible_specification_ids_query(db, user)
-    return db.query(SpecItem.id).join(
-        Specification,
-        SpecItem.specification_id == Specification.id,
-    ).filter(
-        SpecItem.part_id == Part.id,
-        Specification.org_id == user.org_id,
-        Specification.id.in_(visible_spec_ids),
-    ).exists()
-
-
-def _apply_part_visibility_scope(query, db: Session, current_user: User):
-    if check_permission(current_user, "canManageSpecifications"):
-        return query
-    if current_user.role == "operator":
-        return query.filter(_part_linked_to_granted_spec_exists(db, current_user))
-    if not check_permission(current_user, "canViewSpecifications"):
-        return query.filter(~_part_linked_to_any_spec_exists(db, current_user.org_id))
-    return query
-
-
-def _can_access_part(db: Session, part: Part, current_user: User) -> bool:
-    if part.org_id != current_user.org_id:
-        return False
-    if check_permission(current_user, "canManageSpecifications"):
-        return True
-
-    linked_spec_ids = {
-        row[0]
-        for row in db.query(SpecItem.specification_id).join(
-            Specification,
-            SpecItem.specification_id == Specification.id,
-        ).filter(
-            SpecItem.part_id == part.id,
-            Specification.org_id == current_user.org_id,
-        ).distinct().all()
-    }
-
-    if current_user.role == "operator":
-        if not linked_spec_ids:
-            return False
-        visible_spec_ids = {row[0] for row in _operator_visible_specification_ids_query(db, current_user).all()}
-        return bool(linked_spec_ids.intersection(visible_spec_ids))
-
-    if not check_permission(current_user, "canViewSpecifications"):
-        return not linked_spec_ids
-
-    return True
 
 
 def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressResponse, list[StageStatusResponse]]:
@@ -259,7 +179,7 @@ def get_parts(
 ):
     """Get list of parts with filters."""
     query = db.query(Part).filter(Part.org_id == current_user.org_id)
-    query = _apply_part_visibility_scope(query, db, current_user)
+    query = apply_part_visibility_scope(query, db, current_user)
     
     # Apply filters
     if status:
@@ -307,7 +227,7 @@ def get_part(
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
     
-    if not _can_access_part(db, part, current_user):
+    if not can_access_part(db, part, current_user):
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Calculate progress and forecast
@@ -436,6 +356,13 @@ def create_part(
                 status_code=400,
                 detail="Для цеховой детали нужно выбрать станок",
             )
+        machine = db.query(Machine).filter(
+            Machine.id == data.machine_id,
+            Machine.org_id == current_user.org_id,
+            Machine.is_active.is_(True),
+        ).first()
+        if not machine:
+            raise HTTPException(status_code=404, detail="Machine not found")
 
     ordered_required_stages = _sort_stages_by_flow(requested_stages)
 
@@ -510,9 +437,20 @@ def update_part(
     
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
-    
+
+    # Multi-tenant boundary: validate foreign keys on update.
+    update_payload = data.model_dump(exclude_unset=True)
+    if "machine_id" in update_payload and update_payload["machine_id"] is not None:
+        machine = db.query(Machine).filter(
+            Machine.id == update_payload["machine_id"],
+            Machine.org_id == current_user.org_id,
+            Machine.is_active.is_(True),
+        ).first()
+        if not machine:
+            raise HTTPException(status_code=404, detail="Machine not found")
+
     # Update fields
-    for field, value in data.model_dump(exclude_unset=True).items():
+    for field, value in update_payload.items():
         setattr(part, field, value)
     
     # Audit log
@@ -604,6 +542,9 @@ def get_part_norms(
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
 
+    if not can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     norms = db.query(MachineNorm).filter(
         MachineNorm.part_id == part_id
     ).all()
@@ -624,6 +565,9 @@ def upsert_part_norm(
     ).first()
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
+
+    if not can_access_part(db, part, current_user):
+        raise HTTPException(status_code=403, detail="Access denied")
 
     machine = db.query(Machine).filter(
         Machine.id == data.machine_id,

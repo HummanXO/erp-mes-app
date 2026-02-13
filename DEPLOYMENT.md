@@ -1,7 +1,7 @@
 # Deployment Guide - Oracle Cloud
 
 ## Текущий статус:
-- ✅ Backend API работает: http://152.67.72.212/api/v1/
+- ✅ Backend API работает: `https://152.67.72.212/api/v1/` (HTTP должен редиректить на HTTPS)
 - ✅ База данных PostgreSQL с тестовыми данными
 - ✅ Redis + Celery worker для уведомлений
 - ✅ Nginx настроен
@@ -27,27 +27,59 @@ docker-compose -f docker-compose.prod.yml ps
 docker-compose -f docker-compose.prod.yml logs frontend -f
 
 # После успешной сборки откройте в браузере:
-# http://152.67.72.212/
+# https://152.67.72.212/
 ```
 
-## Логин:
-- **admin** / admin123
-- **kolchin** / kolchin123 (Master)
-- **petrov** / petrov123 (Operator)
-- **sidorov** / sidorov123 (Supply)
+## Аутентификация (prod)
+
+В продакшене не храните пароли в документации/тикетах/чатах.
+
+Система онбординга и сброса пароля реализована **только** через временный пароль (temporary password),
+который выдаёт администратор, после чего пользователь обязан сразу сменить пароль при первом входе.
+
+См. документ: `docs/auth-temp-password.md`.
+
+## HTTPS / Cookies / Proxy (обязательно)
+
+Система аутентификации использует:
+- `refresh` токен только в `HttpOnly + Secure` cookie
+- `access` токен только в памяти (восстанавливается через `POST /api/v1/auth/refresh`)
+
+Это требует корректного HTTPS на edge (nginx / LB) и корректных proxy headers.
+
+### Nginx
+
+Файл `nginx.conf` настроен на:
+- редирект `80 -> 443`
+- HSTS
+- передачу `X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto=https`
+- без публичного `/uploads` (файлы обслуживаются только через `/api/v1/attachments/serve/{filename}` с authz)
+
+Перед включением HTTPS убедитесь, что сертификаты существуют:
+- `/etc/nginx/ssl/fullchain.pem`
+- `/etc/nginx/ssl/privkey.pem`
+
+### Backend env (prod)
+
+Минимально необходимое:
+- `ENV=production`
+- `AUTH_REFRESH_COOKIE_SECURE=true`
+- `TRUST_PROXY_HEADERS=true` (если backend за nginx)
+- `ALLOWED_ORIGINS=https://152.67.72.212` (явный origin, без `*`)
+- `CSRF_TRUSTED_ORIGINS=https://152.67.72.212` (если отличается от `ALLOWED_ORIGINS`)
 
 ## Проверка работы:
-- Главная: http://152.67.72.212/
-- API Docs: http://152.67.72.212/docs
-- API: http://152.67.72.212/api/v1/
+- Главная: https://152.67.72.212/
+- API Docs: https://152.67.72.212/docs
+- API: https://152.67.72.212/api/v1/
 
 ## Если фронтенд не запускается:
 ```bash
 # Проверьте логи
 docker-compose -f docker-compose.prod.yml logs frontend --tail 50
 
-# Проверьте переменные окружения
-docker-compose -f docker-compose.prod.yml exec frontend env | grep VITE
+# Проверьте переменные окружения (Next.js)
+docker-compose -f docker-compose.prod.yml exec frontend env | grep NEXT_PUBLIC
 ```
 
 ## Автодеплой через GitHub Actions (Oracle)

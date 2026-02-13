@@ -13,7 +13,7 @@ import hmac
 import logging
 
 from ..database import get_db
-from ..auth import get_current_user
+from ..auth import PermissionChecker, get_current_user
 from ..models import User, TelegramLinkToken
 from ..config import settings
 
@@ -186,13 +186,24 @@ async def telegram_webhook(
 
 
 @router.get("/webhook/info")
-def webhook_info():
-    """Info about webhook configuration for local testing."""
+def webhook_info(
+    current_user: User = Depends(PermissionChecker("canManageUsers")),
+):
+    """Info about webhook configuration for local testing (no secrets)."""
+    if settings.ENV.lower() == "production":
+        # Do not expose operational details in production.
+        raise HTTPException(status_code=404, detail="Not found")
+
+    secret_configured = bool(settings.TELEGRAM_WEBHOOK_SECRET)
     return {
         "bot_username": settings.TELEGRAM_BOT_USERNAME,
         "webhook_url": f"{settings.API_BASE_URL}/api/v1/telegram/webhook",
         "local_testing": "Use ngrok/cloudflare tunnel: ngrok http 8000, then set webhook via Telegram Bot API",
-        "set_webhook_curl": f"curl -X POST https://api.telegram.org/bot{{TOKEN}}/setWebhook -d 'url={settings.API_BASE_URL}/api/v1/telegram/webhook&secret_token={settings.TELEGRAM_WEBHOOK_SECRET}'",
+        "webhook_secret_configured": secret_configured,
+        "set_webhook_note": (
+            "For security, do NOT paste secrets here. If you use a webhook secret, "
+            "set it via Telegram setWebhook secret_token and validate X-Telegram-Bot-Api-Secret-Token."
+        ),
         "example_payload": {
             "update_id": 123456789,
             "message": {

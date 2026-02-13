@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import { apiClient, ApiClientError } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
@@ -12,13 +12,22 @@ import { Loader2 } from "lucide-react"
 import { ChangePasswordDialog } from "./change-password-dialog"
 
 export function LoginPageApi() {
-  const { loginWithCredentials } = useApp()
+  const { loginWithCredentials, passwordChangeRequiredUser, completePasswordChange } = useApp()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
-  const [temporaryPassword, setTemporaryPassword] = useState("")
+
+  useEffect(() => {
+    if (passwordChangeRequiredUser) {
+      // User is authenticated but blocked until password change.
+      setUsername(passwordChangeRequiredUser.username)
+      setShowChangePassword(true)
+    } else {
+      setShowChangePassword(false)
+    }
+  }, [passwordChangeRequiredUser])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,17 +35,8 @@ export function LoginPageApi() {
     setLoading(true)
 
     try {
-      const response = await apiClient.login(username, password)
-      
-      // Check if password change is required
-      if (response.must_change_password) {
-        setTemporaryPassword(password)
-        setShowChangePassword(true)
-        setLoading(false)
-      } else {
-        // Normal login flow
-        await loginWithCredentials(username, password)
-      }
+      // Single login call (no duplicate POST /auth/login).
+      await loginWithCredentials(username, password)
     } catch (err) {
       if (err instanceof ApiClientError) {
         if (err.statusCode === 401 || err.statusCode === 403) {
@@ -47,20 +47,19 @@ export function LoginPageApi() {
       } else {
         setError(err instanceof Error ? err.message : "Ошибка авторизации")
       }
+    } finally {
       setLoading(false)
     }
   }
 
   const handlePasswordChanged = async (oldPassword: string, newPassword: string) => {
-    await apiClient.changePassword(oldPassword, newPassword)
-    // После смены пароля логинимся с новым паролем
-    await loginWithCredentials(username, newPassword)
+    const response = await apiClient.changePassword(oldPassword, newPassword)
+    await completePasswordChange(response.user)
   }
 
   const onPasswordChangedSuccess = () => {
     setShowChangePassword(false)
     setPassword("")
-    setTemporaryPassword("")
   }
 
   return (
