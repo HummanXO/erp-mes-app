@@ -17,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
-import { Building2, AlertCircle, X, Loader2 } from "lucide-react"
+import { Building2, AlertCircle, X, Loader2, Upload, CheckCircle, FileImage, FileText } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
 const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic"]
@@ -47,7 +47,7 @@ export function CreatePartDialog({
   submitLabel = "Создать деталь",
   onPartCreated,
 }: CreatePartDialogProps) {
-  const { createPart, machines, permissions, parts } = useApp()
+  const { createPart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -60,6 +60,9 @@ export function CreatePartDialog({
   const [isCustomerFocused, setIsCustomerFocused] = useState(false)
   const [formError, setFormError] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [drawingUploadError, setDrawingUploadError] = useState("")
+  const [isDrawingUploading, setIsDrawingUploading] = useState(false)
+  const [drawingAttachment, setDrawingAttachment] = useState<{ url: string; name: string; type: "image" | "file" } | null>(null)
   const formId = useId()
   const codeId = `${formId}-code`
   const nameId = `${formId}-name`
@@ -81,6 +84,7 @@ export function CreatePartDialog({
   // Machine (for machining stage)
   const [machineId, setMachineId] = useState("")
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const drawingInputRef = useRef<HTMLInputElement | null>(null)
   const [footerElevated, setFooterElevated] = useState(false)
   const [footerHasScroll, setFooterHasScroll] = useState(false)
   
@@ -211,6 +215,7 @@ export function CreatePartDialog({
   
   const handleCreate = async () => {
     setFormError("")
+    setDrawingUploadError("")
     if (!code || !name || !qtyPlan) {
       setFormError("Заполните обязательные поля")
       return
@@ -266,6 +271,9 @@ export function CreatePartDialog({
       if (onPartCreated) {
         await onPartCreated(createdPart)
       }
+      if (drawingAttachment) {
+        await updatePartDrawing(createdPart.id, drawingAttachment.url)
+      }
 
       // Reset and close
       resetForm()
@@ -280,7 +288,30 @@ export function CreatePartDialog({
       setIsSubmitting(false)
     }
   }
-  
+
+  const handleDrawingFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setDrawingUploadError("")
+    setIsDrawingUploading(true)
+    try {
+      const uploaded = await uploadAttachment(file)
+      setDrawingAttachment({ url: uploaded.url, name: uploaded.name, type: uploaded.type })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить чертёж"
+      setDrawingUploadError(message)
+      setDrawingAttachment(null)
+    } finally {
+      setIsDrawingUploading(false)
+      event.target.value = ""
+    }
+  }
+
+  const clearDrawing = () => {
+    setDrawingAttachment(null)
+    setDrawingUploadError("")
+  }
+
   const resetForm = () => {
     setCode("")
     setName("")
@@ -299,6 +330,9 @@ export function CreatePartDialog({
     setCooperationPartner("")
     setSelectedOptionalStages([])
     setMachineId("")
+    setDrawingAttachment(null)
+    setDrawingUploadError("")
+    setIsDrawingUploading(false)
   }
 
   return (
@@ -608,6 +642,66 @@ export function CreatePartDialog({
               </Select>
             </div>
           )}
+
+          {/* Drawing (optional) */}
+          <div className="space-y-2">
+            <Label className="text-sm">Чертёж (опционально)</Label>
+            <Input
+              ref={drawingInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              className="sr-only"
+              onChange={handleDrawingFileChange}
+            />
+            <div className="rounded-lg border bg-background p-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  {drawingAttachment ? (
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <FileImage className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span className="text-sm font-medium">
+                    {drawingAttachment ? "Загружено" : "Загрузить чертёж"}
+                  </span>
+                  {isDrawingUploading && (
+                    <span className="text-xs text-muted-foreground">Загрузка...</span>
+                  )}
+                </div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {drawingAttachment
+                    ? drawingAttachment.name
+                    : "PDF или изображение (PNG, JPG, WebP)"}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <Button
+                  type="button"
+                  variant={drawingAttachment ? "outline" : "default"}
+                  onClick={() => drawingInputRef.current?.click()}
+                  disabled={isDrawingUploading || isSubmitting}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {drawingAttachment ? "Заменить" : "Выбрать"}
+                </Button>
+                {drawingAttachment && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={clearDrawing}
+                    disabled={isDrawingUploading || isSubmitting}
+                  >
+                    Убрать
+                  </Button>
+                )}
+              </div>
+            </div>
+            {drawingUploadError && (
+              <div className="text-sm text-destructive" role="status" aria-live="polite">
+                {drawingUploadError}
+              </div>
+            )}
+          </div>
           </div>
           <DialogFooter
             className={cn(
@@ -632,7 +726,14 @@ export function CreatePartDialog({
             </Button>
             <Button
               onClick={() => void handleCreate()}
-              disabled={isSubmitting || !code || !name || !qtyPlan || (!isCooperation && !machineId)}
+              disabled={
+                isSubmitting ||
+                isDrawingUploading ||
+                !code ||
+                !name ||
+                !qtyPlan ||
+                (!isCooperation && !machineId)
+              }
             >
               {isSubmitting ? (
                 <>
