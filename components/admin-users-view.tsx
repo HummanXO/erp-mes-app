@@ -138,40 +138,81 @@ export function AdminUsersView() {
               Загрузка пользователей…
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Логин</TableHead>
-                  <TableHead>Имя</TableHead>
-                  <TableHead>Роль</TableHead>
-                  <TableHead>Активен</TableHead>
-                  <TableHead className="text-right">Действия</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Mobile cards */}
+              <div className="space-y-3 sm:hidden">
                 {sortedUsers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground">
-                      Пользователи не найдены.
-                    </TableCell>
-                  </TableRow>
+                  <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                    Пользователи не найдены.
+                  </div>
                 ) : (
                   sortedUsers.map((u) => (
-                    <TableRow key={u.id}>
-                      <TableCell className="font-medium">{u.username}</TableCell>
-                      <TableCell>{u.name}</TableCell>
-                      <TableCell>{ROLE_LABELS[u.role] ?? u.role}</TableCell>
-                      <TableCell>{u.is_active ? "Да" : "Нет"}</TableCell>
-                      <TableCell className="text-right">
-                        <Button type="button" variant="outline" size="sm" onClick={() => openReset(u)}>
-                          Сбросить пароль
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                    <div key={u.id} className="rounded-lg border p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-medium break-words">{u.username}</div>
+                          <div className="text-sm text-muted-foreground break-words">{u.name}</div>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-xs text-muted-foreground">Роль</div>
+                          <div className="text-sm font-medium">{ROLE_LABELS[u.role] ?? u.role}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-sm">
+                        <span className="text-muted-foreground">Активен:</span>{" "}
+                        <span className="font-medium">{u.is_active ? "Да" : "Нет"}</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-3 h-11 w-full"
+                        onClick={() => openReset(u)}
+                      >
+                        Сбросить пароль
+                      </Button>
+                    </div>
                   ))
                 )}
-              </TableBody>
-            </Table>
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden sm:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Логин</TableHead>
+                      <TableHead>Имя</TableHead>
+                      <TableHead>Роль</TableHead>
+                      <TableHead>Активен</TableHead>
+                      <TableHead className="text-right whitespace-nowrap">Действия</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedUsers.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-muted-foreground">
+                          Пользователи не найдены.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      sortedUsers.map((u) => (
+                        <TableRow key={u.id}>
+                          <TableCell className="font-medium">{u.username}</TableCell>
+                          <TableCell>{u.name}</TableCell>
+                          <TableCell>{ROLE_LABELS[u.role] ?? u.role}</TableCell>
+                          <TableCell>{u.is_active ? "Да" : "Нет"}</TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
+                            <Button type="button" variant="outline" size="sm" onClick={() => openReset(u)}>
+                              Сбросить пароль
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -185,4 +226,3 @@ export function AdminUsersView() {
     </>
   )
 }
-

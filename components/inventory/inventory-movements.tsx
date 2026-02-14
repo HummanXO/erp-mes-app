@@ -136,7 +136,7 @@ export function InventoryMovements() {
                   <TableHead>Количество</TableHead>
                   <TableHead>Откуда → Куда</TableHead>
                   <TableHead>Пользователь</TableHead>
-                  <TableHead>Дата</TableHead>
+                  <TableHead className="whitespace-nowrap">Дата</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -161,7 +161,7 @@ export function InventoryMovements() {
                         <div className="text-xs text-muted-foreground">{movement.to_location ?? "—"}</div>
                       </TableCell>
                       <TableCell>{user?.initials ?? "Система"}</TableCell>
-                      <TableCell>{new Date(movement.datetime).toLocaleString()}</TableCell>
+                      <TableCell className="whitespace-nowrap">{new Date(movement.datetime).toLocaleString()}</TableCell>
                     </TableRow>
                   )
                 })}

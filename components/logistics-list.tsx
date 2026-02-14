@@ -97,13 +97,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
   )
 
   return (
-    <div className="space-y-4">
-      {permissions.canEditFacts && !isCreating && (
-        <Button onClick={() => setIsCreating(true)} className="w-full">
-          <Plus className="h-4 w-4 mr-2" />
-          Добавить запись логистики
-        </Button>
-      )}
+      <div className="space-y-4">
+	      {permissions.canEditFacts && !isCreating && (
+	        <Button onClick={() => setIsCreating(true)} className="w-full h-11">
+	          <Plus className="h-4 w-4 mr-2" />
+	          Добавить запись логистики
+	        </Button>
+	      )}
       
       {/* Create form */}
       {isCreating && (
@@ -115,13 +115,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor={typeId}>Тип</Label>
-              <Select value={type} onValueChange={(v) => setType(v as LogisticsType)}>
-                <SelectTrigger id={typeId}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
+	            <div className="space-y-2">
+	              <Label htmlFor={typeId}>Тип</Label>
+	              <Select value={type} onValueChange={(v) => setType(v as LogisticsType)}>
+	                <SelectTrigger id={typeId} className="h-11">
+	                  <SelectValue />
+	                </SelectTrigger>
+	                <SelectContent>
                   {Object.entries(LOGISTICS_TYPE_LABELS).map(([key, label]) => (
                     <SelectItem key={key} value={key}>
                       <div className="flex items-center gap-2">
@@ -134,47 +134,51 @@ export function LogisticsList({ part }: LogisticsListProps) {
               </Select>
             </div>
             
-            <div className="space-y-2">
-              <Label htmlFor={descriptionId}>Описание *</Label>
-              <Input
-                id={descriptionId}
-                placeholder="Что перемещается..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </div>
+	            <div className="space-y-2">
+	              <Label htmlFor={descriptionId}>Описание *</Label>
+	              <Input
+	                id={descriptionId}
+	                placeholder="Что перемещается..."
+	                value={description}
+	                onChange={(e) => setDescription(e.target.value)}
+	                className="h-11"
+	              />
+	            </div>
+	            
+	            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+	              <div className="space-y-2">
+	                <Label htmlFor={quantityId}>Количество</Label>
+	                <Input
+	                  id={quantityId}
+	                  type="number"
+	                  placeholder="шт"
+	                  value={quantity}
+	                  onChange={(e) => setQuantity(e.target.value)}
+	                  className="h-11"
+	                />
+	              </div>
+	              <div className="space-y-2">
+	                <Label htmlFor={counterpartyId}>Контрагент</Label>
+	                <Input
+	                  id={counterpartyId}
+	                  placeholder="Поставщик/Получатель"
+	                  value={counterparty}
+	                  onChange={(e) => setCounterparty(e.target.value)}
+	                  className="h-11"
+	                />
+	              </div>
+	            </div>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor={quantityId}>Количество</Label>
-                <Input
-                  id={quantityId}
-                  type="number"
-                  placeholder="шт"
-                  value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={counterpartyId}>Контрагент</Label>
-                <Input
-                  id={counterpartyId}
-                  placeholder="Поставщик/Получатель"
-                  value={counterparty}
-                  onChange={(e) => setCounterparty(e.target.value)}
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor={trackingId}>Трек-номер / Накладная</Label>
-              <Input
-                id={trackingId}
-                placeholder="Номер для отслеживания"
-                value={trackingNumber}
-                onChange={(e) => setTrackingNumber(e.target.value)}
-              />
-            </div>
+	            <div className="space-y-2">
+	              <Label htmlFor={trackingId}>Трек-номер / Накладная</Label>
+	              <Input
+	                id={trackingId}
+	                placeholder="Номер для отслеживания"
+	                value={trackingNumber}
+	                onChange={(e) => setTrackingNumber(e.target.value)}
+	                className="h-11"
+	              />
+	            </div>
             
             <div className="space-y-2">
               <Label htmlFor={notesId}>Примечания</Label>
@@ -186,14 +190,14 @@ export function LogisticsList({ part }: LogisticsListProps) {
               />
             </div>
             
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1 bg-transparent" onClick={() => setIsCreating(false)}>
-                Отмена
-              </Button>
-              <Button className="flex-1" onClick={handleCreate} disabled={!description}>
-                Создать
-              </Button>
-            </div>
+	            <div className="flex gap-2">
+	              <Button variant="outline" className="flex-1 h-11 bg-transparent" onClick={() => setIsCreating(false)}>
+	                Отмена
+	              </Button>
+	              <Button className="flex-1 h-11" onClick={handleCreate} disabled={!description}>
+	                Создать
+	              </Button>
+	            </div>
           </CardContent>
         </Card>
       )}
@@ -281,7 +285,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                           value={entry.status} 
                           onValueChange={(v) => handleStatusUpdate(entry, v as LogisticsEntry["status"])}
                         >
-                          <SelectTrigger className="h-7 text-xs w-28">
+                          <SelectTrigger className="w-28 h-10 text-sm md:h-7 md:text-xs">
                             <SelectValue placeholder="Статус" />
                           </SelectTrigger>
                           <SelectContent>
