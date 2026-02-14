@@ -446,7 +446,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="overflow-x-auto overflow-y-hidden">
+        <div className="overflow-x-auto overflow-y-hidden py-1">
           <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
             <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>
             <TabsTrigger value="facts" className="flex-none shrink-0">Факт</TabsTrigger>
