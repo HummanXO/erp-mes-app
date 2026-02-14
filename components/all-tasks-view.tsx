@@ -244,7 +244,7 @@ const getStatusIcon = (status: TaskStatus) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold">Все задачи</h1>
@@ -262,6 +262,7 @@ const getStatusIcon = (status: TaskStatus) => {
           <Button 
             onClick={() => setShowForm(true)}
             variant="default"
+            className="w-full h-11 sm:w-auto sm:h-9"
           >
             <Plus className="h-4 w-4 mr-2" />
             Создать задачу
@@ -309,10 +310,16 @@ const getStatusIcon = (status: TaskStatus) => {
               </div>
               
               {/* Assignee type selection */}
-              <div className="space-y-2">
-                <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
-                <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
-                  <TabsList id="assignee-type-tabs" className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
+                <div className="space-y-2">
+                  <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
+                  <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
+                  <TabsList
+                    id="assignee-type-tabs"
+                    className={cn(
+                      "grid w-full h-auto gap-1",
+                      isMaster || isShopHead ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3",
+                    )}
+                  >
                     <TabsTrigger value="user">
                       <User className="h-4 w-4 mr-1" />
                       Человеку
@@ -409,57 +416,59 @@ const getStatusIcon = (status: TaskStatus) => {
       )}
       
       {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
-          <TabsList>
-            <TabsTrigger value="all">
+      <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+        <div className="overflow-x-auto overflow-y-hidden py-1">
+          <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+            <TabsTrigger value="all" className="flex-none shrink-0">
               Все ({tasks.filter(t => t.status !== "done").length})
             </TabsTrigger>
-            <TabsTrigger value="mine" className={myTasksCount > 0 ? "relative" : ""}>
+            <TabsTrigger value="mine" className={cn("flex-none shrink-0", myTasksCount > 0 ? "relative" : "")}>
               Мои ({myTasksCount})
               {unreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 h-2 w-2 bg-destructive rounded-full" />
               )}
             </TabsTrigger>
-            <TabsTrigger value="created">
+            <TabsTrigger value="created" className="flex-none shrink-0">
               Созданные ({createdByMeCount})
             </TabsTrigger>
-            <TabsTrigger value="blockers" className={blockerCount > 0 ? "text-destructive" : ""}>
+            <TabsTrigger value="blockers" className={cn("flex-none shrink-0", blockerCount > 0 ? "text-destructive" : "")}>
               Блокеры ({blockerCount})
             </TabsTrigger>
-            <TabsTrigger value="overdue" className={overdueCount > 0 ? "text-amber-600" : ""}>
+            <TabsTrigger value="overdue" className={cn("flex-none shrink-0", overdueCount > 0 ? "text-amber-600" : "")}>
               Просрочено ({overdueCount})
             </TabsTrigger>
           </TabsList>
-        </Tabs>
-      </div>
+        </div>
+      </Tabs>
       
       {/* Status filter chips */}
-      <div className="flex flex-wrap gap-2">
-        {(["all", "open", "accepted", "in_progress", "review", "done"] as const).map((status) => {
-          const count = status === "all" 
-            ? tasks.filter(t => t.status !== "done").length
-            : tasks.filter(t => t.status === status).length
-          const labels: Record<string, string> = {
-            all: "Все статусы",
-            open: "Открытые",
-            accepted: "Принятые",
-            in_progress: "В работе",
-            review: "На проверке",
-            done: "Готовые"
-          }
-          return (
-            <Button
-              key={status}
-              size="sm"
-              variant={statusFilter === status ? "default" : "outline"}
-              className={statusFilter === status ? "" : "bg-transparent"}
-              onClick={() => setStatusFilter(status === "all" ? "all" : status)}
-            >
-              {labels[status]} ({count})
-            </Button>
-          )
-        })}
+      <div className="overflow-x-auto overflow-y-hidden py-1">
+        <div className="flex w-max min-w-full items-center justify-start gap-2">
+          {(["all", "open", "accepted", "in_progress", "review", "done"] as const).map((status) => {
+            const count = status === "all" 
+              ? tasks.filter(t => t.status !== "done").length
+              : tasks.filter(t => t.status === status).length
+            const labels: Record<string, string> = {
+              all: "Все статусы",
+              open: "Открытые",
+              accepted: "Принятые",
+              in_progress: "В работе",
+              review: "На проверке",
+              done: "Готовые"
+            }
+            return (
+              <Button
+                key={status}
+                size="sm"
+                variant={statusFilter === status ? "default" : "outline"}
+                className={statusFilter === status ? "" : "bg-transparent"}
+                onClick={() => setStatusFilter(status === "all" ? "all" : status)}
+              >
+                {labels[status]} ({count})
+              </Button>
+            )
+          })}
+        </div>
       </div>
       
       <div className="flex flex-wrap gap-2">
@@ -529,7 +538,7 @@ const getStatusIcon = (status: TaskStatus) => {
       
       {/* Summary cards */}
       {(blockerCount > 0 || overdueCount > 0 || unreadCount > 0) && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {unreadCount > 0 && (
             <Card className="border-blue-500 bg-blue-500/5">
               <CardContent className="p-4 flex items-center gap-3">

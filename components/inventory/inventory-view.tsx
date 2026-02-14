@@ -33,12 +33,14 @@ export function InventoryView() {
       </div>
 
       <Tabs value={tab} onValueChange={setTab} className="space-y-4">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="overview">Обзор</TabsTrigger>
-          <TabsTrigger value="metal">Металл</TabsTrigger>
-          <TabsTrigger value="tooling">Оснастка</TabsTrigger>
-          <TabsTrigger value="movements">Движения</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto overflow-y-hidden py-1">
+          <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+            <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>
+            <TabsTrigger value="metal" className="flex-none shrink-0">Металл</TabsTrigger>
+            <TabsTrigger value="tooling" className="flex-none shrink-0">Оснастка</TabsTrigger>
+            <TabsTrigger value="movements" className="flex-none shrink-0">Движения</TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="overview">
           <InventoryOverview />

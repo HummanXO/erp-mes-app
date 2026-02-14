@@ -122,33 +122,37 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
               />
             </div>
 
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               {permissions.canViewCooperation && (
                 <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as typeof typeFilter)}>
-                  <TabsList>
-                    <TabsTrigger value="all">Все</TabsTrigger>
-                    <TabsTrigger value="own">Своё ({ownCount})</TabsTrigger>
-                    <TabsTrigger value="cooperation" className="gap-1">
-                      <Building2 className="h-3 w-3" aria-hidden="true" />
-                      Кооперация ({cooperationCount})
-                    </TabsTrigger>
-                  </TabsList>
+                  <div className="overflow-x-auto overflow-y-hidden py-1">
+                    <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+                      <TabsTrigger value="all" className="flex-none shrink-0">Все</TabsTrigger>
+                      <TabsTrigger value="own" className="flex-none shrink-0">Своё ({ownCount})</TabsTrigger>
+                      <TabsTrigger value="cooperation" className="flex-none shrink-0 gap-1">
+                        <Building2 className="h-3 w-3" aria-hidden="true" />
+                        Кооперация ({cooperationCount})
+                      </TabsTrigger>
+                    </TabsList>
+                  </div>
                 </Tabs>
               )}
 
               <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                <TabsList>
-                  <TabsTrigger value="all">Все</TabsTrigger>
-                  <TabsTrigger value="in_progress">В работе</TabsTrigger>
-                  <TabsTrigger value="not_started">Ожидают</TabsTrigger>
-                  <TabsTrigger value="done">Готовы</TabsTrigger>
-                </TabsList>
+                <div className="overflow-x-auto overflow-y-hidden py-1">
+                  <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+                    <TabsTrigger value="all" className="flex-none shrink-0">Все</TabsTrigger>
+                    <TabsTrigger value="in_progress" className="flex-none shrink-0">В работе</TabsTrigger>
+                    <TabsTrigger value="not_started" className="flex-none shrink-0">Ожидают</TabsTrigger>
+                    <TabsTrigger value="done" className="flex-none shrink-0">Готовы</TabsTrigger>
+                  </TabsList>
+                </div>
               </Tabs>
             </div>
 
             <div className="flex flex-wrap gap-3">
               <Select value={machineFilter} onValueChange={setMachineFilter}>
-                <SelectTrigger className="h-11 w-[220px]">
+                <SelectTrigger className="h-11 w-full sm:w-[220px]">
                   <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
                   <SelectValue placeholder="Станок" />
                 </SelectTrigger>
@@ -163,7 +167,7 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
               </Select>
 
               <Select value={stageFilter} onValueChange={(value) => setStageFilter(value as ProductionStage | "all")}>
-                <SelectTrigger className="h-11 w-[220px]">
+                <SelectTrigger className="h-11 w-full sm:w-[220px]">
                   <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
                   <SelectValue placeholder="Этап" />
                 </SelectTrigger>

@@ -147,9 +147,9 @@ export function FactJournal({ part }: FactJournalProps) {
   }
 
   return (
-    <div className="space-y-4">
+      <div className="space-y-4">
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card>
           <CardContent className="p-3">
             <div className="text-xs text-muted-foreground">Всего годных</div>
@@ -171,11 +171,11 @@ export function FactJournal({ part }: FactJournalProps) {
       </div>
       
       {/* Filters and View Toggle */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select value={selectedStage} onValueChange={(v) => setSelectedStage(v as ProductionStage | "all")}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-full sm:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -188,20 +188,18 @@ export function FactJournal({ part }: FactJournalProps) {
             </SelectContent>
           </Select>
         </div>
-        
-        <div className="flex-1" />
-        
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as typeof viewMode)}>
-          <TabsList className="h-8">
-            <TabsTrigger value="list" className="px-2 h-6">
+
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as typeof viewMode)} className="w-full sm:w-auto sm:ml-auto">
+          <TabsList className="h-10 w-full sm:w-fit">
+            <TabsTrigger value="list" className="px-3">
               <FileText className="h-3 w-3 mr-1" />
               Список
             </TabsTrigger>
-            <TabsTrigger value="table" className="px-2 h-6">
+            <TabsTrigger value="table" className="px-3">
               <BarChart3 className="h-3 w-3 mr-1" />
               Таблица
             </TabsTrigger>
-            <TabsTrigger value="summary" className="px-2 h-6">
+            <TabsTrigger value="summary" className="px-3">
               <TrendingUp className="h-3 w-3 mr-1" />
               Сводка
             </TabsTrigger>
@@ -211,7 +209,7 @@ export function FactJournal({ part }: FactJournalProps) {
       
       {/* List View */}
       {viewMode === "list" && (
-        <ScrollArea className="h-[400px]">
+        <ScrollArea className="md:h-[400px]">
           <div className="space-y-4">
             {Object.entries(factsByDate).map(([date, facts]) => (
               <div key={date}>
@@ -332,7 +330,7 @@ export function FactJournal({ part }: FactJournalProps) {
       {/* Table View */}
       {viewMode === "table" && (
         <Card>
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="md:h-[400px]">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -418,7 +416,7 @@ export function FactJournal({ part }: FactJournalProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <div>
                       <div className="text-xs text-muted-foreground">Всего годных</div>
                       <div className="text-xl font-bold text-green-600">{stats.totalGood.toLocaleString()}</div>

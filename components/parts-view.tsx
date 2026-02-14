@@ -165,31 +165,35 @@ export function PartsView() {
         </div>
         
         {/* Filter tabs */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
           {/* Type filter - only show if user can view cooperation */}
           {permissions.canViewCooperation && (
             <Tabs value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-              <TabsList>
-                <TabsTrigger value="all">Все</TabsTrigger>
-                <TabsTrigger value="own">
+              <div className="overflow-x-auto overflow-y-hidden py-1">
+                <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+                <TabsTrigger value="all" className="flex-none shrink-0">Все</TabsTrigger>
+                <TabsTrigger value="own" className="flex-none shrink-0">
                   Своё ({ownCount})
                 </TabsTrigger>
-                <TabsTrigger value="cooperation" className="gap-1">
+                <TabsTrigger value="cooperation" className="flex-none shrink-0 gap-1">
                   <Building2 className="h-3 w-3" />
                   Кооперация ({cooperationCount})
                 </TabsTrigger>
               </TabsList>
+              </div>
             </Tabs>
           )}
           
           {/* Status filter */}
           <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
-            <TabsList>
-              <TabsTrigger value="all">Все</TabsTrigger>
-              <TabsTrigger value="in_progress">В работе</TabsTrigger>
-              <TabsTrigger value="not_started">Ожидают</TabsTrigger>
-              <TabsTrigger value="done">Готовы</TabsTrigger>
-            </TabsList>
+            <div className="overflow-x-auto overflow-y-hidden py-1">
+              <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+                <TabsTrigger value="all" className="flex-none shrink-0">Все</TabsTrigger>
+                <TabsTrigger value="in_progress" className="flex-none shrink-0">В работе</TabsTrigger>
+                <TabsTrigger value="not_started" className="flex-none shrink-0">Ожидают</TabsTrigger>
+                <TabsTrigger value="done" className="flex-none shrink-0">Готовы</TabsTrigger>
+              </TabsList>
+            </div>
           </Tabs>
         </div>
         
@@ -197,7 +201,7 @@ export function PartsView() {
         <div className="flex flex-wrap gap-3">
           {/* Machine filter */}
           <Select value={machineFilter} onValueChange={setMachineFilter}>
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-full sm:w-[200px]">
               <Filter className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Станок" />
             </SelectTrigger>
@@ -211,7 +215,7 @@ export function PartsView() {
           
           {/* Stage filter */}
           <Select value={stageFilter} onValueChange={(v) => setStageFilter(v as ProductionStage | "all")}>
-            <SelectTrigger className="w-[200px]">
+            <SelectTrigger className="w-full sm:w-[200px]">
               <Filter className="h-4 w-4 mr-2" />
               <SelectValue placeholder="Этап" />
             </SelectTrigger>

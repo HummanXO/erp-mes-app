@@ -185,31 +185,33 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   return (
   <div className="space-y-4">
   {/* Status filter chips */}
-  <div className="flex flex-wrap gap-1">
-    {(["all", "open", "accepted", "in_progress", "review", "done"] as const).map((status) => {
-      const labels: Record<string, string> = {
-        all: "Все",
-        open: "Открытые",
-        accepted: "Принятые",
-        in_progress: "В работе",
-        review: "На проверке",
-        done: "Готовые"
-      }
-      return (
-        <Button
-          key={status}
-          size="sm"
-          variant={statusFilter === status ? "default" : "outline"}
-          className={cn(
-            "h-9 text-sm md:h-7 md:text-xs",
-            statusFilter === status ? "" : "bg-transparent",
-          )}
-          onClick={() => setStatusFilter(status === "all" ? "all" : status)}
-        >
-          {labels[status]} ({statusCounts[status]})
-        </Button>
-      )
-    })}
+  <div className="overflow-x-auto overflow-y-hidden py-1">
+    <div className="flex w-max min-w-full items-center justify-start gap-1">
+      {(["all", "open", "accepted", "in_progress", "review", "done"] as const).map((status) => {
+        const labels: Record<string, string> = {
+          all: "Все",
+          open: "Открытые",
+          accepted: "Принятые",
+          in_progress: "В работе",
+          review: "На проверке",
+          done: "Готовые"
+        }
+        return (
+          <Button
+            key={status}
+            size="sm"
+            variant={statusFilter === status ? "default" : "outline"}
+            className={cn(
+              "h-9 text-sm md:h-7 md:text-xs",
+              statusFilter === status ? "" : "bg-transparent",
+            )}
+            onClick={() => setStatusFilter(status === "all" ? "all" : status)}
+          >
+            {labels[status]} ({statusCounts[status]})
+          </Button>
+        )
+      })}
+    </div>
   </div>
   
   {/* Create button */}
@@ -254,7 +256,13 @@ export function TasksList({ partId, machineId }: TasksListProps) {
             <div className="space-y-2">
               <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
               <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
-                <TabsList id="assignee-type-tabs" className={isMaster || isShopHead ? "grid grid-cols-2" : "grid grid-cols-3"}>
+                <TabsList
+                  id="assignee-type-tabs"
+                  className={cn(
+                    "grid w-full h-auto gap-1",
+                    isMaster || isShopHead ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3",
+                  )}
+                >
                   <TabsTrigger value="user">
                     <User className="h-4 w-4 mr-1" />
                     Человеку
