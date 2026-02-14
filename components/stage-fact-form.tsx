@@ -434,7 +434,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           
           <div className="space-y-2">
             {/* Expected vs Actual */}
-            <div className="grid grid-cols-2 gap-2 text-sm">
+	            <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
               <div>
                 <span className="text-muted-foreground text-xs">Ожидание</span>
                 <div className="font-medium">{expected > 0 ? expected : "—"}</div>
@@ -538,7 +538,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {stageRequiresShift(stage) ? (
           <>
             {(dayFact || nightFact || expectedQty > 0) && (
-              <div className="grid grid-cols-2 gap-3">
+	              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <ShiftSummaryCard
                   shift="day"
                   fact={dayFact}
@@ -560,7 +560,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
+	            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
                 type="button"
                 variant="outline"
@@ -589,7 +589,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               </Button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+	            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button
                 type="button"
                 variant="outline"
@@ -637,14 +637,19 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {stage === "machining" && currentMachineId && (
           <div className="p-3 rounded-lg border space-y-2">
             <div className="text-sm font-medium">Пусконаладочная норма (шт/смена)</div>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 type="number"
                 placeholder={norm?.qty_per_shift ? String(norm.qty_per_shift) : "Например 420"}
                 value={normQty}
                 onChange={(e) => setNormQty(e.target.value)}
+                className="h-11"
               />
-              <Button onClick={handleSaveNorm} disabled={!normQty || isSavingNorm}>
+              <Button
+                className="h-11 w-full sm:w-auto"
+                onClick={handleSaveNorm}
+                disabled={!normQty || isSavingNorm}
+              >
                 {isSavingNorm ? "Сохраняем..." : "Сохранить норму"}
               </Button>
             </div>
@@ -663,7 +668,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           </div>
         )}
         
-        <Button onClick={() => openFactEditor()} className="w-full" disabled={stage === "machining" && !currentMachineId}>
+        <Button onClick={() => openFactEditor()} className="w-full h-11" disabled={stage === "machining" && !currentMachineId}>
           <Plus className="h-4 w-4 mr-2" />
           {primaryActionLabel}
         </Button>
@@ -679,7 +684,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
       <CardContent className="space-y-4">
         {/* Shift summary at top - only for machining */}
         {stageRequiresShift(stage) && (
-          <div className="grid grid-cols-2 gap-3">
+	          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ShiftSummaryCard 
               shift="day" 
               fact={dayFact} 
@@ -699,12 +704,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
         
         {/* Shift selection - only for machining */}
         {stageRequiresShift(stage) && (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <Button
               type="button"
               variant="outline"
               className={cn(
-                "bg-transparent justify-start",
+                "h-11 bg-transparent justify-start",
                 shiftType === "day" && "border-amber-300 bg-amber-50 text-amber-900"
               )}
               onClick={() => setShiftType("day")}
@@ -717,7 +722,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               type="button"
               variant="outline"
               className={cn(
-                "bg-transparent justify-start",
+                "h-11 bg-transparent justify-start",
                 shiftType === "night" && "border-indigo-300 bg-indigo-50 text-indigo-900"
               )}
               onClick={() => setShiftType("night")}
@@ -741,13 +746,13 @@ export function StageFactForm({ part }: StageFactFormProps) {
         {isOperator ? (
           <div className="space-y-2">
             <Label htmlFor={stageFieldId}>Этап</Label>
-            <Input id={stageFieldId} value={STAGE_LABELS.machining} readOnly />
+            <Input id={stageFieldId} value={STAGE_LABELS.machining} readOnly className="h-11" />
           </div>
         ) : (
           <div className="space-y-2">
             <Label htmlFor={stageFieldId}>Этап</Label>
             <Select value={stage} onValueChange={(v) => setStage(v as ProductionStage)}>
-              <SelectTrigger id={stageFieldId}>
+              <SelectTrigger id={stageFieldId} className="h-11">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -769,6 +774,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               id={machineFieldId}
               value={assignedMachine?.name || "Станок не назначен"}
               readOnly
+              className="h-11"
             />
           </div>
         )}
@@ -778,7 +784,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           <div className="space-y-2">
             <Label htmlFor={operatorFieldId}>Оператор</Label>
             <Select value={operatorId} onValueChange={setOperatorId}>
-              <SelectTrigger id={operatorFieldId}>
+              <SelectTrigger id={operatorFieldId} className="h-11">
                 <SelectValue placeholder="Выберите оператора" />
               </SelectTrigger>
               <SelectContent>
@@ -810,7 +816,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
         )}
         
         {/* Quantities */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor={qtyGoodId}>Годные, шт</Label>
             <Input
@@ -819,6 +825,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               placeholder="0"
               value={qtyGood}
               onChange={(e) => setQtyGood(e.target.value)}
+              className="h-11"
               aria-invalid={!!submitError && !qtyGood}
             />
             {expectedQty > 0 && qtyGood && (
@@ -840,6 +847,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
               placeholder="0"
               value={qtyScrap}
               onChange={(e) => setQtyScrap(e.target.value)}
+              className="h-11"
               aria-invalid={!!submitError && qtyScrap === ""}
             />
           </div>
@@ -852,7 +860,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
             value={deviationReason || "none"} 
             onValueChange={(v) => setDeviationReason(v === "none" ? null : v as DeviationReason)}
           >
-            <SelectTrigger id={deviationId}>
+            <SelectTrigger id={deviationId} className="h-11">
               <SelectValue placeholder="Нет отклонения" />
             </SelectTrigger>
             <SelectContent>
@@ -916,7 +924,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
           <Button 
             type="button"
             variant="outline" 
-            className="w-full bg-transparent" 
+            className="w-full h-11 bg-transparent" 
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploadingAttachment}
           >
@@ -946,11 +954,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
         </div>
         
         {/* Actions */}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           {currentFact && permissions.canRollbackFacts && (
             <Button
               type="button"
               variant="destructive"
+              className="h-11 w-full sm:w-auto"
               onClick={handleDeleteFact}
               disabled={isSubmitting || isDeletingFact}
             >
@@ -969,14 +978,14 @@ export function StageFactForm({ part }: StageFactFormProps) {
           )}
           <Button
             variant="outline"
-            className="flex-1 bg-transparent"
+            className="h-11 w-full bg-transparent sm:flex-1"
             onClick={() => setIsOpen(false)}
             disabled={isDeletingFact}
           >
             Отмена
           </Button>
           <Button 
-            className="flex-1" 
+            className="h-11 w-full sm:flex-1" 
             onClick={handleSubmit} 
             disabled={isSubmitting ||
               isDeletingFact ||

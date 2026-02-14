@@ -200,7 +200,10 @@ export function TasksList({ partId, machineId }: TasksListProps) {
           key={status}
           size="sm"
           variant={statusFilter === status ? "default" : "outline"}
-          className={cn("h-7 text-xs", statusFilter === status ? "" : "bg-transparent")}
+          className={cn(
+            "h-9 text-sm md:h-7 md:text-xs",
+            statusFilter === status ? "" : "bg-transparent",
+          )}
           onClick={() => setStatusFilter(status === "all" ? "all" : status)}
         >
           {labels[status]} ({statusCounts[status]})
@@ -214,14 +217,14 @@ export function TasksList({ partId, machineId }: TasksListProps) {
     <>
       <Button
         variant="default"
-        className="w-full"
+        className="w-full h-11"
         onClick={() => setShowForm(true)}
       >
         <Plus className="h-4 w-4 mr-2" />
         Создать задачу
       </Button>
       <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Новая задача</DialogTitle>
           </DialogHeader>
@@ -304,7 +307,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
               </div>
             )}
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="task-due">Срок</Label>
                 <Input
@@ -494,7 +497,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="h-8 text-xs bg-transparent"
+                          className="h-10 text-sm md:h-8 md:text-xs bg-transparent"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleAcceptTask(task.id)
@@ -516,7 +519,10 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                           v && handleStatusChange(task.id, v as TaskStatus)
                         }}
                       >
-                        <SelectTrigger className="w-32 h-10 text-xs" onClick={(e) => e.stopPropagation()}>
+                        <SelectTrigger
+                          className="w-32 h-10 text-sm md:text-xs"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

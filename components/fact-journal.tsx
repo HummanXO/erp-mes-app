@@ -336,7 +336,7 @@ export function FactJournal({ part }: FactJournalProps) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Дата</TableHead>
+                  <TableHead className="whitespace-nowrap">Дата</TableHead>
                   <TableHead>Смена</TableHead>
                   <TableHead>Этап</TableHead>
                   <TableHead>Оператор</TableHead>
@@ -355,7 +355,7 @@ export function FactJournal({ part }: FactJournalProps) {
                   
                   return (
                     <TableRow key={fact.id}>
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium whitespace-nowrap">
                         {new Date(fact.date).toLocaleDateString("ru-RU")}
                       </TableCell>
                       <TableCell>

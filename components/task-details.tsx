@@ -29,6 +29,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { 
   ArrowLeft,
   Send,
@@ -53,6 +54,7 @@ interface TaskDetailsProps {
 }
 
 export function TaskDetails({ task, onBack }: TaskDetailsProps) {
+  const isMobile = useIsMobile()
   const { 
     currentUser, 
     users, 
@@ -231,7 +233,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
   }
 
   return (
-    <div className="flex flex-col h-full max-h-[calc(100vh-120px)]">
+    <div className={cn("flex flex-col", isMobile ? "" : "h-full min-h-0")}>
       {/* Header */}
       <div className="flex items-start gap-4 pb-4 border-b">
         <Button
@@ -276,7 +278,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
             <p className="text-sm">{task.description}</p>
           )}
           
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
             <div>
               <span className="text-muted-foreground">Создал:</span>
               <div className="flex items-center gap-1 mt-1">
@@ -404,8 +406,8 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
           <MessageSquare className="h-4 w-4" />
           <span className="font-medium text-sm">Обсуждение ({task.comments?.length || 0})</span>
         </div>
-        
-        <ScrollArea className="flex-1 pr-4">
+
+        {isMobile ? (
           <div className="space-y-3">
             {(!task.comments || task.comments.length === 0) ? (
               <p className="text-sm text-muted-foreground text-center py-8">
@@ -463,7 +465,67 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
             )}
             <div ref={messagesEndRef} />
           </div>
-        </ScrollArea>
+        ) : (
+          <ScrollArea className="flex-1 pr-4">
+            <div className="space-y-3">
+              {(!task.comments || task.comments.length === 0) ? (
+                <p className="text-sm text-muted-foreground text-center py-8">
+                  Нет сообщений. Начните обсуждение!
+                </p>
+              ) : (
+                task.comments.map(comment => {
+                  const author = users.find(u => u.id === comment.user_id)
+                  const isOwnMessage = currentUser?.id === comment.user_id
+                  
+                  return (
+                    <div key={comment.id} className={cn("flex gap-2", isOwnMessage && "flex-row-reverse")}>
+                      <Avatar className="h-8 w-8 shrink-0">
+                        <AvatarFallback className="text-xs">
+                          {author?.initials?.slice(0, 2) || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className={cn(
+                        "max-w-[75%] rounded-lg px-3 py-2",
+                        isOwnMessage 
+                          ? "bg-primary text-primary-foreground" 
+                          : "bg-muted"
+                      )}>
+                        <div className={cn(
+                          "text-xs mb-1",
+                          isOwnMessage ? "text-primary-foreground/70" : "text-muted-foreground"
+                        )}>
+                          {author?.initials} - {new Date(comment.created_at).toLocaleString("ru-RU", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{comment.message}</p>
+                        {comment.attachments && comment.attachments.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {comment.attachments.map(att => (
+                              <button
+                                key={att.id || att.url}
+                                type="button"
+                                onClick={() => void openAttachment({ url: att.url, name: att.name })}
+                                className="flex items-center gap-1 text-xs underline"
+                              >
+                                <FileImage className="h-3 w-3" />
+                                {att.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          </ScrollArea>
+        )}
         
         {/* Message Input */}
         <div className="mt-4 pt-4 border-t space-y-2">

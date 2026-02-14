@@ -162,7 +162,7 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
               type="date"
               value={demoDate}
               onChange={(e) => setDemoDate(e.target.value)}
-              className="h-8 text-sm"
+              className="h-11 md:h-8"
             />
             <p className="text-xs text-muted-foreground">
               Для тестирования разных сценариев

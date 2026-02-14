@@ -337,15 +337,17 @@ export function CreatePartDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl p-0 overflow-hidden">
-        <div className="flex flex-col max-h-[90vh] relative">
-          <DialogHeader className="px-6 pt-6">
-            <DialogTitle>
-              {isCooperation ? "Новая деталь (Кооперация)" : "Новая деталь (Цех)"}
-            </DialogTitle>
-          </DialogHeader>
-          
-          <div ref={scrollRef} className="space-y-6 px-6 pb-24 pt-4 overflow-y-auto scroll-modal-body flex-1 min-h-0">
+      <DialogContent className="max-w-2xl p-0 overflow-hidden flex flex-col gap-0">
+        <DialogHeader className="px-6 pt-6">
+          <DialogTitle>
+            {isCooperation ? "Новая деталь (Кооперация)" : "Новая деталь (Цех)"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div
+          ref={scrollRef}
+          className="scroll-modal-body flex-1 min-h-0 space-y-6 overflow-y-auto px-6 pb-6 pt-4"
+        >
           {/* Role-based info alert */}
           {!isShopOnly && !isCooperationOnly && !canCreateOwnParts && canCreateCoopParts && (
             <Alert>
@@ -355,18 +357,18 @@ export function CreatePartDialog({
               </AlertDescription>
             </Alert>
           )}
-          
+
           {!isShopOnly && !isCooperationOnly && canCreateOwnParts && !canCreateCoopParts && (
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Вы можете создавать только цеховые детали
-            </AlertDescription>
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Вы можете создавать только цеховые детали
+              </AlertDescription>
             </Alert>
           )}
-          
+
           {/* Basic info */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor={codeId}>Код детали *</Label>
               <Input
@@ -374,6 +376,7 @@ export function CreatePartDialog({
                 placeholder="01488.900.725"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
+                className="h-11"
                 aria-invalid={!!formError && !code}
                 aria-describedby={formError ? formErrorId : undefined}
               />
@@ -385,6 +388,7 @@ export function CreatePartDialog({
                 placeholder="Корпус основной"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                className="h-11"
                 aria-invalid={!!formError && !name}
                 aria-describedby={formError ? formErrorId : undefined}
               />
@@ -401,7 +405,7 @@ export function CreatePartDialog({
             />
           </div>
           
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor={qtyPlanId}>Количество *</Label>
               <Input
@@ -410,6 +414,7 @@ export function CreatePartDialog({
                 placeholder="1000"
                 value={qtyPlan}
                 onChange={(e) => setQtyPlan(e.target.value)}
+                className="h-11"
                 aria-invalid={!!formError && !qtyPlan}
                 aria-describedby={formError ? formErrorId : undefined}
               />
@@ -429,6 +434,7 @@ export function CreatePartDialog({
                   type="date"
                   value={deadline}
                   onChange={(e) => setDeadline(e.target.value)}
+                  className="h-11"
                 />
               </div>
             )}
@@ -442,6 +448,7 @@ export function CreatePartDialog({
                 placeholder="ООО Компания"
                 value={customer}
                 onChange={(e) => setCustomer(e.target.value)}
+                className="h-11"
                 onFocus={() => setIsCustomerFocused(true)}
                 onBlur={() => setIsCustomerFocused(false)}
                 autoComplete="off"
@@ -515,6 +522,7 @@ export function CreatePartDialog({
                 placeholder="ООО Литейщик"
                 value={cooperationPartner}
                 onChange={(e) => setCooperationPartner(e.target.value)}
+                className="h-11"
                 aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
                 aria-describedby={formError ? formErrorId : undefined}
               />
@@ -629,6 +637,7 @@ export function CreatePartDialog({
               <Select value={machineId} onValueChange={setMachineId}>
                 <SelectTrigger
                   id={machineIdField}
+                  className="h-11"
                   aria-invalid={!!formError && !isCooperation && !machineId}
                   aria-describedby={formError ? formErrorId : undefined}
                 >
@@ -702,29 +711,34 @@ export function CreatePartDialog({
               </div>
             )}
           </div>
-          </div>
-          <DialogFooter
-            className={cn(
-              "gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter,opacity] duration-200",
-              "absolute bottom-0 left-0 right-0",
-              footerHasScroll
-                ? "border-t border-border/60 bg-background/55 backdrop-blur-lg"
-                : "border-t border-border/30 bg-background/65 backdrop-blur-md",
-              footerElevated
-                ? "shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
-                : "shadow-none"
-            )}
-          >
+        </div>
+        <DialogFooter
+          className={cn(
+            "relative z-10 gap-2 px-6 py-3 transition-[background-color,box-shadow,border-color,backdrop-filter,opacity] duration-200",
+            footerHasScroll
+              ? "border-t border-border/60 bg-background/55 backdrop-blur-lg"
+              : "border-t border-border/30 bg-background/65 backdrop-blur-md",
+            footerElevated
+              ? "shadow-[0_-8px_20px_rgba(0,0,0,0.08)]"
+              : "shadow-none",
+            "pb-[calc(0.75rem+env(safe-area-inset-bottom))]",
+          )}
+        >
             <div
               className={cn(
                 "pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-background/70 to-transparent transition-opacity duration-200",
                 footerElevated ? "opacity-100" : "opacity-0"
               )}
             />
-            <Button variant="outline" className="bg-transparent" onClick={() => onOpenChange(false)}>
+            <Button
+              variant="outline"
+              className="h-11 bg-transparent"
+              onClick={() => onOpenChange(false)}
+            >
               Отмена
             </Button>
             <Button
+              className="h-11"
               onClick={() => void handleCreate()}
               disabled={
                 isSubmitting ||
@@ -743,7 +757,6 @@ export function CreatePartDialog({
               ) : submitLabel}
             </Button>
           </DialogFooter>
-        </div>
       </DialogContent>
     </Dialog>
   )

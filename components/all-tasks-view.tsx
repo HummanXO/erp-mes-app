@@ -271,12 +271,12 @@ const getStatusIcon = (status: TaskStatus) => {
       
       {permissions.canCreateTasks && (
         <Dialog open={showForm} onOpenChange={setShowForm}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>Новая задача</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="task-title">Название</Label>
                   <Input
@@ -331,7 +331,7 @@ const getStatusIcon = (status: TaskStatus) => {
                 </Tabs>
               </div>
               
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {assigneeType === "user" && (
                   <div className="space-y-2">
                     <Label htmlFor="assignee-user-all">Исполнитель</Label>
@@ -692,7 +692,7 @@ const getStatusIcon = (status: TaskStatus) => {
                         <Button 
                           size="sm" 
                           variant="outline" 
-                          className="h-8 text-xs bg-transparent"
+                          className="h-10 text-sm md:h-8 md:text-xs bg-transparent"
                           onClick={(e) => {
                             e.stopPropagation()
                             handleAcceptTask(task.id)
