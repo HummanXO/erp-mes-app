@@ -446,15 +446,17 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className={cn("grid w-full", permissions.canViewAudit ? "grid-cols-7" : "grid-cols-6")}>
-          <TabsTrigger value="overview">Обзор</TabsTrigger>
-          <TabsTrigger value="facts">Факт</TabsTrigger>
-          <TabsTrigger value="journal">Журнал</TabsTrigger>
-          <TabsTrigger value="logistics">Логистика</TabsTrigger>
-          <TabsTrigger value="tasks">Задачи</TabsTrigger>
-          {permissions.canViewAudit ? <TabsTrigger value="audit">События</TabsTrigger> : null}
-          <TabsTrigger value="drawing">Чертёж</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto overflow-y-hidden">
+          <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
+            <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>
+            <TabsTrigger value="facts" className="flex-none shrink-0">Факт</TabsTrigger>
+            <TabsTrigger value="journal" className="flex-none shrink-0">Журнал</TabsTrigger>
+            <TabsTrigger value="logistics" className="flex-none shrink-0">Логистика</TabsTrigger>
+            <TabsTrigger value="tasks" className="flex-none shrink-0">Задачи</TabsTrigger>
+            {permissions.canViewAudit ? <TabsTrigger value="audit" className="flex-none shrink-0">События</TabsTrigger> : null}
+            <TabsTrigger value="drawing" className="flex-none shrink-0">Чертёж</TabsTrigger>
+          </TabsList>
+        </div>
         
         <TabsContent value="overview" className="space-y-4">
           {/* Description */}

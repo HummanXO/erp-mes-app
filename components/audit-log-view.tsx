@@ -163,7 +163,7 @@ export function AuditLogView({ partId, compact = false }: AuditLogViewProps) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[200px]">
+          <ScrollArea className="md:h-[200px]">
             {filteredEntries.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">Нет событий</p>
             ) : (
@@ -238,7 +238,7 @@ export function AuditLogView({ partId, compact = false }: AuditLogViewProps) {
           </p>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="md:h-[400px]">
             {filteredEntries.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <ClipboardList className="h-12 w-12 mx-auto mb-2 opacity-50" />
