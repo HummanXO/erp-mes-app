@@ -313,10 +313,30 @@ export async function getMachineById(id: string): Promise<Machine | undefined> {
 }
 
 // Parts
+async function fetchAllParts(filters?: {
+  status?: string
+  is_cooperation?: boolean
+  machine_id?: string
+}): Promise<any[]> {
+  const pageSize = 100
+  let offset = 0
+  const collected: any[] = []
+
+  while (true) {
+    const response = await apiClient.getParts({ ...(filters || {}), limit: pageSize, offset })
+    const page = (response as any)?.data ?? response
+    const items = Array.isArray(page) ? page : []
+    collected.push(...items)
+    if (items.length < pageSize) break
+    offset += pageSize
+  }
+
+  return collected
+}
+
 export async function getParts(): Promise<Part[]> {
   if (!isAuthenticated()) return []
-  const response = await apiClient.getParts()
-  const parts = response.data || response
+  const parts = await fetchAllParts()
   return parts.map(transformPart)
 }
 
@@ -361,20 +381,17 @@ export async function uploadAttachment(file: File): Promise<TaskAttachment> {
 }
 
 export async function getPartsForMachine(machineId: string): Promise<Part[]> {
-  const response = await apiClient.getParts({ machine_id: machineId })
-  const parts = response.data || response
+  const parts = await fetchAllParts({ machine_id: machineId })
   return parts.map(transformPart)
 }
 
 export async function getCooperationParts(): Promise<Part[]> {
-  const response = await apiClient.getParts({ is_cooperation: true })
-  const parts = response.data || response
+  const parts = await fetchAllParts({ is_cooperation: true })
   return parts.map(transformPart)
 }
 
 export async function getOwnProductionParts(): Promise<Part[]> {
-  const response = await apiClient.getParts({ is_cooperation: false })
-  const parts = response.data || response
+  const parts = await fetchAllParts({ is_cooperation: false })
   return parts.map(transformPart)
 }
 
