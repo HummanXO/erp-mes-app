@@ -57,6 +57,9 @@ jobs:
           SECRET_KEY: [REDACTED]
           JWT_SECRET_KEY: [REDACTED]
         run: |
+          # CI DB is empty; initialize historical base schema first to match
+          # production lineage (create_all-era DBs), then run Alembic bootstrap + upgrades.
+          python -c "from app.database import Base, engine; import app.models; Base.metadata.create_all(bind=engine)"
           python alembic_bootstrap.py
           alembic upgrade head
 
