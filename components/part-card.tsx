@@ -159,12 +159,12 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
                 {coopStatus === "on_time" && "В срок"}
                 {coopStatus === "risk" && "Риск"}
                 {coopStatus === "late" && "Просрочено"}
-                {coopStatus === "missing" && "ETA не задана"}
+                {coopStatus === "missing" && "Срок не задан"}
               </Badge>
             </div>
             <div className="mt-1 flex items-center justify-between gap-2 text-xs">
               <span className="text-muted-foreground">
-                ETA: {hasEta && etaDate ? etaDate.toLocaleDateString("ru-RU") : "—"}
+                Срок от кооператора: {hasEta && etaDate ? etaDate.toLocaleDateString("ru-RU") : "—"}
               </span>
               <span className="text-muted-foreground">
                 {hasEta && etaDeltaDays !== null
@@ -179,54 +179,58 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
           </div>
         )}
         
-        {/* Stages progress with percentages */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {stageStatuses.filter(s => s.status !== "skipped").map((stageStatus, idx) => {
-            const stageData = progress.stageProgress?.find(sp => sp.stage === stageStatus.stage)
-            const stagePercent = stageData?.percent || 0
-            return (
-              <div
-                key={`${stageStatus.stage}-${idx}`}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-1 rounded text-xs",
-                  stageStatus.status === "done" && "bg-green-500/10 text-green-700",
-                  stageStatus.status === "in_progress" && "bg-blue-500/10 text-blue-700",
-                  stageStatus.status === "pending" && "bg-muted text-muted-foreground",
-                )}
-                title={`${STAGE_LABELS[stageStatus.stage]}: ${stagePercent}%`}
-              >
-                {STAGE_ICONS[stageStatus.stage]}
-                <span className="tabular-nums">{stagePercent}%</span>
+        {!part.is_cooperation && (
+          <>
+            {/* Stages progress with percentages */}
+            <div className="flex items-center gap-1 flex-wrap">
+              {stageStatuses.filter(s => s.status !== "skipped").map((stageStatus, idx) => {
+                const stageData = progress.stageProgress?.find(sp => sp.stage === stageStatus.stage)
+                const stagePercent = stageData?.percent || 0
+                return (
+                  <div
+                    key={`${stageStatus.stage}-${idx}`}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded text-xs",
+                      stageStatus.status === "done" && "bg-green-500/10 text-green-700",
+                      stageStatus.status === "in_progress" && "bg-blue-500/10 text-blue-700",
+                      stageStatus.status === "pending" && "bg-muted text-muted-foreground",
+                    )}
+                    title={`${STAGE_LABELS[stageStatus.stage]}: ${stagePercent}%`}
+                  >
+                    {STAGE_ICONS[stageStatus.stage]}
+                    <span className="tabular-nums">{stagePercent}%</span>
+                  </div>
+                )
+              })}
+            </div>
+            
+            {/* Progress */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Готовность</span>
+                <span className="font-medium">
+                  {progress.percent}%
+                </span>
               </div>
-            )
-          })}
-        </div>
-        
-        {/* Progress */}
-        <div className="space-y-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Готовность</span>
-            <span className="font-medium">
-              {progress.percent}%
-            </span>
-          </div>
-          <Progress 
-            value={progress.percent} 
-            className={cn(
-              "h-2",
-              part.status === "done" && "[&>div]:bg-green-500"
-            )} 
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>План: {part.qty_plan.toLocaleString()} шт</span>
-            {progress.qtyScrap > 0 && (
-              <span className="text-destructive">Брак: {progress.qtyScrap} шт</span>
-            )}
-          </div>
-        </div>
+              <Progress 
+                value={progress.percent} 
+                className={cn(
+                  "h-2",
+                  part.status === "done" && "[&>div]:bg-green-500"
+                )} 
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>План: {part.qty_plan.toLocaleString()} шт</span>
+                {progress.qtyScrap > 0 && (
+                  <span className="text-destructive">Брак: {progress.qtyScrap} шт</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
         
         {/* Forecast - only for non-done parts */}
-        {part.status !== "done" && (
+        {!part.is_cooperation && part.status !== "done" && (
           <div className={cn(
             "p-2 rounded-md text-sm",
             !hasForecastInput ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"

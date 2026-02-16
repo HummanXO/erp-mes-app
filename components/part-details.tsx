@@ -390,95 +390,128 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       )}
       
       {/* Progress Summary */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm text-muted-foreground mb-1">Общая готовность</div>
-              <div className="text-2xl font-bold">
-                {overallProgressPercent}%
-              </div>
-              <Progress value={overallProgressPercent} className="h-2 mt-2" />
-              <div className="text-xs text-muted-foreground mt-1">
-                План: {part.qty_plan.toLocaleString()} шт
-              </div>
-            </div>
-            <div className={cn(
-              "p-3 rounded-lg",
-              !hasForecastInput ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
-            )}>
-              <div className="flex items-center gap-2 mb-1">
-                {!hasForecastInput ? (
-                  <>
-                    <Clock className="h-5 w-5 text-muted-foreground" />
-                    <span className="font-medium text-foreground">Прогноз появится после 1-го факта или установки нормы</span>
-                  </>
-                ) : forecast.willFinishOnTime ? (
-                  <>
-                    <TrendingUp className="h-5 w-5 text-green-600" />
-                    <span className="font-medium text-green-700">Успеваем</span>
-                  </>
-                ) : (
-                  <>
-                    <TrendingDown className="h-5 w-5 text-amber-600" />
-                    <span className="font-medium text-amber-700">Риск срыва</span>
-                  </>
-                )}
-              </div>
-              {hasForecastInput && (
-                <div className="text-sm text-muted-foreground space-y-0.5">
-                  <div>Нужно смен (все этапы): {forecast.shiftsNeeded}</div>
-                  <div>Есть смен до дедлайна: {forecast.shiftsRemaining}</div>
-                  {forecast.stageForecasts && forecast.stageForecasts.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-dashed">
-                      {forecast.stageForecasts.filter(sf => sf.qtyRemaining > 0).map(sf => (
-                        <div key={sf.stage} className="flex justify-between text-xs">
-                          <span>{STAGE_LABELS[sf.stage]}:</span>
-                          <span className={sf.willFinishOnTime ? "text-green-600" : "text-amber-600"}>
-                            {sf.qtyRemaining.toLocaleString()} шт ({sf.shiftsNeeded} смен)
-                          </span>
+      {!part.is_cooperation ? (
+        <>
+          <Card>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Общая готовность</div>
+                  <div className="text-2xl font-bold">
+                    {overallProgressPercent}%
+                  </div>
+                  <Progress value={overallProgressPercent} className="h-2 mt-2" />
+                  <div className="text-xs text-muted-foreground mt-1">
+                    План: {part.qty_plan.toLocaleString()} шт
+                  </div>
+                </div>
+                <div className={cn(
+                  "p-3 rounded-lg",
+                  !hasForecastInput ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
+                )}>
+                  <div className="flex items-center gap-2 mb-1">
+                    {!hasForecastInput ? (
+                      <>
+                        <Clock className="h-5 w-5 text-muted-foreground" />
+                        <span className="font-medium text-foreground">Прогноз появится после 1-го факта или установки нормы</span>
+                      </>
+                    ) : forecast.willFinishOnTime ? (
+                      <>
+                        <TrendingUp className="h-5 w-5 text-green-600" />
+                        <span className="font-medium text-green-700">Успеваем</span>
+                      </>
+                    ) : (
+                      <>
+                        <TrendingDown className="h-5 w-5 text-amber-600" />
+                        <span className="font-medium text-amber-700">Риск срыва</span>
+                      </>
+                    )}
+                  </div>
+                  {hasForecastInput && (
+                    <div className="text-sm text-muted-foreground space-y-0.5">
+                      <div>Нужно смен (все этапы): {forecast.shiftsNeeded}</div>
+                      <div>Есть смен до дедлайна: {forecast.shiftsRemaining}</div>
+                      {forecast.stageForecasts && forecast.stageForecasts.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-dashed">
+                          {forecast.stageForecasts.filter(sf => sf.qtyRemaining > 0).map(sf => (
+                            <div key={sf.stage} className="flex justify-between text-xs">
+                              <span>{STAGE_LABELS[sf.stage]}:</span>
+                              <span className={sf.willFinishOnTime ? "text-green-600" : "text-amber-600"}>
+                                {sf.qtyRemaining.toLocaleString()} шт ({sf.shiftsNeeded} смен)
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
-              )}
-            </div>
-          </div>
-          <div className="mt-3 pt-3 border-t flex justify-between text-sm">
-            <span className="text-muted-foreground">Дедлайн</span>
-            <span className="font-medium">{new Date(part.deadline).toLocaleDateString("ru-RU")}</span>
-          </div>
-          <div className="mt-2 flex justify-between text-sm">
-            <span className="text-muted-foreground">Внутренний дедлайн</span>
-            {!hasInternalDeadline ? (
-              <span className="text-muted-foreground">Появится после нормы или факта</span>
-            ) : (
-              <span className={cn("font-medium", internalDeltaDays !== null && internalDeltaDays < 0 ? "text-amber-700" : "text-green-700")}>
-                {internalDeadlineDate.toLocaleDateString("ru-RU")}
-                {internalDeltaDays !== null && (
-                  <span className="ml-2 text-xs font-normal">
-                    {internalDeltaDays > 0
-                      ? `(запас ${internalDeltaDays} дн.)`
-                      : internalDeltaDays < 0
-                        ? `(опоздание ${Math.abs(internalDeltaDays)} дн.)`
-                        : "(в срок)"}
+              </div>
+              <div className="mt-3 pt-3 border-t flex justify-between text-sm">
+                <span className="text-muted-foreground">Дедлайн</span>
+                <span className="font-medium">{new Date(part.deadline).toLocaleDateString("ru-RU")}</span>
+              </div>
+              <div className="mt-2 flex justify-between text-sm">
+                <span className="text-muted-foreground">Внутренний дедлайн</span>
+                {!hasInternalDeadline ? (
+                  <span className="text-muted-foreground">Появится после нормы или факта</span>
+                ) : (
+                  <span className={cn("font-medium", internalDeltaDays !== null && internalDeltaDays < 0 ? "text-amber-700" : "text-green-700")}>
+                    {internalDeadlineDate.toLocaleDateString("ru-RU")}
+                    {internalDeltaDays !== null && (
+                      <span className="ml-2 text-xs font-normal">
+                        {internalDeltaDays > 0
+                          ? `(запас ${internalDeltaDays} дн.)`
+                          : internalDeltaDays < 0
+                            ? `(опоздание ${Math.abs(internalDeltaDays)} дн.)`
+                            : "(в срок)"}
+                      </span>
+                    )}
                   </span>
                 )}
-              </span>
-            )}
-          </div>
-          {progress.qtyScrap > 0 && (
-            <div className="mt-2 flex justify-between text-sm">
-              <span className="text-muted-foreground">Брак всего</span>
-              <span className="text-destructive font-medium">{progress.qtyScrap} шт</span>
+              </div>
+              {progress.qtyScrap > 0 && (
+                <div className="mt-2 flex justify-between text-sm">
+                  <span className="text-muted-foreground">Брак всего</span>
+                  <span className="text-destructive font-medium">{progress.qtyScrap} шт</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Stages Progress */}
+          <StageProgressSummary part={part} />
+        </>
+      ) : (
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-md bg-muted/50 p-3">
+                <div className="text-xs text-muted-foreground">Дедлайн детали</div>
+                <div className="text-sm font-medium mt-1">{partDeadlineDate.toLocaleDateString("ru-RU")}</div>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3">
+                <div className="text-xs text-muted-foreground">Срок от кооператора</div>
+                <div className="text-sm font-medium mt-1">
+                  {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "Не задан"}
+                </div>
+              </div>
+              <div className="rounded-md bg-muted/50 p-3">
+                <div className="text-xs text-muted-foreground">Отклонение по сроку</div>
+                <div className="text-sm font-medium mt-1">
+                  {cooperationDeltaDays !== null
+                    ? cooperationDeltaDays > 0
+                      ? `Запас ${cooperationDeltaDays} дн.`
+                      : cooperationDeltaDays < 0
+                        ? `Отставание ${Math.abs(cooperationDeltaDays)} дн.`
+                        : "В срок"
+                    : `До дедлайна ${Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))} дн.`}
+                </div>
+              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
-      
-      {/* Stages Progress */}
-      <StageProgressSummary part={part} />
+          </CardContent>
+        </Card>
+      )}
       
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -537,7 +570,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">ETA</div>
+                  <div className="text-xs text-muted-foreground">Ориентир поступления</div>
                   <div className="text-sm font-medium mt-1">
                     {journeySummary?.eta ? new Date(journeySummary.eta).toLocaleDateString("ru-RU") : "—"}
                   </div>
@@ -562,14 +595,14 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         )}
                       >
                         {!hasCooperationEta
-                          ? "ETA не задана"
+                          ? "Срок не задан"
                           : cooperationControlTone === "risk"
                             ? "Риск"
                             : "В срок"}
                       </Badge>
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                      <span>ETA: {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "—"}</span>
+                      <span>Срок от кооператора: {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "—"}</span>
                       <span>Дедлайн: {partDeadlineDate.toLocaleDateString("ru-RU")}</span>
                       <span>
                         {cooperationDeltaDays !== null

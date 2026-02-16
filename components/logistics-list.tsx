@@ -248,7 +248,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
 		              />
 		            </div>
 		              <div className="space-y-2">
-		                <Label htmlFor={etaId}>Плановая ETA</Label>
+		                <Label htmlFor={etaId}>Ориентировочная дата поступления</Label>
 		                <Input
 		                  id={etaId}
 		                  type="date"
@@ -256,6 +256,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
 		                  onChange={(e) => setPlannedEta(e.target.value)}
 		                  className="h-11"
 		                />
+		                <div className="text-xs text-muted-foreground">
+		                  Укажите дату, когда ожидаете получение у получателя.
+		                </div>
 		              </div>
 		            </div>
             
@@ -331,7 +334,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         )}
                         {entry.planned_eta && (
                           <div className="text-xs text-muted-foreground">
-                            ETA: {new Date(entry.planned_eta).toLocaleDateString("ru-RU")}
+                            Ориентир поступления: {new Date(entry.planned_eta).toLocaleDateString("ru-RU")}
                           </div>
                         )}
                         {entry.notes && (
