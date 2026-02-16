@@ -351,6 +351,18 @@ export function updatePart(part: Part): void {
 }
 
 export function deletePart(partId: string): void {
+  const allSpecItems = getSpecItems()
+  const linkedSpecItems = allSpecItems.filter(item => item.part_id === partId)
+  if (linkedSpecItems.length > 0) {
+    const nextSpecItems = allSpecItems.filter(item => item.part_id !== partId)
+    saveToStorage(STORAGE_KEYS.specItems, nextSpecItems)
+
+    const affectedSpecIds = Array.from(new Set(linkedSpecItems.map(item => item.specification_id)))
+    for (const specificationId of affectedSpecIds) {
+      recomputeSpecificationStatus(specificationId)
+    }
+  }
+
   const parts = getParts().filter(p => p.id !== partId)
   saveToStorage(STORAGE_KEYS.parts, parts)
 
