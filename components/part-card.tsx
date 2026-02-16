@@ -66,6 +66,18 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
     hasEta && etaDate
       ? Math.ceil((partDeadlineDate.getTime() - etaDate.getTime()) / (1000 * 60 * 60 * 24))
       : null
+  const cooperationQcLabel =
+    part.cooperation_qc_status === "accepted"
+      ? "Входной контроль: принято"
+      : part.cooperation_qc_status === "rejected"
+        ? "Входной контроль: не принято"
+        : "Входной контроль: не проведён"
+  const cooperationQcTone =
+    part.cooperation_qc_status === "accepted"
+      ? "text-green-700"
+      : part.cooperation_qc_status === "rejected"
+        ? "text-destructive"
+        : "text-muted-foreground"
   const coopStatus: "missing" | "on_time" | "risk" | "late" = !hasEta
     ? "missing"
     : (etaDeltaDays ?? 0) < 0
@@ -175,6 +187,9 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
                       : "в срок"
                   : `до дедлайна ${daysToDeadline} дн.`}
               </span>
+            </div>
+            <div className={cn("mt-1 text-xs", cooperationQcTone)}>
+              {cooperationQcLabel}
             </div>
           </div>
         )}
