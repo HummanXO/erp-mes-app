@@ -42,6 +42,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
   
   const logistics = getLogisticsForPart(part.id)
   const [isCreating, setIsCreating] = useState(false)
+  const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({})
   
   // Form state
   const [fromLocation, setFromLocation] = useState("")
@@ -104,6 +105,27 @@ export function LogisticsList({ part }: LogisticsListProps) {
       ...entry,
       status: newStatus,
       qty_received: newStatus === "received" ? (entry.qty_received ?? entry.qty_sent) : entry.qty_received,
+    })
+  }
+
+  const dateInputFromIso = (value?: string) => {
+    if (!value) return ""
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) return ""
+    return parsed.toISOString().slice(0, 10)
+  }
+
+  const getEtaDraft = (entry: LogisticsEntry) => etaDrafts[entry.id] ?? dateInputFromIso(entry.planned_eta)
+
+  const handleEtaChange = (entryId: string, value: string) => {
+    setEtaDrafts((prev) => ({ ...prev, [entryId]: value }))
+  }
+
+  const handleSaveEta = async (entry: LogisticsEntry) => {
+    const draft = getEtaDraft(entry)
+    await updateLogisticsEntry({
+      ...entry,
+      planned_eta: draft ? new Date(`${draft}T00:00:00`).toISOString() : undefined,
     })
   }
 
@@ -347,6 +369,30 @@ export function LogisticsList({ part }: LogisticsListProps) {
                             entry.sent_at || entry.created_at || entry.updated_at || entry.date || new Date().toISOString()
                           ).toLocaleString("ru-RU")}
                         </div>
+                        {permissions.canEditFacts && !["received", "cancelled", "returned", "completed"].includes(entry.status) && (
+                          <div className="mt-2 flex items-end gap-2">
+                            <div className="space-y-1">
+                              <Label htmlFor={`eta-edit-${entry.id}`} className="text-xs text-muted-foreground">
+                                Срок от кооператора
+                              </Label>
+                              <Input
+                                id={`eta-edit-${entry.id}`}
+                                type="date"
+                                value={getEtaDraft(entry)}
+                                onChange={(e) => handleEtaChange(entry.id, e.target.value)}
+                                className="h-9 w-[190px]"
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9"
+                              onClick={() => void handleSaveEta(entry)}
+                            >
+                              Сохранить срок
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-2">
