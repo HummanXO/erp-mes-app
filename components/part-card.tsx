@@ -29,7 +29,7 @@ interface PartCardProps {
 }
 
 export function PartCard({ part, onClick, isSelected }: PartCardProps) {
-  const { getPartProgress, getPartForecast, getBlockersForPart, demoDate, getMachineById, getCurrentStage, getStageFactsForPart } = useApp()
+  const { getPartProgress, getPartForecast, getBlockersForPart, demoDate, getMachineById, getCurrentStage, getStageFactsForPart, getLogisticsForPart } = useApp()
   
   const progress = getPartProgress(part.id)
   const forecast = getPartForecast(part.id)
@@ -51,6 +51,28 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
   const stageStatuses = part.stage_statuses || []
   const stagesTotal = stageStatuses.filter(s => s.status !== "skipped").length
   const stagesDone = stageStatuses.filter(s => s.status === "done").length
+  const partDeadlineDate = new Date(part.deadline)
+  const daysToDeadline = Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))
+  const partMovements = getLogisticsForPart(part.id)
+  const lastMovement = [...partMovements].sort((a, b) => {
+    const aTs = new Date(a.updated_at || a.created_at || a.sent_at || a.date || 0).getTime()
+    const bTs = new Date(b.updated_at || b.created_at || b.sent_at || b.date || 0).getTime()
+    return bTs - aTs
+  })[0]
+  const etaValue = lastMovement?.planned_eta
+  const etaDate = etaValue ? new Date(etaValue) : null
+  const hasEta = Boolean(etaDate && !Number.isNaN(etaDate.getTime()))
+  const etaDeltaDays =
+    hasEta && etaDate
+      ? Math.ceil((partDeadlineDate.getTime() - etaDate.getTime()) / (1000 * 60 * 60 * 24))
+      : null
+  const coopStatus: "missing" | "on_time" | "risk" | "late" = !hasEta
+    ? "missing"
+    : (etaDeltaDays ?? 0) < 0
+      ? "late"
+      : (etaDeltaDays ?? 0) <= 2
+        ? "risk"
+        : "on_time"
 
   return (
     <button
@@ -119,6 +141,43 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
             </Badge>
           )}
         </div>
+
+        {part.is_cooperation && (
+          <div className="rounded-md border bg-muted/30 p-2">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">Кооперация</span>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "h-5 px-2 text-[11px]",
+                  coopStatus === "on_time" && "border-green-600 text-green-700",
+                  coopStatus === "risk" && "border-amber-600 text-amber-700",
+                  coopStatus === "late" && "border-destructive text-destructive",
+                  coopStatus === "missing" && "border-muted-foreground/40 text-muted-foreground"
+                )}
+              >
+                {coopStatus === "on_time" && "В срок"}
+                {coopStatus === "risk" && "Риск"}
+                {coopStatus === "late" && "Просрочено"}
+                {coopStatus === "missing" && "ETA не задана"}
+              </Badge>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+              <span className="text-muted-foreground">
+                ETA: {hasEta && etaDate ? etaDate.toLocaleDateString("ru-RU") : "—"}
+              </span>
+              <span className="text-muted-foreground">
+                {hasEta && etaDeltaDays !== null
+                  ? etaDeltaDays > 0
+                    ? `запас ${etaDeltaDays} дн.`
+                    : etaDeltaDays < 0
+                      ? `отставание ${Math.abs(etaDeltaDays)} дн.`
+                      : "в срок"
+                  : `до дедлайна ${daysToDeadline} дн.`}
+              </span>
+            </div>
+          </div>
+        )}
         
         {/* Stages progress with percentages */}
         <div className="flex items-center gap-1 flex-wrap">
