@@ -271,7 +271,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const routeStatusDescription = (() => {
     const lastMovement = journeySummary?.last_movement
     if (!part.is_cooperation) return routeLastEventDescription
-    if (!lastMovement) return "На кооперации (без зафиксированной отправки)"
+    if (!lastMovement) return "Кооперация запланирована, отправка ещё не отмечена"
     const destination = lastMovement.to_holder || lastMovement.to_location
     if (lastMovement.status === "pending") return "Черновик отправки (ещё не отправлено)"
     if (lastMovement.status === "sent") return destination ? `Отправлено: ${destination}` : "Отправлено кооператору"
@@ -634,7 +634,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                     {routeStatusDescription}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {routeStatusAt ? new Date(routeStatusAt).toLocaleString("ru-RU") : "Событие ещё не зафиксировано"}
+                    {routeStatusAt ? new Date(routeStatusAt).toLocaleString("ru-RU") : "Дата события пока не отмечена"}
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
