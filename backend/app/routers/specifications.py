@@ -133,6 +133,38 @@ def _recompute_specification_status(specification: Specification) -> None:
         specification.status = next_status
 
 
+def _prune_orphan_make_items(
+    db: Session,
+    *,
+    org_id: UUID,
+    specification_id: Optional[UUID] = None,
+) -> set[UUID]:
+    """Delete spec items that still point to removed parts."""
+    query = db.query(SpecItem.id, SpecItem.specification_id).join(
+        Specification,
+        SpecItem.specification_id == Specification.id,
+    ).outerjoin(
+        Part,
+        Part.id == SpecItem.part_id,
+    ).filter(
+        Specification.org_id == org_id,
+        SpecItem.item_type == "make",
+        SpecItem.part_id.isnot(None),
+        Part.id.is_(None),
+    )
+    if specification_id is not None:
+        query = query.filter(SpecItem.specification_id == specification_id)
+
+    orphan_rows = query.all()
+    if not orphan_rows:
+        return set()
+
+    orphan_item_ids = [row[0] for row in orphan_rows]
+    affected_spec_ids = {row[1] for row in orphan_rows}
+    db.query(SpecItem).filter(SpecItem.id.in_(orphan_item_ids)).delete(synchronize_session=False)
+    return affected_spec_ids
+
+
 def _delete_part_with_dependents(db: Session, part: Part) -> None:
     db.query(AuditEvent).filter(
         AuditEvent.part_id == part.id
@@ -344,6 +376,15 @@ def get_specification_items(
     specification = _get_specification_or_404(db, specification_id, current_user.org_id)
     _assert_specification_access(db, specification, current_user)
 
+    pruned_spec_ids = _prune_orphan_make_items(
+        db,
+        org_id=current_user.org_id,
+        specification_id=specification.id,
+    )
+    if pruned_spec_ids:
+        _recompute_specification_status(specification)
+        db.commit()
+
     items = db.query(SpecItem).filter(
         SpecItem.specification_id == specification.id,
     ).order_by(SpecItem.line_no.asc()).all()
@@ -433,6 +474,8 @@ def get_spec_items(
             | (Specification.id.in_(granted_spec_ids))
         )
 
+    pruned_spec_ids = _prune_orphan_make_items(db, org_id=current_user.org_id)
+
     items = query.order_by(SpecItem.created_at.desc()).all()
 
     changed_spec_ids: set[UUID] = set()
@@ -440,8 +483,12 @@ def get_spec_items(
         if _sync_make_item_progress_from_part(item):
             changed_spec_ids.add(item.specification_id)
 
+    changed_spec_ids.update(pruned_spec_ids)
     if changed_spec_ids:
-        specs = db.query(Specification).filter(Specification.id.in_(changed_spec_ids)).all()
+        specs = db.query(Specification).filter(
+            Specification.org_id == current_user.org_id,
+            Specification.id.in_(changed_spec_ids),
+        ).all()
         for specification in specs:
             _recompute_specification_status(specification)
         db.commit()
