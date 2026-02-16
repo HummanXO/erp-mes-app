@@ -114,6 +114,12 @@ class ApiClient {
     return endpoint !== "/auth/login" && endpoint !== "/auth/refresh"
   }
 
+  private buildUrl(endpoint: string): string {
+    const base = this.baseUrl.replace(/\/+$/, "")
+    const path = endpoint.startsWith("/") ? endpoint : `/${endpoint}`
+    return `${base}${path}`
+  }
+
   private async withCrossTabRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
     // Prefer Web Locks API for cross-tab synchronization (prevents refresh-token reuse across tabs).
     const locks = typeof navigator !== "undefined" ? (navigator as any).locks : null
@@ -129,7 +135,7 @@ class ApiClient {
 
     this.refreshInFlight = this.withCrossTabRefreshLock(async () => {
       try {
-        const refreshUrl = `${this.baseUrl}/auth/refresh`
+        const refreshUrl = this.buildUrl("/auth/refresh")
         const refreshResponse = await fetch(refreshUrl, {
           method: "POST",
           credentials: "include",
@@ -161,7 +167,7 @@ class ApiClient {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`
+    const url = this.buildUrl(endpoint)
     
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -470,7 +476,7 @@ class ApiClient {
   }
 
   async uploadAttachment(file: File) {
-    const url = `${this.baseUrl}/attachments/upload`
+    const url = this.buildUrl("/attachments/upload")
     const headers: HeadersInit = {}
 
     if (this.accessToken) {
