@@ -600,79 +600,83 @@ export function CreatePartDialog({
           
           {/* Cooperation partner input */}
           {isCooperation && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-blue-700" />
-                <div className="text-sm font-medium text-blue-900">Параметры кооперации</div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor={partnerId}>Партнёр-кооператор</Label>
-                  <Input
-                    id={partnerId}
-                    placeholder="ООО Литейщик"
-                    value={cooperationPartner}
-                    onChange={(e) => setCooperationPartner(e.target.value)}
-                    className="h-11 bg-background"
-                    onFocus={() => setIsCooperationPartnerFocused(true)}
-                    onBlur={() => setIsCooperationPartnerFocused(false)}
-                    autoComplete="off"
-                    aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
-                    aria-describedby={formError ? formErrorId : undefined}
-                  />
-                  {showCooperationPartnerSuggestions && (
-                    <div className="relative">
-                      <div className="absolute left-0 right-0 mt-2 z-30 rounded-lg border bg-background shadow-sm">
-                        <div className="max-h-48 overflow-auto py-1">
-                          {filteredCooperationPartners.map((item) => (
-                            <div key={item} className="flex items-center justify-between gap-2 px-2">
-                              <button
-                                type="button"
-                                className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setCooperationPartner(item)
-                                  setIsCooperationPartnerFocused(false)
-                                }}
-                              >
-                                <span className="text-sm">{item}</span>
-                              </button>
-                              <button
-                                type="button"
-                                className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                                aria-label={`Удалить кооператора ${item}`}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => removeCooperationPartnerFromList(item)}
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="border-t px-3 py-1 text-xs text-muted-foreground">
-                          Нажмите на партнёра, чтобы выбрать. Можно удалить из списка.
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  Параметры кооперации
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor={partnerId}>Партнёр-кооператор</Label>
+                    <Input
+                      id={partnerId}
+                      placeholder="ООО Литейщик"
+                      value={cooperationPartner}
+                      onChange={(e) => setCooperationPartner(e.target.value)}
+                      className="h-11"
+                      onFocus={() => setIsCooperationPartnerFocused(true)}
+                      onBlur={() => setIsCooperationPartnerFocused(false)}
+                      autoComplete="off"
+                      aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
+                      aria-describedby={formError ? formErrorId : undefined}
+                    />
+                    {showCooperationPartnerSuggestions && (
+                      <div className="relative">
+                        <div className="absolute left-0 right-0 mt-2 z-30 rounded-lg border bg-background shadow-sm">
+                          <div className="max-h-48 overflow-auto py-1">
+                            {filteredCooperationPartners.map((item) => (
+                              <div key={item} className="flex items-center justify-between gap-2 px-2">
+                                <button
+                                  type="button"
+                                  className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted"
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setCooperationPartner(item)
+                                    setIsCooperationPartnerFocused(false)
+                                  }}
+                                >
+                                  <span className="text-sm">{item}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                                  aria-label={`Удалить кооператора ${item}`}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => removeCooperationPartnerFromList(item)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="border-t px-3 py-1 text-xs text-muted-foreground">
+                            Нажмите на партнёра, чтобы выбрать. Можно удалить из списка.
+                          </div>
                         </div>
                       </div>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Срок от кооператора (ориентир)</Label>
+                    <Input
+                      type="date"
+                      value={cooperationDueDate}
+                      onChange={(e) => setCooperationDueDate(e.target.value)}
+                      className="h-11"
+                    />
+                    <div className="text-xs text-muted-foreground">
+                      Необязательно. Можно задать позже во вкладке «Логистика».
                     </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label>Срок от кооператора (ориентир)</Label>
-                  <Input
-                    type="date"
-                    value={cooperationDueDate}
-                    onChange={(e) => setCooperationDueDate(e.target.value)}
-                    className="h-11 bg-background"
-                  />
-                  <div className="text-xs text-muted-foreground">
-                    Необязательно. Можно задать позже во вкладке «Логистика».
                   </div>
                 </div>
-              </div>
-              <div className="text-xs text-blue-800/80">
-                Здесь задаётся стартовый срок кооператора. Потом его можно корректировать в журнале перемещений.
-              </div>
-            </div>
+                <div className="text-xs text-muted-foreground">
+                  Здесь задаётся стартовый срок кооператора. Потом его можно корректировать в журнале перемещений.
+                </div>
+              </CardContent>
+            </Card>
           )}
           
           {/* Stages selection */}
