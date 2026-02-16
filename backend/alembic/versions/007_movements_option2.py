@@ -19,29 +19,37 @@ depends_on = None
 
 def upgrade() -> None:
     # Movement/transfer fields on top of existing logistics_entries table.
-    op.add_column("logistics_entries", sa.Column("from_location", sa.String(length=255), nullable=True))
-    op.add_column("logistics_entries", sa.Column("from_holder", sa.String(length=255), nullable=True))
-    op.add_column("logistics_entries", sa.Column("to_location", sa.String(length=255), nullable=True))
-    op.add_column("logistics_entries", sa.Column("to_holder", sa.String(length=255), nullable=True))
-    op.add_column("logistics_entries", sa.Column("carrier", sa.String(length=100), nullable=True))
-    op.add_column("logistics_entries", sa.Column("planned_eta", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("received_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("returned_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("qty_sent", sa.Integer(), nullable=True))
-    op.add_column("logistics_entries", sa.Column("qty_received", sa.Integer(), nullable=True))
-    op.add_column("logistics_entries", sa.Column("stage_id", postgresql.UUID(as_uuid=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("last_tracking_status", sa.String(length=255), nullable=True))
-    op.add_column("logistics_entries", sa.Column("tracking_last_checked_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("logistics_entries", sa.Column("raw_payload", postgresql.JSONB(astext_type=sa.Text()), nullable=True))
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS from_location VARCHAR(255)")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS from_holder VARCHAR(255)")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS to_location VARCHAR(255)")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS to_holder VARCHAR(255)")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS carrier VARCHAR(100)")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS planned_eta TIMESTAMPTZ")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS returned_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS qty_sent INTEGER")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS qty_received INTEGER")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS stage_id UUID")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS last_tracking_status VARCHAR(255)")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS tracking_last_checked_at TIMESTAMPTZ")
+    op.execute("ALTER TABLE logistics_entries ADD COLUMN IF NOT EXISTS raw_payload JSONB")
 
-    op.create_foreign_key(
-        "fk_logistics_entries_stage_id",
-        "logistics_entries",
-        "part_stage_statuses",
-        ["stage_id"],
-        ["id"],
+    op.execute(
+        """
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'fk_logistics_entries_stage_id'
+          ) THEN
+            ALTER TABLE logistics_entries
+              ADD CONSTRAINT fk_logistics_entries_stage_id
+              FOREIGN KEY (stage_id) REFERENCES part_stage_statuses (id);
+          END IF;
+        END $$;
+        """
     )
 
     # Existing installations may already have status/tracking indexes from create_all().
