@@ -319,22 +319,6 @@ export function CreatePartDialog({
       })
 
       try {
-        addCustomerToList(customer)
-        if (isCooperation) {
-          addCooperationPartnerToList(cooperationPartner)
-          if (cooperationDueDate) {
-            await createLogisticsEntry({
-              part_id: createdPart.id,
-              status: "pending",
-              description: "Стартовый срок от кооператора",
-              to_holder: cooperationPartner.trim() || undefined,
-              planned_eta: new Date(`${cooperationDueDate}T00:00:00`).toISOString(),
-              type: "coop_out",
-              date: new Date().toISOString().split("T")[0],
-              notes: "Создано автоматически при создании кооперационной детали",
-            })
-          }
-        }
         if (onPartCreated) {
           await onPartCreated(createdPart)
         }
@@ -350,13 +334,37 @@ export function CreatePartDialog({
         }
         throw postCreateError
       }
+      addCustomerToList(customer)
+      if (isCooperation) {
+        addCooperationPartnerToList(cooperationPartner)
+      }
+      if (isCooperation && cooperationDueDate) {
+        try {
+          await createLogisticsEntry({
+            part_id: createdPart.id,
+            status: "pending",
+            description: "Стартовый срок от кооператора",
+            to_holder: cooperationPartner.trim() || undefined,
+            planned_eta: new Date(`${cooperationDueDate}T00:00:00`).toISOString(),
+            type: "coop_out",
+            date: new Date().toISOString().split("T")[0],
+            notes: "Создано автоматически при создании кооперационной детали",
+          })
+        } catch {
+          // Optional step: do not fail part/spec creation if due-date movement save failed.
+        }
+      }
 
       // Reset and close
       resetForm()
       onOpenChange(false)
     } catch (error) {
       if (error instanceof Error && error.message?.trim()) {
-        setFormError(error.message)
+        setFormError(
+          error.message === "Request failed"
+            ? "Сервер вернул ошибку без текста. Проверьте уникальность кода и попробуйте снова."
+            : error.message
+        )
       } else {
         setFormError("Не удалось создать деталь (проверьте поля и уникальность кода)")
       }
