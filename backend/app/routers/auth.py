@@ -76,7 +76,24 @@ def _set_no_store(response: Response) -> None:
 
 def _csrf_trusted_origins() -> set[str]:
     raw = settings.CSRF_TRUSTED_ORIGINS or settings.ALLOWED_ORIGINS
-    return {origin.strip() for origin in raw.split(",") if origin.strip()}
+    trusted: set[str] = set()
+    for origin in raw.split(","):
+        normalized = _normalize_origin(origin)
+        if normalized:
+            trusted.add(normalized)
+    return trusted
+
+
+def _normalize_origin(value: str | None) -> str | None:
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
 
 
 def _enforce_csrf_origin(request: Request) -> None:
@@ -91,15 +108,15 @@ def _enforce_csrf_origin(request: Request) -> None:
     trusted = _csrf_trusted_origins()
     origin = request.headers.get("origin")
     if origin:
-        if origin not in trusted:
+        normalized_origin = _normalize_origin(origin)
+        if not normalized_origin or normalized_origin not in trusted:
             raise HTTPException(status_code=403, detail="CSRF origin denied")
         return
 
     referer = request.headers.get("referer")
     if referer:
-        parsed = urlparse(referer)
-        ref_origin = f"{parsed.scheme}://{parsed.netloc}"
-        if ref_origin not in trusted:
+        normalized_referer_origin = _normalize_origin(referer)
+        if not normalized_referer_origin or normalized_referer_origin not in trusted:
             raise HTTPException(status_code=403, detail="CSRF origin denied")
         return
 
@@ -108,6 +125,11 @@ def _enforce_csrf_origin(request: Request) -> None:
     if settings.ENV.lower() == "production":
         has_cookies = bool(request.headers.get("cookie")) or bool(request.cookies)
         if has_cookies:
+            # Some browsers/proxy chains may omit Origin/Referer on same-origin fetches.
+            # Use Fetch Metadata as a strict fallback: allow only same-origin/same-site.
+            sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+            if sec_fetch_site in {"same-origin", "same-site", "none"}:
+                return
             raise HTTPException(status_code=403, detail="CSRF origin required")
 
 
