@@ -68,6 +68,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getUserById,
     demoDate,
     permissions,
+    updatePart,
     updatePartDrawing,
     uploadAttachment,
     deletePart
@@ -85,6 +86,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [isSavingDrawing, setIsSavingDrawing] = useState(false)
   const [showLinkInput, setShowLinkInput] = useState(false)
   const [journeySummary, setJourneySummary] = useState<Awaited<ReturnType<typeof getJourneyForPart>>>(null)
+  const [cooperationDueDateDraft, setCooperationDueDateDraft] = useState("")
+  const [isSavingCooperationDueDate, setIsSavingCooperationDueDate] = useState(false)
+  const [cooperationDueDateError, setCooperationDueDateError] = useState("")
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
 
   const drawingUrlValue = drawingUrl.trim()
@@ -122,6 +126,16 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   useEffect(() => {
     setDrawingError(false)
   }, [drawingUrl])
+
+  useEffect(() => {
+    const fromPart = part.cooperation_due_date || ""
+    if (fromPart) {
+      setCooperationDueDateDraft(fromPart)
+      return
+    }
+    const fromJourney = journeySummary?.eta ? new Date(journeySummary.eta).toISOString().slice(0, 10) : ""
+    setCooperationDueDateDraft(fromJourney)
+  }, [part.cooperation_due_date, part.id, journeySummary?.eta])
 
   const isProtectedAttachmentUrl = (value: string) => {
     const candidate = value.trim()
@@ -218,11 +232,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const internalDeltaDays = hasInternalDeadline
     ? Math.ceil((partDeadlineDate.getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
     : null
-  const cooperationEtaDate = journeySummary?.eta ? new Date(journeySummary.eta) : null
+  const cooperationEtaRaw = journeySummary?.eta || (part.cooperation_due_date ? `${part.cooperation_due_date}T00:00:00` : null)
+  const cooperationEtaDate = cooperationEtaRaw ? new Date(cooperationEtaRaw) : null
   const hasCooperationEta = Boolean(cooperationEtaDate && !Number.isNaN(cooperationEtaDate.getTime()))
   const shouldShowCooperationControl = Boolean(
     part.is_cooperation ||
     journeySummary?.eta ||
+    part.cooperation_due_date ||
     journeySummary?.last_movement?.tracking_number ||
     journeySummary?.last_movement?.to_holder
   )
@@ -239,6 +255,28 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     (part.is_cooperation && permissions.canCreateCoopParts) ||
     (!part.is_cooperation && permissions.canCreateOwnParts)
   )
+  const canEditCooperationDueDate = part.is_cooperation && permissions.canEditParts
+  const routeCurrentLocation = journeySummary?.current_location || (part.is_cooperation ? "У кооператора" : "Не задано")
+  const routeCurrentHolder = journeySummary?.current_holder || (part.is_cooperation ? part.cooperation_partner || "Партнёр не указан" : "Не задано")
+  const routeLastEventDescription = journeySummary?.last_event?.description || "Деталь создана"
+  const routeLastEventAt = journeySummary?.last_event?.occurred_at
+
+  const handleSaveCooperationDueDate = async () => {
+    if (!canEditCooperationDueDate) return
+    setCooperationDueDateError("")
+    setIsSavingCooperationDueDate(true)
+    try {
+      await updatePart({
+        ...part,
+        cooperation_due_date: cooperationDueDateDraft || null,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось сохранить срок от кооператора"
+      setCooperationDueDateError(message)
+    } finally {
+      setIsSavingCooperationDueDate(false)
+    }
+  }
 
   const handleSaveDrawing = async () => {
     const trimmed = drawingUrl.trim()
@@ -549,30 +587,28 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 <div className="rounded-md bg-muted/50 p-3">
                   <div className="text-xs text-muted-foreground">Текущее местоположение / держатель</div>
                   <div className="text-sm font-medium mt-1">
-                    {(journeySummary?.current_location || "—")} / {(journeySummary?.current_holder || "—")}
+                    {routeCurrentLocation} / {routeCurrentHolder}
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
                   <div className="text-xs text-muted-foreground">Следующий этап</div>
                   <div className="text-sm font-medium mt-1">
-                    {journeySummary?.next_required_stage ? STAGE_LABELS[journeySummary.next_required_stage] : "—"}
+                    {journeySummary?.next_required_stage ? STAGE_LABELS[journeySummary.next_required_stage] : "Не задан"}
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
                   <div className="text-xs text-muted-foreground">Последнее событие</div>
                   <div className="text-sm font-medium mt-1">
-                    {journeySummary?.last_event?.description || "—"}
+                    {routeLastEventDescription}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {journeySummary?.last_event?.occurred_at
-                      ? new Date(journeySummary.last_event.occurred_at).toLocaleString("ru-RU")
-                      : "—"}
+                    {routeLastEventAt ? new Date(routeLastEventAt).toLocaleString("ru-RU") : "Только создание детали"}
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
                   <div className="text-xs text-muted-foreground">Ориентир поступления</div>
                   <div className="text-sm font-medium mt-1">
-                    {journeySummary?.eta ? new Date(journeySummary.eta).toLocaleDateString("ru-RU") : "—"}
+                    {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "Не задан"}
                   </div>
                 </div>
                 {shouldShowCooperationControl && (
@@ -622,6 +658,34 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         </span>
                       )}
                     </div>
+                    {canEditCooperationDueDate && (
+                      <div className="mt-3 flex flex-wrap items-end gap-2">
+                        <div className="space-y-1">
+                          <Label htmlFor="cooperation-due-date" className="text-xs text-muted-foreground">
+                            Срок от кооператора (ориентир)
+                          </Label>
+                          <Input
+                            id="cooperation-due-date"
+                            type="date"
+                            className="h-9 w-[220px]"
+                            value={cooperationDueDateDraft}
+                            onChange={(event) => setCooperationDueDateDraft(event.target.value)}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9"
+                          onClick={() => void handleSaveCooperationDueDate()}
+                          disabled={isSavingCooperationDueDate}
+                        >
+                          {isSavingCooperationDueDate ? "Сохраняем..." : "Сохранить срок"}
+                        </Button>
+                        {cooperationDueDateError && (
+                          <div className="w-full text-xs text-destructive">{cooperationDueDateError}</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

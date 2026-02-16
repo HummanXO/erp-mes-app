@@ -47,6 +47,7 @@ function transformPart(backendPart: any): Part {
     description: backendPart.description,
     is_cooperation: backendPart.is_cooperation,
     cooperation_partner: backendPart.cooperation_partner,
+    cooperation_due_date: backendPart.cooperation_due_date ?? undefined,
     required_stages: backendPart.required_stages,
     stage_statuses: backendPart.stage_statuses || [],
     machine_id: backendPart.machine_id,

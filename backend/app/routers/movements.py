@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -31,6 +31,23 @@ from ..services.movement_rules import (
 router = APIRouter(tags=["movements"])
 
 STAGE_FLOW_ORDER = ("machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc")
+STAGE_LABELS: dict[str, str] = {
+    "machining": "механообработка",
+    "fitting": "слесарка",
+    "galvanic": "гальваника",
+    "heat_treatment": "термообработка",
+    "grinding": "шлифовка",
+    "qc": "ОТК",
+}
+MOVEMENT_STATUS_LABELS: dict[str, str] = {
+    "pending": "черновик",
+    "sent": "отправлено",
+    "in_transit": "в пути",
+    "received": "получено",
+    "returned": "возврат",
+    "cancelled": "отменено",
+    "completed": "завершено",
+}
 
 
 def _now_utc() -> datetime:
@@ -100,6 +117,28 @@ def _movement_affects_location(movement: LogisticsEntry | None) -> bool:
     if not movement:
         return False
     return has_real_shipment_semantics(status=movement.status, sent_at=movement.sent_at)
+
+
+def _apply_cooperation_location_fallback(
+    *,
+    part: Part,
+    current_location: str | None,
+    current_holder: str | None,
+) -> tuple[str | None, str | None]:
+    if not part.is_cooperation:
+        return current_location, current_holder
+
+    resolved_location = current_location or "У кооператора"
+    resolved_holder = current_holder or part.cooperation_partner or "Партнёр не указан"
+    return resolved_location, resolved_holder
+
+
+def _resolve_eta(part: Part, active_movement: LogisticsEntry | None) -> datetime | None:
+    if active_movement and active_movement.planned_eta:
+        return active_movement.planned_eta
+    if part.cooperation_due_date is None:
+        return None
+    return datetime.combine(part.cooperation_due_date, time.min, tzinfo=timezone.utc)
 
 
 @router.post(
@@ -416,7 +455,13 @@ def get_part_journey(
         None,
     )
     current_location, current_holder = _derive_current_location_and_holder(active_movement or location_movement)
-    eta = active_movement.planned_eta if active_movement else None
+    current_location, current_holder = _apply_cooperation_location_fallback(
+        part=part,
+        current_location=current_location,
+        current_holder=current_holder,
+    )
+
+    eta = _resolve_eta(part, active_movement)
 
     latest_fact = (
         db.query(StageFact)
@@ -444,25 +489,35 @@ def get_part_journey(
     fact_ts = latest_fact.created_at if latest_fact else None
 
     if movement_ts and (fact_ts is None or movement_ts >= fact_ts):
+        movement_status = normalize_movement_status(movement_for_event.status) if movement_for_event else "pending"
         last_event = JourneyEventOut(
             event_type="movement",
             occurred_at=movement_ts,
-            description=f"Movement status: {normalize_movement_status(movement_for_event.status) if movement_for_event else 'unknown'}",
+            description=f"Перемещение: {MOVEMENT_STATUS_LABELS.get(movement_status, movement_status)}",
         )
     elif latest_fact and fact_ts:
+        stage_label = STAGE_LABELS.get(latest_fact.stage, latest_fact.stage)
         last_event = JourneyEventOut(
             event_type="fact",
             occurred_at=fact_ts,
-            description=f"Stage fact: {latest_fact.stage}",
+            description=f"Факт этапа: {stage_label}",
         )
     else:
-        last_event = None
+        last_event = JourneyEventOut(
+            event_type="part",
+            occurred_at=part.created_at,
+            description="Деталь создана",
+        )
+
+    next_required_stage = _next_required_stage(part)
+    if next_required_stage is None and part.is_cooperation and part.status != "done":
+        next_required_stage = "qc"
 
     return JourneyOut(
         part_id=part.id,
         current_location=current_location,
         current_holder=current_holder,
-        next_required_stage=_next_required_stage(part),
+        next_required_stage=next_required_stage,
         eta=eta,
         last_movement=MovementOut.model_validate(last_movement) if last_movement else None,
         last_event=last_event,

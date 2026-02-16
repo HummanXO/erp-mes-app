@@ -136,6 +136,7 @@ export interface Part {
   // Production configuration
   is_cooperation: boolean // Кооперация - деталь изготавливается на стороне
   cooperation_partner?: string // Название кооператора
+  cooperation_due_date?: string | null // Ориентировочный срок от кооператора
   
   // Which stages this part goes through
   required_stages: ProductionStage[]
