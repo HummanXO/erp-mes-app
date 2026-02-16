@@ -30,12 +30,12 @@ from ..services.part_state import recompute_part_state, validate_stage_flow
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
-DEPRECATED_STAGE_LOGISTICS = "logistics"
+DEPRECATED_STAGES = {"logistics", "grinding"}
 COOP_REQUIRED_STAGES = {"qc"}
 COOP_OPTIONAL_STAGES = {"galvanic"}
 COOP_ALLOWED_STAGES = COOP_REQUIRED_STAGES | COOP_OPTIONAL_STAGES
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
-SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding"}
+SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment"}
 STAGE_FLOW_ORDER = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
 PROGRESS_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
 
@@ -45,8 +45,8 @@ def _sort_stages_by_flow(stages: set[str]) -> list[str]:
 
 
 def _sanitize_requested_stages(stages: list[str]) -> set[str]:
-    """Backward compatibility: ignore deprecated logistics stage in incoming payloads."""
-    return {stage for stage in stages if stage != DEPRECATED_STAGE_LOGISTICS}
+    """Backward compatibility: ignore deprecated/disabled stages in incoming payloads."""
+    return {stage for stage in stages if stage not in DEPRECATED_STAGES}
 
 
 def _recompute_specification_status(db: Session, specification: Specification) -> None:
