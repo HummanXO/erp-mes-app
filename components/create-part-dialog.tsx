@@ -48,7 +48,7 @@ export function CreatePartDialog({
   submitLabel = "Создать деталь",
   onPartCreated,
 }: CreatePartDialogProps) {
-  const { createPart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
+  const { createPart, createLogisticsEntry, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -78,6 +78,7 @@ export function CreatePartDialog({
   // Cooperation
   const [isCooperation, setIsCooperation] = useState(false)
   const [cooperationPartner, setCooperationPartner] = useState("")
+  const [cooperationDueDate, setCooperationDueDate] = useState("")
   const [cooperationPartnerList, setCooperationPartnerList] = useState<string[]>([])
   const [isCooperationPartnerFocused, setIsCooperationPartnerFocused] = useState(false)
   
@@ -320,6 +321,18 @@ export function CreatePartDialog({
       addCustomerToList(customer)
       if (isCooperation) {
         addCooperationPartnerToList(cooperationPartner)
+        if (cooperationDueDate) {
+          await createLogisticsEntry({
+            part_id: createdPart.id,
+            status: "pending",
+            description: "Стартовый срок от кооператора",
+            to_holder: cooperationPartner.trim() || undefined,
+            planned_eta: new Date(`${cooperationDueDate}T00:00:00`).toISOString(),
+            type: "coop_out",
+            date: new Date().toISOString().split("T")[0],
+            notes: "Создано автоматически при создании кооперационной детали",
+          })
+        }
       }
       if (onPartCreated) {
         await onPartCreated(createdPart)
@@ -381,6 +394,7 @@ export function CreatePartDialog({
       setIsCooperation(false)
     }
     setCooperationPartner("")
+    setCooperationDueDate("")
     setSelectedOptionalStages([])
     setMachineId("")
     setDrawingAttachment(null)
@@ -568,55 +582,69 @@ export function CreatePartDialog({
           
           {/* Cooperation partner input */}
           {isCooperation && (
-            <div className="space-y-2">
-              <Label htmlFor={partnerId}>Партнёр-кооператор</Label>
-              <Input
-                id={partnerId}
-                placeholder="ООО Литейщик"
-                value={cooperationPartner}
-                onChange={(e) => setCooperationPartner(e.target.value)}
-                className="h-11"
-                onFocus={() => setIsCooperationPartnerFocused(true)}
-                onBlur={() => setIsCooperationPartnerFocused(false)}
-                autoComplete="off"
-                aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
-                aria-describedby={formError ? formErrorId : undefined}
-              />
-              {showCooperationPartnerSuggestions && (
-                <div className="relative">
-                  <div className="absolute left-0 right-0 mt-2 z-30 rounded-lg border bg-background shadow-sm">
-                    <div className="max-h-48 overflow-auto py-1">
-                      {filteredCooperationPartners.map((item) => (
-                        <div key={item} className="flex items-center justify-between gap-2 px-2">
-                          <button
-                            type="button"
-                            className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setCooperationPartner(item)
-                              setIsCooperationPartnerFocused(false)
-                            }}
-                          >
-                            <span className="text-sm">{item}</span>
-                          </button>
-                          <button
-                            type="button"
-                            className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                            aria-label={`Удалить кооператора ${item}`}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => removeCooperationPartnerFromList(item)}
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="border-t px-3 py-1 text-xs text-muted-foreground">
-                      Нажмите на партнёра, чтобы выбрать. Можно удалить из списка.
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={partnerId}>Партнёр-кооператор</Label>
+                <Input
+                  id={partnerId}
+                  placeholder="ООО Литейщик"
+                  value={cooperationPartner}
+                  onChange={(e) => setCooperationPartner(e.target.value)}
+                  className="h-11"
+                  onFocus={() => setIsCooperationPartnerFocused(true)}
+                  onBlur={() => setIsCooperationPartnerFocused(false)}
+                  autoComplete="off"
+                  aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
+                  aria-describedby={formError ? formErrorId : undefined}
+                />
+                {showCooperationPartnerSuggestions && (
+                  <div className="relative">
+                    <div className="absolute left-0 right-0 mt-2 z-30 rounded-lg border bg-background shadow-sm">
+                      <div className="max-h-48 overflow-auto py-1">
+                        {filteredCooperationPartners.map((item) => (
+                          <div key={item} className="flex items-center justify-between gap-2 px-2">
+                            <button
+                              type="button"
+                              className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                setCooperationPartner(item)
+                                setIsCooperationPartnerFocused(false)
+                              }}
+                            >
+                              <span className="text-sm">{item}</span>
+                            </button>
+                            <button
+                              type="button"
+                              className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                              aria-label={`Удалить кооператора ${item}`}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => removeCooperationPartnerFromList(item)}
+                            >
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="border-t px-3 py-1 text-xs text-muted-foreground">
+                        Нажмите на партнёра, чтобы выбрать. Можно удалить из списка.
+                      </div>
                     </div>
                   </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Срок от кооператора (ориентир)</Label>
+                <Input
+                  type="date"
+                  value={cooperationDueDate}
+                  onChange={(e) => setCooperationDueDate(e.target.value)}
+                  className="h-11"
+                />
+                <div className="text-xs text-muted-foreground">
+                  Необязательно. Можно задать позже во вкладке «Логистика».
                 </div>
-              )}
+              </div>
             </div>
           )}
           
