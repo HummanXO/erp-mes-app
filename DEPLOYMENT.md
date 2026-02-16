@@ -80,6 +80,10 @@ docker-compose -f docker-compose.prod.yml logs frontend -f
 - `ALLOWED_ORIGINS=https://docalliance.info,https://www.docalliance.info`
 - `CSRF_TRUSTED_ORIGINS=https://docalliance.info,https://www.docalliance.info`
 
+Важно для фронтенда:
+- `NEXT_PUBLIC_API_BASE_URL` задавайте без завершающего `/`, например: `https://docalliance.info/api/v1` или `/api/v1`.
+- Двойной слэш в URL (`/api/v1//auth/refresh`) может ломать восстановление сессии после перезагрузки страницы.
+
 ## Проверка работы:
 - Главная: https://docalliance.info/
 - API Docs: https://docalliance.info/docs
