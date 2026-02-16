@@ -551,39 +551,44 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                       cooperationControlTone === "neutral" && "border-muted bg-muted/40"
                     )}
                   >
-                    <div className="text-xs text-muted-foreground">Срок кооператора vs дедлайн детали</div>
-                    {!hasCooperationEta ? (
-                      <div className="mt-1 text-sm">
-                        ETA кооператора не задан. Добавьте `planned_eta` в движении отправки/перевозки.
-                      </div>
-                    ) : (
-                      <div className="mt-1 space-y-1 text-sm">
-                        <div className="font-medium">
-                          {cooperationControlTone === "risk" ? "Риск срыва по кооперации" : "Кооперация укладывается в срок"}
-                        </div>
-                        <div className="text-muted-foreground">
-                          ETA: {cooperationEtaDate?.toLocaleDateString("ru-RU")} | Дедлайн:{" "}
-                          {partDeadlineDate.toLocaleDateString("ru-RU")}
-                          {cooperationDeltaDays !== null && (
-                            <span className="ml-2">
-                              {cooperationDeltaDays > 0
-                                ? `(запас ${cooperationDeltaDays} дн.)`
-                                : cooperationDeltaDays < 0
-                                  ? `(отставание ${Math.abs(cooperationDeltaDays)} дн.)`
-                                  : "(в срок)"}
-                            </span>
-                          )}
-                        </div>
-                        {journeySummary?.last_movement?.tracking_number && (
-                          <div className="text-xs text-muted-foreground">
-                            Трекинг: {journeySummary.last_movement.tracking_number}
-                            {journeySummary.last_movement.last_tracking_status
-                              ? ` | ${journeySummary.last_movement.last_tracking_status}`
-                              : ""}
-                          </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs text-muted-foreground">Кооперация</div>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          cooperationControlTone === "ok" && "border-green-600 text-green-700",
+                          cooperationControlTone === "risk" && "border-amber-600 text-amber-700",
+                          cooperationControlTone === "neutral" && "border-muted-foreground/40 text-muted-foreground"
                         )}
-                      </div>
-                    )}
+                      >
+                        {!hasCooperationEta
+                          ? "ETA не задана"
+                          : cooperationControlTone === "risk"
+                            ? "Риск"
+                            : "В срок"}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                      <span>ETA: {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "—"}</span>
+                      <span>Дедлайн: {partDeadlineDate.toLocaleDateString("ru-RU")}</span>
+                      <span>
+                        {cooperationDeltaDays !== null
+                          ? cooperationDeltaDays > 0
+                            ? `запас ${cooperationDeltaDays} дн.`
+                            : cooperationDeltaDays < 0
+                              ? `отставание ${Math.abs(cooperationDeltaDays)} дн.`
+                              : "в срок"
+                          : `до дедлайна ${Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))} дн.`}
+                      </span>
+                      {journeySummary?.last_movement?.tracking_number && (
+                        <span>
+                          Трекинг: {journeySummary.last_movement.tracking_number}
+                          {journeySummary.last_movement.last_tracking_status
+                            ? ` (${journeySummary.last_movement.last_tracking_status})`
+                            : ""}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
