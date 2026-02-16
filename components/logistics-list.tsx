@@ -158,6 +158,8 @@ export function LogisticsList({ part }: LogisticsListProps) {
     return <Clock className="h-3 w-3 mr-1" />
   }
 
+  const isReceivedActionAvailable = (status: MovementStatus) => status === "sent" || status === "in_transit"
+
   return (
       <div className="space-y-4">
 		      {permissions.canEditFacts && !isCreating && (
@@ -313,6 +315,11 @@ export function LogisticsList({ part }: LogisticsListProps) {
             <Truck className="h-4 w-4" />
             Журнал перемещений ({logistics.length})
           </CardTitle>
+          {permissions.canEditFacts && (
+            <div className="text-xs text-muted-foreground">
+              Чтобы отметить, что деталь пришла, нажмите кнопку «Отметить получено» у нужного перемещения.
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {sortedLogistics.length === 0 ? (
@@ -400,6 +407,27 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         {statusIcon(entry.status)}
                         {STATUS_LABELS[entry.status]}
                       </Badge>
+
+                      {permissions.canEditFacts && entry.status === "pending" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8 text-xs"
+                          onClick={() => void handleStatusUpdate(entry, "sent")}
+                        >
+                          Отметить отправлено
+                        </Button>
+                      )}
+
+                      {permissions.canEditFacts && isReceivedActionAvailable(entry.status) && (
+                        <Button
+                          type="button"
+                          className="h-8 text-xs"
+                          onClick={() => void handleStatusUpdate(entry, "received")}
+                        >
+                          Отметить получено
+                        </Button>
+                      )}
                       
                       {permissions.canEditFacts && !["cancelled", "completed", "received", "returned"].includes(entry.status) && (
                         <Select 
