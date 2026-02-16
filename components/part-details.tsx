@@ -211,11 +211,30 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   })
   const hasFacts = stageFacts.length > 0
   const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
+  const partDeadlineDate = new Date(part.deadline)
+  const hasPartDeadline = !Number.isNaN(partDeadlineDate.getTime())
   const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
   const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
   const internalDeltaDays = hasInternalDeadline
-    ? Math.ceil((new Date(part.deadline).getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
+    ? Math.ceil((partDeadlineDate.getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
     : null
+  const cooperationEtaDate = journeySummary?.eta ? new Date(journeySummary.eta) : null
+  const hasCooperationEta = Boolean(cooperationEtaDate && !Number.isNaN(cooperationEtaDate.getTime()))
+  const shouldShowCooperationControl = Boolean(
+    part.is_cooperation ||
+    journeySummary?.eta ||
+    journeySummary?.last_movement?.tracking_number ||
+    journeySummary?.last_movement?.to_holder
+  )
+  const cooperationDeltaDays =
+    hasPartDeadline && hasCooperationEta && cooperationEtaDate
+      ? Math.ceil((partDeadlineDate.getTime() - cooperationEtaDate.getTime()) / (1000 * 60 * 60 * 24))
+      : null
+  const cooperationControlTone = !hasCooperationEta
+    ? "neutral"
+    : cooperationDeltaDays !== null && cooperationDeltaDays < 0
+      ? "risk"
+      : "ok"
   const canDeletePart = permissions.canCreateParts && (
     (part.is_cooperation && permissions.canCreateCoopParts) ||
     (!part.is_cooperation && permissions.canCreateOwnParts)
@@ -523,6 +542,50 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                     {journeySummary?.eta ? new Date(journeySummary.eta).toLocaleDateString("ru-RU") : "—"}
                   </div>
                 </div>
+                {shouldShowCooperationControl && (
+                  <div
+                    className={cn(
+                      "rounded-md border p-3 md:col-span-2",
+                      cooperationControlTone === "ok" && "border-green-200 bg-green-50/60",
+                      cooperationControlTone === "risk" && "border-amber-200 bg-amber-50/60",
+                      cooperationControlTone === "neutral" && "border-muted bg-muted/40"
+                    )}
+                  >
+                    <div className="text-xs text-muted-foreground">Срок кооператора vs дедлайн детали</div>
+                    {!hasCooperationEta ? (
+                      <div className="mt-1 text-sm">
+                        ETA кооператора не задан. Добавьте `planned_eta` в движении отправки/перевозки.
+                      </div>
+                    ) : (
+                      <div className="mt-1 space-y-1 text-sm">
+                        <div className="font-medium">
+                          {cooperationControlTone === "risk" ? "Риск срыва по кооперации" : "Кооперация укладывается в срок"}
+                        </div>
+                        <div className="text-muted-foreground">
+                          ETA: {cooperationEtaDate?.toLocaleDateString("ru-RU")} | Дедлайн:{" "}
+                          {partDeadlineDate.toLocaleDateString("ru-RU")}
+                          {cooperationDeltaDays !== null && (
+                            <span className="ml-2">
+                              {cooperationDeltaDays > 0
+                                ? `(запас ${cooperationDeltaDays} дн.)`
+                                : cooperationDeltaDays < 0
+                                  ? `(отставание ${Math.abs(cooperationDeltaDays)} дн.)`
+                                  : "(в срок)"}
+                            </span>
+                          )}
+                        </div>
+                        {journeySummary?.last_movement?.tracking_number && (
+                          <div className="text-xs text-muted-foreground">
+                            Трекинг: {journeySummary.last_movement.tracking_number}
+                            {journeySummary.last_movement.last_tracking_status
+                              ? ` | ${journeySummary.last_movement.last_tracking_status}`
+                              : ""}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
