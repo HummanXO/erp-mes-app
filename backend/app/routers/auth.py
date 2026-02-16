@@ -1,7 +1,7 @@
 """Auth endpoints."""
 import logging
 import ipaddress
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -72,6 +72,18 @@ def _set_no_store(response: Response) -> None:
     # Reduce the chance of logging/caching secrets (temporary passwords, tokens).
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _csrf_trusted_origins() -> set[str]:
@@ -243,7 +255,7 @@ def _clear_refresh_cookie(response: Response, *, request: Request) -> None:
 
 
 def _revoke_all_refresh_sessions(db: Session, *, user_id: UUID) -> None:
-    now = datetime.utcnow()
+    now = _utc_now()
     db.query(RefreshSession).filter(
         RefreshSession.user_id == user_id,
         RefreshSession.revoked_at.is_(None),
@@ -255,7 +267,7 @@ def _revoke_all_refresh_sessions(db: Session, *, user_id: UUID) -> None:
 
 def _create_refresh_session(db: Session, *, user: User, request: Request) -> str:
     jti = uuid4().hex
-    now = datetime.utcnow()
+    now = _utc_now()
     expires_at = now + timedelta(days=int(settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS))
     session = RefreshSession(
         user_id=user.id,
@@ -484,15 +496,16 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
         _clear_refresh_cookie(response, request=request)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
 
-    now = datetime.utcnow()
+    now = _utc_now()
 
     # Revoked refresh token: could be either benign duplicate refresh (race within grace)
     # or actual replay/theft. If this refresh was rotated recently and we have a replacement
     # session, re-issue the replacement cookie + access token idempotently.
     if session.revoked_at is not None:
         grace = int(settings.AUTH_REFRESH_REUSE_GRACE_SECONDS)
-        if grace > 0 and session.replaced_by_jti and session.revoked_at:
-            age_seconds = (now - session.revoked_at).total_seconds()
+        revoked_at = _as_utc(session.revoked_at)
+        if grace > 0 and session.replaced_by_jti and revoked_at:
+            age_seconds = (now - revoked_at).total_seconds()
             if age_seconds <= grace:
                 replacement = (
                     db.query(RefreshSession)
@@ -504,7 +517,8 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
                     .with_for_update()
                     .first()
                 )
-                if replacement and replacement.expires_at and replacement.expires_at >= now:
+                replacement_expires_at = _as_utc(replacement.expires_at) if replacement else None
+                if replacement and replacement_expires_at and replacement_expires_at >= now:
                     user_resp = UserResponse.model_validate(user)
                     must_change = user.must_change_password
                     access_token = create_access_token({"sub": str(user.id), "ver": user.token_version})
@@ -533,7 +547,8 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
 
         _clear_refresh_cookie(response, request=request)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token replay detected")
-    if session.expires_at and session.expires_at < now:
+    session_expires_at = _as_utc(session.expires_at)
+    if session_expires_at and session_expires_at < now:
         try:
             session.revoked_at = now
             db.commit()
@@ -647,7 +662,7 @@ def change_password(
     try:
         current_user.password_hash = hash_password(payload.new_password)
         current_user.must_change_password = False
-        current_user.password_changed_at = datetime.utcnow()
+        current_user.password_changed_at = _utc_now()
         current_user.token_version += 1
         _revoke_all_refresh_sessions(db, user_id=current_user.id)
         new_jti = _create_refresh_session(db, user=current_user, request=request)
@@ -832,7 +847,7 @@ def admin_reset_password(
     try:
         target_user.password_hash = hash_password(temp_password)
         target_user.must_change_password = True
-        target_user.password_changed_at = datetime.utcnow()
+        target_user.password_changed_at = _utc_now()
         target_user.token_version += 1
         _revoke_all_refresh_sessions(db, user_id=target_user.id)
         db.commit()
