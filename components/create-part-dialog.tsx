@@ -20,11 +20,12 @@ import { cn } from "@/lib/utils"
 import { Building2, AlertCircle, X, Loader2, Upload, CheckCircle, FileImage, FileText } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["qc"]
-const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic"]
+const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
 const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment"]
 const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "qc"]
 const CUSTOMER_STORAGE_KEY = "erp_customer_list"
+const COOP_PARTNER_STORAGE_KEY = "erp_cooperation_partner_list"
 
 interface CreatePartDialogProps {
   open: boolean
@@ -77,6 +78,8 @@ export function CreatePartDialog({
   // Cooperation
   const [isCooperation, setIsCooperation] = useState(false)
   const [cooperationPartner, setCooperationPartner] = useState("")
+  const [cooperationPartnerList, setCooperationPartnerList] = useState<string[]>([])
+  const [isCooperationPartnerFocused, setIsCooperationPartnerFocused] = useState(false)
   
   // Stages
   const [selectedOptionalStages, setSelectedOptionalStages] = useState<ProductionStage[]>([])
@@ -96,6 +99,13 @@ export function CreatePartDialog({
   const existingCustomers = useMemo(() => {
     const fromParts = parts
       .map((part) => part.customer?.trim())
+      .filter((value): value is string => !!value && value.length > 0)
+    return Array.from(new Set(fromParts))
+  }, [parts])
+
+  const existingCooperationPartners = useMemo(() => {
+    const fromParts = parts
+      .map((part) => part.cooperation_partner?.trim())
       .filter((value): value is string => !!value && value.length > 0)
     return Array.from(new Set(fromParts))
   }, [parts])
@@ -155,6 +165,17 @@ export function CreatePartDialog({
   }, [existingCustomers, open])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const stored = JSON.parse(localStorage.getItem(COOP_PARTNER_STORAGE_KEY) || "[]")
+      const merged = Array.from(new Set([...(Array.isArray(stored) ? stored : []), ...existingCooperationPartners]))
+      setCooperationPartnerList(merged)
+    } catch {
+      setCooperationPartnerList(existingCooperationPartners)
+    }
+  }, [existingCooperationPartners, open])
+
+  useEffect(() => {
     if (!open) return
     setCustomer(defaultCustomer || "")
   }, [defaultCustomer, open])
@@ -203,6 +224,26 @@ export function CreatePartDialog({
     persistCustomerList(filtered)
   }
 
+  const persistCooperationPartnerList = (list: string[]) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(COOP_PARTNER_STORAGE_KEY, JSON.stringify(list))
+  }
+
+  const addCooperationPartnerToList = (value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    const normalized = trimmed.replace(/\s+/g, " ")
+    const merged = Array.from(new Set([normalized, ...cooperationPartnerList]))
+    setCooperationPartnerList(merged)
+    persistCooperationPartnerList(merged)
+  }
+
+  const removeCooperationPartnerFromList = (value: string) => {
+    const filtered = cooperationPartnerList.filter((item) => item !== value)
+    setCooperationPartnerList(filtered)
+    persistCooperationPartnerList(filtered)
+  }
+
   const filteredCustomers = useMemo(() => {
     const query = customer.trim().toLowerCase()
     if (!query) return customerList.slice(0, 8)
@@ -211,7 +252,16 @@ export function CreatePartDialog({
       .slice(0, 8)
   }, [customer, customerList])
 
+  const filteredCooperationPartners = useMemo(() => {
+    const query = cooperationPartner.trim().toLowerCase()
+    if (!query) return cooperationPartnerList.slice(0, 8)
+    return cooperationPartnerList
+      .filter((item) => item.toLowerCase().includes(query))
+      .slice(0, 8)
+  }, [cooperationPartner, cooperationPartnerList])
+
   const showCustomerSuggestions = isCustomerFocused && filteredCustomers.length > 0
+  const showCooperationPartnerSuggestions = isCooperationPartnerFocused && filteredCooperationPartners.length > 0
   
   const handleCreate = async () => {
     setFormError("")
@@ -268,6 +318,9 @@ export function CreatePartDialog({
       })
 
       addCustomerToList(customer)
+      if (isCooperation) {
+        addCooperationPartnerToList(cooperationPartner)
+      }
       if (onPartCreated) {
         await onPartCreated(createdPart)
       }
@@ -523,9 +576,47 @@ export function CreatePartDialog({
                 value={cooperationPartner}
                 onChange={(e) => setCooperationPartner(e.target.value)}
                 className="h-11"
+                onFocus={() => setIsCooperationPartnerFocused(true)}
+                onBlur={() => setIsCooperationPartnerFocused(false)}
+                autoComplete="off"
                 aria-invalid={!!formError && isCooperation && !cooperationPartner.trim()}
                 aria-describedby={formError ? formErrorId : undefined}
               />
+              {showCooperationPartnerSuggestions && (
+                <div className="relative">
+                  <div className="absolute left-0 right-0 mt-2 z-30 rounded-lg border bg-background shadow-sm">
+                    <div className="max-h-48 overflow-auto py-1">
+                      {filteredCooperationPartners.map((item) => (
+                        <div key={item} className="flex items-center justify-between gap-2 px-2">
+                          <button
+                            type="button"
+                            className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setCooperationPartner(item)
+                              setIsCooperationPartnerFocused(false)
+                            }}
+                          >
+                            <span className="text-sm">{item}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
+                            aria-label={`Удалить кооператора ${item}`}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => removeCooperationPartnerFromList(item)}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t px-3 py-1 text-xs text-muted-foreground">
+                      Нажмите на партнёра, чтобы выбрать. Можно удалить из списка.
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           
@@ -566,9 +657,7 @@ export function CreatePartDialog({
                         onClick={() => toggleOptionalStage(stage)}
                         aria-pressed={selectedOptionalStages.includes(stage)}
                       >
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs">
-                          {selectedOptionalStages.includes(stage) ? "✓" : ""}
-                        </span>
+                        <Checkbox checked={selectedOptionalStages.includes(stage)} disabled />
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
                           <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
@@ -608,9 +697,7 @@ export function CreatePartDialog({
                         onClick={() => toggleOptionalStage(stage)}
                         aria-pressed={selectedOptionalStages.includes(stage)}
                       >
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded border text-xs">
-                          {selectedOptionalStages.includes(stage) ? "✓" : ""}
-                        </span>
+                        <Checkbox checked={selectedOptionalStages.includes(stage)} disabled />
                         <div className="flex items-center gap-2 min-w-0 flex-1">
                           {STAGE_ICONS[stage]}
                           <span className="text-sm leading-tight break-words">{STAGE_LABELS[stage]}</span>
