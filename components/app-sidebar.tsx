@@ -22,7 +22,6 @@ import {
   ClipboardList,
   LogOut, 
   RefreshCw,
-  Calendar,
   User,
   Users,
   Warehouse
@@ -36,7 +35,7 @@ interface AppSidebarProps {
 }
 
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
-  const { currentUser, logout, demoDate, setDemoDate, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount, inventoryMetal, inventoryTooling, permissions } = useApp()
+  const { currentUser, logout, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount, inventoryMetal, inventoryTooling, permissions } = useApp()
   const usingApi = dataProvider.isUsingApi()
 
   const blockers = getAllBlockers()
@@ -151,24 +150,6 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
         
         <Separator className="my-4" />
         
-        {/* Demo date control - only for admin */}
-        {currentUser?.role === "admin" && (
-          <div className="px-2 space-y-2">
-            <Label className="text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" />
-              Демо-дата
-            </Label>
-            <Input
-              type="date"
-              value={demoDate}
-              onChange={(e) => setDemoDate(e.target.value)}
-              className="h-11 md:h-8"
-            />
-            <p className="text-xs text-muted-foreground">
-              Для тестирования разных сценариев
-            </p>
-          </div>
-        )}
       </SidebarContent>
       
       <SidebarFooter className="p-4 space-y-3">
