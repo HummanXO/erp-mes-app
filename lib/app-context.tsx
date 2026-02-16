@@ -741,7 +741,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!part) return { qtyDone: 0, qtyPlan: 0, percent: 0, qtyScrap: 0, stageProgress: [] }
 
     const facts = stageFacts.filter(f => f.part_id === partId)
-    const qtyScrap = facts.reduce((sum, f) => sum + f.qty_scrap, 0)
+    const factsScrap = facts.reduce((sum, f) => sum + f.qty_scrap, 0)
 
     const stageStatuses = part.stage_statuses || []
     const activeStages = stageStatuses.filter(
@@ -749,11 +749,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     )
 
     const stageProgress = activeStages.map(stageStatus => {
+      const backendQtyGood = typeof stageStatus.qty_good === "number" ? stageStatus.qty_good : null
       const stageFactsForStage = facts.filter(f => f.stage === stageStatus.stage)
-      const totalGood = stageFactsForStage.reduce((sum, f) => sum + f.qty_good, 0)
-      const percent = part.qty_plan > 0
-        ? Math.min(100, Math.round((totalGood / part.qty_plan) * 100))
-        : 0
+      const totalGood = backendQtyGood ?? stageFactsForStage.reduce((sum, f) => sum + f.qty_good, 0)
+      const backendPercent = typeof stageStatus.percent === "number" ? stageStatus.percent : null
+      const percent = backendPercent ?? (
+        part.qty_plan > 0
+          ? Math.min(100, Math.round((totalGood / part.qty_plan) * 100))
+          : 0
+      )
       return {
         stage: stageStatus.stage,
         percent: stageStatus.status === "done" ? 100 : percent,
@@ -761,14 +765,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // Overall progress = average across production stages (machining..qc), for a more intuitive "work progress".
-    // Logistics is excluded by PROGRESS_STAGES, so overall progress can reach 100% when QC is complete.
-    const overallPercent = stageProgress.length > 0
-      ? Math.round(stageProgress.reduce((sum, sp) => sum + sp.percent, 0) / stageProgress.length)
+    const backendStatusScrap = stageStatuses.reduce(
+      (sum, stageStatus) => sum + (typeof stageStatus.qty_scrap === "number" ? stageStatus.qty_scrap : 0),
+      0
+    )
+    const qtyScrap = Math.max(factsScrap, backendStatusScrap)
+    const qtyDone = part.qty_done
+    const overallPercent = part.qty_plan > 0
+      ? Math.min(100, Math.max(0, Math.round((qtyDone / part.qty_plan) * 100)))
       : 0
-
-    // Display-only quantity (derived from overall percent). The real "ready qty" comes from backend part.qty_done.
-    const qtyDone = Math.round((overallPercent / 100) * part.qty_plan)
 
     return {
       qtyDone,

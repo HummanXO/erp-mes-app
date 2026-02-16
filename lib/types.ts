@@ -34,8 +34,12 @@ export type ProductionStage =
   | "logistics"      // Логистика
 
 export interface StageStatus {
+  id?: string
   stage: ProductionStage
   status: "pending" | "in_progress" | "done" | "skipped"
+  percent?: number
+  qty_good?: number
+  qty_scrap?: number
   operator_id?: string
   started_at?: string
   completed_at?: string

@@ -24,6 +24,7 @@ from ..services.part_state import (
 )
 
 router = APIRouter(tags=["facts"])
+FACT_ENABLED_STAGES: set[str] = {"machining", "fitting", "qc"}
 
 _SAFE_FILENAME_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[A-Za-z0-9]{1,16}$"
@@ -125,6 +126,16 @@ def _ensure_stage_prerequisites(db: Session, part: Part, stage: str) -> None:
         )
 
 
+def _ensure_stage_supports_facts(stage: str) -> None:
+    if stage in FACT_ENABLED_STAGES:
+        return
+    stage_label = STAGE_LABELS_RU.get(stage, stage)
+    raise HTTPException(
+        status_code=400,
+        detail=f"По этапу «{stage_label}» факты не ведутся. Используйте журнал логистики/перемещений.",
+    )
+
+
 def _ensure_single_shift_per_operator(
     db: Session,
     *,
@@ -180,11 +191,7 @@ def create_stage_fact(
             raise HTTPException(status_code=403, detail="Оператор может вносить факт только по механообработке")
         data.operator_id = current_user.id
 
-    if data.stage == "logistics":
-        raise HTTPException(
-            status_code=400,
-            detail="Для этапа логистика факты производства не ведутся"
-        )
+    _ensure_stage_supports_facts(data.stage)
 
     if data.stage not in (part.required_stages or []):
         raise HTTPException(status_code=400, detail="Этап не включён для этой детали")
@@ -425,11 +432,7 @@ def update_stage_fact(
     if not fact:
         raise HTTPException(status_code=404, detail="Факт не найден")
 
-    if fact.stage == "logistics":
-        raise HTTPException(
-            status_code=400,
-            detail="Для этапа логистика факты производства не ведутся"
-        )
+    _ensure_stage_supports_facts(fact.stage)
 
     part = require_org_entity(
         db,

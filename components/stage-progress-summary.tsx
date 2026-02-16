@@ -66,12 +66,16 @@ export function StageProgressSummary({ part, showDetails = true }: StageProgress
       return aOrder - bOrder
     })
   
-  // Calculate progress for each stage
+  // Calculate progress for each stage.
   const stageProgress = useMemo(() => {
     return activeStages.map(stageStatus => {
       const facts = getStageFactsForPartAndStage(part.id, stageStatus.stage)
-      const totalGood = facts.reduce((sum, f) => sum + f.qty_good, 0)
-      const totalScrap = facts.reduce((sum, f) => sum + f.qty_scrap, 0)
+      const factGood = facts.reduce((sum, f) => sum + f.qty_good, 0)
+      const factScrap = facts.reduce((sum, f) => sum + f.qty_scrap, 0)
+      const backendGood = typeof stageStatus.qty_good === "number" ? stageStatus.qty_good : null
+      const backendScrap = typeof stageStatus.qty_scrap === "number" ? stageStatus.qty_scrap : null
+      const totalGood = backendGood ?? factGood
+      const totalScrap = backendScrap ?? factScrap
       
       // Get norm if available
       const norm = part.machine_id 
@@ -80,9 +84,12 @@ export function StageProgressSummary({ part, showDetails = true }: StageProgress
       
       // Calculate progress percentage (based on part plan)
       // For stages, we consider progress relative to total plan
-      const percent = part.qty_plan > 0 
-        ? Math.round((totalGood / part.qty_plan) * 100)
-        : 0
+      const backendPercent = typeof stageStatus.percent === "number" ? stageStatus.percent : null
+      const percent = backendPercent ?? (
+        part.qty_plan > 0
+          ? Math.round((totalGood / part.qty_plan) * 100)
+          : 0
+      )
       
       // Unique operators
       const operators = [...new Set(facts.map(f => f.operator_id))]
@@ -103,27 +110,16 @@ export function StageProgressSummary({ part, showDetails = true }: StageProgress
     return stageProgress.filter(stage => OVERALL_PROGRESS_STAGES.includes(stage.stage))
   }, [stageProgress])
   
-  // Overall progress - weighted average of all stage progress percentages
-  // Each stage contributes equally to the overall progress
+  // Overall progress reflects ready quantity (bottleneck-ready) from backend.
   const overallProgress = useMemo(() => {
-    if (overallStages.length === 0) return 0
-    
-    // Calculate average progress across all stages
-    // Each stage's progress (0-100%) contributes equally
-    const totalProgress = overallStages.reduce((sum, stage) => {
-      // For done stages, count as 100%
-      if (stage.status === "done") return sum + 100
-      // For in_progress/pending, use actual percent based on qty
-      return sum + stage.percent
-    }, 0)
-    
-    return Math.round(totalProgress / overallStages.length)
-  }, [overallStages])
+    if (part.qty_plan <= 0) return 0
+    return Math.min(100, Math.max(0, Math.round((part.qty_done / part.qty_plan) * 100)))
+  }, [part.qty_done, part.qty_plan])
   
-  // Calculate overall qty done based on overall progress
+  // Ready quantity is maintained by backend.
   const overallQtyDone = useMemo(() => {
-    return Math.round((overallProgress / 100) * part.qty_plan)
-  }, [overallProgress, part.qty_plan])
+    return part.qty_done
+  }, [part.qty_done])
   
   // Check if stages can run in parallel (simplified - check if multiple in_progress)
   const parallelStages = stageProgress.filter(s => s.status === "in_progress")
