@@ -22,8 +22,8 @@ import { Building2, AlertCircle, X, Loader2, Upload, CheckCircle, FileImage, Fil
 const COOP_STAGES: ProductionStage[] = ["qc"]
 const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
-const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
-const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
+const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment"]
+const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "qc"]
 const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 
 interface CreatePartDialogProps {
