@@ -87,6 +87,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [showLinkInput, setShowLinkInput] = useState(false)
   const [journeySummary, setJourneySummary] = useState<Awaited<ReturnType<typeof getJourneyForPart>>>(null)
   const [cooperationDueDateDraft, setCooperationDueDateDraft] = useState("")
+  const [isEditingCooperationDueDate, setIsEditingCooperationDueDate] = useState(false)
   const [isSavingCooperationDueDate, setIsSavingCooperationDueDate] = useState(false)
   const [cooperationDueDateError, setCooperationDueDateError] = useState("")
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
@@ -128,6 +129,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   }, [drawingUrl])
 
   useEffect(() => {
+    if (isEditingCooperationDueDate) return
     const fromPart = part.cooperation_due_date || ""
     if (fromPart) {
       setCooperationDueDateDraft(fromPart)
@@ -135,7 +137,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     }
     const fromJourney = journeySummary?.eta ? new Date(journeySummary.eta).toISOString().slice(0, 10) : ""
     setCooperationDueDateDraft(fromJourney)
-  }, [part.cooperation_due_date, part.id, journeySummary?.eta])
+  }, [part.cooperation_due_date, part.id, journeySummary?.eta, isEditingCooperationDueDate])
 
   const isProtectedAttachmentUrl = (value: string) => {
     const candidate = value.trim()
@@ -260,6 +262,35 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const routeCurrentHolder = journeySummary?.current_holder || (part.is_cooperation ? part.cooperation_partner || "Партнёр не указан" : "Не задано")
   const routeLastEventDescription = journeySummary?.last_event?.description || "Деталь создана"
   const routeLastEventAt = journeySummary?.last_event?.occurred_at
+  const routeNextStageLabel = journeySummary?.next_required_stage
+    ? STAGE_LABELS[journeySummary.next_required_stage]
+    : part.is_cooperation
+      ? "ОТК после поступления"
+      : "Не требуется"
+  const routeStatusTitle = part.is_cooperation ? "Статус кооперации" : "Последнее событие"
+  const routeStatusDescription = (() => {
+    const lastMovement = journeySummary?.last_movement
+    if (!part.is_cooperation) return routeLastEventDescription
+    if (!lastMovement) return "На кооперации (без зафиксированной отправки)"
+    const destination = lastMovement.to_holder || lastMovement.to_location
+    if (lastMovement.status === "pending") return "Черновик отправки (ещё не отправлено)"
+    if (lastMovement.status === "sent") return destination ? `Отправлено: ${destination}` : "Отправлено кооператору"
+    if (lastMovement.status === "in_transit") return destination ? `В пути: ${destination}` : "В пути к кооператору"
+    if (lastMovement.status === "received" || lastMovement.status === "completed") return "Получено от кооператора"
+    if (lastMovement.status === "returned") return "Возврат от кооператора"
+    if (lastMovement.status === "cancelled") return "Отправка отменена"
+    return routeLastEventDescription
+  })()
+  const routeStatusAt = part.is_cooperation
+    ? (
+        journeySummary?.last_movement?.received_at ||
+        journeySummary?.last_movement?.returned_at ||
+        journeySummary?.last_movement?.cancelled_at ||
+        journeySummary?.last_movement?.sent_at ||
+        journeySummary?.last_movement?.updated_at ||
+        routeLastEventAt
+      )
+    : routeLastEventAt
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -270,6 +301,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         ...part,
         cooperation_due_date: cooperationDueDateDraft || null,
       })
+      setIsEditingCooperationDueDate(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось сохранить срок от кооператора"
       setCooperationDueDateError(message)
@@ -593,16 +625,16 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 <div className="rounded-md bg-muted/50 p-3">
                   <div className="text-xs text-muted-foreground">Следующий этап</div>
                   <div className="text-sm font-medium mt-1">
-                    {journeySummary?.next_required_stage ? STAGE_LABELS[journeySummary.next_required_stage] : "Не задан"}
+                    {routeNextStageLabel}
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">Последнее событие</div>
+                  <div className="text-xs text-muted-foreground">{routeStatusTitle}</div>
                   <div className="text-sm font-medium mt-1">
-                    {routeLastEventDescription}
+                    {routeStatusDescription}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {routeLastEventAt ? new Date(routeLastEventAt).toLocaleString("ru-RU") : "Только создание детали"}
+                    {routeStatusAt ? new Date(routeStatusAt).toLocaleString("ru-RU") : "Событие ещё не зафиксировано"}
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
@@ -658,7 +690,22 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         </span>
                       )}
                     </div>
-                    {canEditCooperationDueDate && (
+                    {canEditCooperationDueDate && !isEditingCooperationDueDate && (
+                      <div className="mt-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9"
+                          onClick={() => {
+                            setCooperationDueDateError("")
+                            setIsEditingCooperationDueDate(true)
+                          }}
+                        >
+                          Изменить срок кооператора
+                        </Button>
+                      </div>
+                    )}
+                    {canEditCooperationDueDate && isEditingCooperationDueDate && (
                       <div className="mt-3 flex flex-wrap items-end gap-2">
                         <div className="space-y-1">
                           <Label htmlFor="cooperation-due-date" className="text-xs text-muted-foreground">
@@ -679,7 +726,19 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                           onClick={() => void handleSaveCooperationDueDate()}
                           disabled={isSavingCooperationDueDate}
                         >
-                          {isSavingCooperationDueDate ? "Сохраняем..." : "Сохранить срок"}
+                          {isSavingCooperationDueDate ? "Сохраняем..." : "Сохранить"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-9"
+                          onClick={() => {
+                            setCooperationDueDateError("")
+                            setIsEditingCooperationDueDate(false)
+                          }}
+                          disabled={isSavingCooperationDueDate}
+                        >
+                          Отмена
                         </Button>
                         {cooperationDueDateError && (
                           <div className="w-full text-xs text-destructive">{cooperationDueDateError}</div>
