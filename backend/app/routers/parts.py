@@ -16,6 +16,8 @@ from ..models import (
     Task,
     LogisticsEntry,
     MachineNorm,
+    SpecItem,
+    Specification,
 )
 from ..schemas import (
     PartCreate, PartUpdate, PartResponse, StageStatusResponse,
@@ -45,6 +47,25 @@ def _sort_stages_by_flow(stages: set[str]) -> list[str]:
 def _sanitize_requested_stages(stages: list[str]) -> set[str]:
     """Backward compatibility: ignore deprecated logistics stage in incoming payloads."""
     return {stage for stage in stages if stage != DEPRECATED_STAGE_LOGISTICS}
+
+
+def _recompute_specification_status(db: Session, specification: Specification) -> None:
+    """Keep specification status in sync when linked items are removed."""
+    items = db.query(SpecItem).filter(SpecItem.specification_id == specification.id).all()
+
+    all_done = bool(items) and all(item.status in {"fulfilled", "canceled"} for item in items)
+    has_work = any(item.qty_done > 0 or item.status in {"partial", "blocked"} for item in items)
+
+    next_status = specification.status
+    if all_done:
+        next_status = "closed"
+    elif specification.status != "closed" and (specification.published_to_operators or has_work):
+        next_status = "active"
+    elif specification.status != "closed":
+        next_status = "draft"
+
+    if specification.status != next_status:
+        specification.status = next_status
 
 
 def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressResponse, list[StageStatusResponse]]:
@@ -508,6 +529,17 @@ def delete_part(
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
 
+    affected_spec_ids = [
+        row[0]
+        for row in db.query(SpecItem.specification_id).join(
+            Specification,
+            SpecItem.specification_id == Specification.id,
+        ).filter(
+            Specification.org_id == current_user.org_id,
+            SpecItem.part_id == part_id,
+        ).distinct().all()
+    ]
+
     # Keep audit trail rows but remove FK link to avoid constraint violations
     db.query(AuditEvent).filter(
         AuditEvent.part_id == part_id
@@ -534,7 +566,23 @@ def delete_part(
         PartStageStatus.part_id == part_id
     ).delete(synchronize_session=False)
 
+    # Remove orphan spec positions linked to this part so specification counters stay consistent.
+    if affected_spec_ids:
+        db.query(SpecItem).filter(
+            SpecItem.part_id == part_id,
+            SpecItem.specification_id.in_(affected_spec_ids),
+        ).delete(synchronize_session=False)
+
     db.delete(part)
+
+    if affected_spec_ids:
+        affected_specs = db.query(Specification).filter(
+            Specification.id.in_(affected_spec_ids),
+            Specification.org_id == current_user.org_id,
+        ).all()
+        for specification in affected_specs:
+            _recompute_specification_status(db, specification)
+
     db.commit()
 
 
