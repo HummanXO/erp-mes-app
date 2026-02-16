@@ -2,7 +2,7 @@
 
 import React from "react"
 
-import { useId, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { LogisticsEntry, MovementStatus, Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
@@ -11,15 +11,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Progress } from "@/components/ui/progress"
 import {
   ArrowRightLeft,
   Ban,
   CheckCircle,
   Clock,
-  Plus,
   RotateCw,
   Truck,
   Undo2,
@@ -43,7 +40,6 @@ const STATUS_LABELS: Record<MovementStatus, string> = {
 const EXTERNAL_STAGE_FLOW: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
 const ACTIVE_MOVEMENT_STATUSES = new Set<MovementStatus>(["sent", "in_transit"])
 const RECEIVED_MOVEMENT_STATUSES = new Set<MovementStatus>(["received", "completed"])
-const TERMINAL_MOVEMENT_STATUSES = new Set<MovementStatus>(["received", "completed", "cancelled", "returned"])
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
 const COOP_FLOW_ID = "__cooperation__"
 
@@ -293,20 +289,6 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
   const hasCooperationFlow = part.is_cooperation
   const hasStageFlow = stageCards.length > 0
-  const hasStructuredFlow = hasCooperationFlow || hasStageFlow
-
-  const [isCreatingManual, setIsCreatingManual] = useState(false)
-  const [manualFromLocation, setManualFromLocation] = useState("")
-  const [manualFromHolder, setManualFromHolder] = useState("")
-  const [manualToLocation, setManualToLocation] = useState("")
-  const [manualToHolder, setManualToHolder] = useState("")
-  const [manualCarrier, setManualCarrier] = useState("")
-  const [manualDescription, setManualDescription] = useState("")
-  const [manualQuantitySent, setManualQuantitySent] = useState("")
-  const [manualPlannedEta, setManualPlannedEta] = useState("")
-  const [manualTrackingNumber, setManualTrackingNumber] = useState("")
-  const [manualNotes, setManualNotes] = useState("")
-  const [manualStageId, setManualStageId] = useState("")
 
   const [sendStageId, setSendStageId] = useState<string | null>(null)
   const [sendPartner, setSendPartner] = useState("")
@@ -322,9 +304,6 @@ export function LogisticsList({ part }: LogisticsListProps) {
   const [actionError, setActionError] = useState("")
 
   const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({})
-
-  const formId = useId()
-  const stageIdField = `${formId}-stage`
 
   const getEtaDraft = (entry: LogisticsEntry) =>
     etaDrafts[entry.id] ?? toDateInputValue(entry.planned_eta)
@@ -348,49 +327,6 @@ export function LogisticsList({ part }: LogisticsListProps) {
         planned_eta: draft ? new Date(`${draft}T00:00:00`).toISOString() : undefined,
       })
       setEditingEtaMovementId(null)
-      setActionError("")
-    } catch (error) {
-      setActionError(toErrorMessage(error))
-    }
-  }
-
-  const resetManualForm = () => {
-    setManualFromLocation("")
-    setManualFromHolder("")
-    setManualToLocation("")
-    setManualToHolder("")
-    setManualCarrier("")
-    setManualDescription("")
-    setManualQuantitySent("")
-    setManualPlannedEta("")
-    setManualTrackingNumber("")
-    setManualNotes("")
-    setManualStageId("")
-  }
-
-  const handleCreateManualMovement = async () => {
-    try {
-      await createLogisticsEntry({
-        part_id: part.id,
-        status: "sent",
-        from_location: manualFromLocation || undefined,
-        from_holder: manualFromHolder || undefined,
-        to_location: manualToLocation || undefined,
-        to_holder: manualToHolder || undefined,
-        carrier: manualCarrier || undefined,
-        tracking_number: manualTrackingNumber || undefined,
-        planned_eta: manualPlannedEta ? new Date(`${manualPlannedEta}T00:00:00`).toISOString() : undefined,
-        qty_sent: manualQuantitySent ? Number.parseInt(manualQuantitySent, 10) : undefined,
-        stage_id: manualStageId || undefined,
-        description: manualDescription || "Ручное перемещение",
-        type: part.is_cooperation ? "coop_out" : "shipping_out",
-        counterparty: manualToHolder || manualToLocation || undefined,
-        notes: manualNotes || undefined,
-        date: new Date().toISOString().split("T")[0],
-      })
-
-      resetManualForm()
-      setIsCreatingManual(false)
       setActionError("")
     } catch (error) {
       setActionError(toErrorMessage(error))
@@ -438,6 +374,18 @@ export function LogisticsList({ part }: LogisticsListProps) {
     }
     if (!sendPartner.trim()) {
       setActionError("Укажите кооператора/получателя")
+      return
+    }
+
+    const remainingQty = isCooperationSend
+      ? Math.max(part.qty_plan - cooperationFlow.qtyReceived, 0)
+      : Math.max(part.qty_plan - (card?.qtyReady || 0), 0)
+    if (remainingQty <= 0) {
+      setActionError("Отправка недоступна: остаток для отправки равен 0")
+      return
+    }
+    if (qtyValue > remainingQty) {
+      setActionError(`Нельзя отправить больше остатка: доступно ${remainingQty} шт`)
       return
     }
 
@@ -496,6 +444,14 @@ export function LogisticsList({ part }: LogisticsListProps) {
       setActionError("Укажите корректное количество приёмки")
       return
     }
+    if (
+      parsedQty !== undefined &&
+      movement.qty_sent !== undefined &&
+      parsedQty > movement.qty_sent
+    ) {
+      setActionError(`Нельзя принять больше отправленного: ${movement.qty_sent} шт`)
+      return
+    }
 
     try {
       await updateLogisticsEntry({
@@ -512,19 +468,18 @@ export function LogisticsList({ part }: LogisticsListProps) {
     }
   }
 
-  const handleUpdateStatus = async (entry: LogisticsEntry, status: MovementStatus) => {
-    try {
-      await updateLogisticsEntry({ ...entry, status })
-      setActionError("")
-    } catch (error) {
-      setActionError(toErrorMessage(error))
-    }
-  }
-
   const handleReceiveFromHistory = async (entry: LogisticsEntry) => {
     const parsedQty = receiveQty ? Number.parseInt(receiveQty, 10) : undefined
     if (parsedQty !== undefined && (!Number.isFinite(parsedQty) || parsedQty < 0)) {
       setActionError("Укажите корректное количество приёмки")
+      return
+    }
+    if (
+      parsedQty !== undefined &&
+      entry.qty_sent !== undefined &&
+      parsedQty > entry.qty_sent
+    ) {
+      setActionError(`Нельзя принять больше отправленного: ${entry.qty_sent} шт`)
       return
     }
 
@@ -1139,188 +1094,6 @@ export function LogisticsList({ part }: LogisticsListProps) {
         </Card>
       )}
 
-      {permissions.canEditFacts && (
-        <Button
-          type="button"
-          variant={hasStructuredFlow ? "outline" : "default"}
-          className="w-full h-10"
-          onClick={() => setIsCreatingManual((prev) => !prev)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          {isCreatingManual
-            ? "Скрыть ручной ввод"
-            : hasStructuredFlow
-              ? "Ручной ввод перемещения"
-              : "Добавить перемещение"}
-        </Button>
-      )}
-
-      {isCreatingManual && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Truck className="h-4 w-4" />
-              Ручное перемещение
-            </CardTitle>
-            <div className="text-xs text-muted-foreground">
-              Используйте только для нестандартных кейсов. Для кооперации и внешних этапов выше удобнее кнопки
-              «Отправить/Принять».
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-from-location`}>Откуда (локация)</Label>
-                <Input
-                  id={`${formId}-from-location`}
-                  value={manualFromLocation}
-                  onChange={(e) => setManualFromLocation(e.target.value)}
-                  placeholder="Цех / склад / адрес"
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-from-holder`}>Отправитель (держатель)</Label>
-                <Input
-                  id={`${formId}-from-holder`}
-                  value={manualFromHolder}
-                  onChange={(e) => setManualFromHolder(e.target.value)}
-                  placeholder="Кто отправляет"
-                  className="h-10"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-to-location`}>Куда (локация)</Label>
-                <Input
-                  id={`${formId}-to-location`}
-                  value={manualToLocation}
-                  onChange={(e) => setManualToLocation(e.target.value)}
-                  placeholder="Цех / склад / адрес"
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-to-holder`}>Получатель (держатель)</Label>
-                <Input
-                  id={`${formId}-to-holder`}
-                  value={manualToHolder}
-                  onChange={(e) => setManualToHolder(e.target.value)}
-                  placeholder="Контрагент / участок"
-                  className="h-10"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-qty`}>Кол-во отправлено</Label>
-                <Input
-                  id={`${formId}-qty`}
-                  type="number"
-                  value={manualQuantitySent}
-                  onChange={(e) => setManualQuantitySent(e.target.value)}
-                  placeholder="шт"
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-eta`}>Ориентир поступления</Label>
-                <Input
-                  id={`${formId}-eta`}
-                  type="date"
-                  value={manualPlannedEta}
-                  onChange={(e) => setManualPlannedEta(e.target.value)}
-                  className="h-10"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-carrier`}>Перевозчик</Label>
-                <Input
-                  id={`${formId}-carrier`}
-                  value={manualCarrier}
-                  onChange={(e) => setManualCarrier(e.target.value)}
-                  placeholder="Например: CDEK"
-                  className="h-10"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${formId}-tracking`}>Трек / накладная</Label>
-                <Input
-                  id={`${formId}-tracking`}
-                  value={manualTrackingNumber}
-                  onChange={(e) => setManualTrackingNumber(e.target.value)}
-                  placeholder="Номер отслеживания"
-                  className="h-10"
-                />
-              </div>
-            </div>
-
-            {stageOptions.length > 0 && (
-              <div className="space-y-2">
-                <Label htmlFor={stageIdField}>Привязка к этапу (опционально)</Label>
-                <Select
-                  value={manualStageId || "none"}
-                  onValueChange={(value) => setManualStageId(value === "none" ? "" : value)}
-                >
-                  <SelectTrigger id={stageIdField} className="h-10">
-                    <SelectValue placeholder="Без привязки" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Без привязки</SelectItem>
-                    {stageOptions.map((status) => (
-                      <SelectItem key={String(status.id)} value={String(status.id)}>
-                        {STAGE_LABELS[status.stage]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label htmlFor={`${formId}-description`}>Описание</Label>
-              <Input
-                id={`${formId}-description`}
-                value={manualDescription}
-                onChange={(e) => setManualDescription(e.target.value)}
-                placeholder="Например: Перемещение в центральный склад"
-                className="h-10"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor={`${formId}-notes`}>Примечания</Label>
-              <Textarea
-                id={`${formId}-notes`}
-                value={manualNotes}
-                onChange={(e) => setManualNotes(e.target.value)}
-                placeholder="Дополнительная информация"
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" className="flex-1 h-10" onClick={() => setIsCreatingManual(false)}>
-                Отмена
-              </Button>
-              <Button
-                type="button"
-                className="flex-1 h-10"
-                onClick={() => void handleCreateManualMovement()}
-                disabled={!manualToLocation && !manualToHolder}
-              >
-                Создать
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
@@ -1405,21 +1178,6 @@ export function LogisticsList({ part }: LogisticsListProps) {
                           </Button>
                         )}
 
-                        {permissions.canEditFacts && !TERMINAL_MOVEMENT_STATUSES.has(status) && (
-                          <Select value={status} onValueChange={(v) => void handleUpdateStatus(entry, v as MovementStatus)}>
-                            <SelectTrigger className="h-8 w-[130px] text-xs">
-                              <SelectValue placeholder="Статус" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pending">Черновик</SelectItem>
-                              <SelectItem value="sent">Отправлено</SelectItem>
-                              <SelectItem value="in_transit">В пути</SelectItem>
-                              <SelectItem value="received">Получено</SelectItem>
-                              <SelectItem value="returned">Возврат</SelectItem>
-                              <SelectItem value="cancelled">Отменено</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
                       </div>
                     </div>
 
