@@ -86,6 +86,9 @@ class PartCreate(BaseModel):
     is_cooperation: bool = False
     cooperation_partner: Optional[str] = None
     cooperation_due_date: Optional[date] = None
+    cooperation_qc_status: Optional[str] = Field(default=None, pattern="^(pending|accepted|rejected)$")
+    cooperation_qc_checked_at: Optional[datetime] = None
+    cooperation_qc_comment: Optional[str] = None
     machine_id: Optional[UUID] = None
     customer: Optional[str] = None
     required_stages: list[str]
@@ -100,6 +103,9 @@ class PartUpdate(BaseModel):
     is_cooperation: Optional[bool] = None
     cooperation_partner: Optional[str] = None
     cooperation_due_date: Optional[date] = None
+    cooperation_qc_status: Optional[str] = Field(default=None, pattern="^(pending|accepted|rejected)$")
+    cooperation_qc_checked_at: Optional[datetime] = None
+    cooperation_qc_comment: Optional[str] = None
     machine_id: Optional[UUID] = None
     customer: Optional[str] = None
     required_stages: Optional[list[str]] = None
@@ -156,6 +162,9 @@ class PartResponse(BaseModel):
     is_cooperation: bool
     cooperation_partner: Optional[str] = None
     cooperation_due_date: Optional[date] = None
+    cooperation_qc_status: Optional[str] = None
+    cooperation_qc_checked_at: Optional[datetime] = None
+    cooperation_qc_comment: Optional[str] = None
     machine_id: Optional[UUID] = None
     machine: Optional[MachineResponse] = None
     customer: Optional[str] = None

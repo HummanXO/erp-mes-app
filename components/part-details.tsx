@@ -90,6 +90,8 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [isEditingCooperationDueDate, setIsEditingCooperationDueDate] = useState(false)
   const [isSavingCooperationDueDate, setIsSavingCooperationDueDate] = useState(false)
   const [cooperationDueDateError, setCooperationDueDateError] = useState("")
+  const [isSavingCooperationQc, setIsSavingCooperationQc] = useState(false)
+  const [cooperationQcError, setCooperationQcError] = useState("")
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
   const isCooperationRouteOnly = part.is_cooperation
 
@@ -306,6 +308,26 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const cooperationRouteText = cooperationRouteStages.length > 0
     ? [...cooperationRouteStages, "ОТК"].join(" -> ")
     : "ОТК"
+  const cooperationQcStatus = part.cooperation_qc_status || "pending"
+  const cooperationQcCheckedAt = part.cooperation_qc_checked_at
+    ? new Date(part.cooperation_qc_checked_at).toLocaleString("ru-RU")
+    : null
+  const cooperationQcLabel =
+    cooperationQcStatus === "accepted"
+      ? "Принято"
+      : cooperationQcStatus === "rejected"
+        ? "Не принято"
+        : "Не проведён"
+  const cooperationQcTone =
+    cooperationQcStatus === "accepted"
+      ? "ok"
+      : cooperationQcStatus === "rejected"
+        ? "risk"
+        : "neutral"
+  const canRunCooperationQcDecision = canEditCooperationDueDate && (
+    journeySummary?.last_movement?.status === "received" ||
+    journeySummary?.last_movement?.status === "completed"
+  )
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -322,6 +344,24 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       setCooperationDueDateError(message)
     } finally {
       setIsSavingCooperationDueDate(false)
+    }
+  }
+
+  const handleSetCooperationQc = async (nextStatus: "accepted" | "rejected") => {
+    if (!canEditCooperationDueDate) return
+    setCooperationQcError("")
+    setIsSavingCooperationQc(true)
+    try {
+      await updatePart({
+        ...part,
+        cooperation_qc_status: nextStatus,
+        cooperation_qc_checked_at: new Date().toISOString(),
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось сохранить входной контроль"
+      setCooperationQcError(message)
+    } finally {
+      setIsSavingCooperationQc(false)
     }
   }
 
@@ -711,6 +751,53 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                     </div>
                     <div className="mt-2 text-sm text-muted-foreground">
                       План после кооперации: {cooperationRouteText}
+                    </div>
+                    <div className="mt-3 rounded-md border bg-background/70 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs text-muted-foreground">Входной контроль после поступления</div>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            cooperationQcTone === "ok" && "border-green-600 text-green-700",
+                            cooperationQcTone === "risk" && "border-destructive text-destructive",
+                            cooperationQcTone === "neutral" && "border-muted-foreground/40 text-muted-foreground"
+                          )}
+                        >
+                          {cooperationQcLabel}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {cooperationQcCheckedAt ? `Проверено: ${cooperationQcCheckedAt}` : "Проверка пока не отмечена"}
+                      </div>
+                      {canEditCooperationDueDate && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            className="h-8"
+                            onClick={() => void handleSetCooperationQc("accepted")}
+                            disabled={isSavingCooperationQc || !canRunCooperationQcDecision}
+                          >
+                            Принято
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            className="h-8"
+                            onClick={() => void handleSetCooperationQc("rejected")}
+                            disabled={isSavingCooperationQc || !canRunCooperationQcDecision}
+                          >
+                            Не принято
+                          </Button>
+                        </div>
+                      )}
+                      {canEditCooperationDueDate && !canRunCooperationQcDecision && (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Сначала отметьте в логистике статус «Получено», затем фиксируйте входной контроль.
+                        </div>
+                      )}
+                      {cooperationQcError && (
+                        <div className="mt-2 text-xs text-destructive">{cooperationQcError}</div>
+                      )}
                     </div>
                     {canEditCooperationDueDate && !isEditingCooperationDueDate && (
                       <div className="mt-3">

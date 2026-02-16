@@ -403,9 +403,17 @@ def create_part(
         raise HTTPException(status_code=400, detail="Part with this code already exists")
     
     part_payload = data.model_dump()
+    if data.is_cooperation and not part_payload.get("cooperation_qc_status"):
+        part_payload["cooperation_qc_status"] = "pending"
+        part_payload["cooperation_qc_checked_at"] = None
+        part_payload["cooperation_qc_comment"] = None
+
     if not data.is_cooperation:
         part_payload["cooperation_partner"] = None
         part_payload["cooperation_due_date"] = None
+        part_payload["cooperation_qc_status"] = None
+        part_payload["cooperation_qc_checked_at"] = None
+        part_payload["cooperation_qc_comment"] = None
 
     # Create part
     part = Part(
@@ -489,6 +497,14 @@ def update_part(
     if not will_be_cooperation:
         update_payload["cooperation_due_date"] = None
         update_payload["cooperation_partner"] = None
+        update_payload["cooperation_qc_status"] = None
+        update_payload["cooperation_qc_checked_at"] = None
+        update_payload["cooperation_qc_comment"] = None
+    elif (
+        "cooperation_qc_status" in update_payload
+        and update_payload.get("cooperation_qc_status") == "pending"
+    ):
+        update_payload["cooperation_qc_checked_at"] = None
 
     # Update fields
     for field, value in update_payload.items():

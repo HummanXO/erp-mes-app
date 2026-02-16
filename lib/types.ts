@@ -21,6 +21,7 @@ export function getInitials(fullName: string): string {
 }
 
 export type PartStatus = "not_started" | "in_progress" | "done"
+export type CooperationQcStatus = "pending" | "accepted" | "rejected"
 
 // Production stages/departments
 export type ProductionStage = 
@@ -137,6 +138,9 @@ export interface Part {
   is_cooperation: boolean // Кооперация - деталь изготавливается на стороне
   cooperation_partner?: string // Название кооператора
   cooperation_due_date?: string | null // Ориентировочный срок от кооператора
+  cooperation_qc_status?: CooperationQcStatus | null // Входной контроль после поступления от кооператора
+  cooperation_qc_checked_at?: string | null
+  cooperation_qc_comment?: string | null
   
   // Which stages this part goes through
   required_stages: ProductionStage[]
