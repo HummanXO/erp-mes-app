@@ -26,7 +26,7 @@ from ..schemas import (
 )
 from ..auth import get_current_user, PermissionChecker
 from ..security import apply_part_visibility_scope, can_access_part
-from ..services.part_state import recompute_part_state, validate_stage_flow
+from ..services.part_state import compute_stage_totals, recompute_part_state, validate_stage_flow
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
@@ -79,22 +79,29 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
     
     NO AVERAGING - only MIN (bottleneck).
     """
-    # Get all stage facts for this part
-    facts = db.query(StageFact).filter(StageFact.part_id == part.id).all()
-    
-    # Calculate per-stage statistics
+    totals = compute_stage_totals(db, part=part)
+    total_scrap = (
+        db.query(func.coalesce(func.sum(StageFact.qty_scrap), 0))
+        .filter(
+            StageFact.part_id == part.id,
+            StageFact.org_id == part.org_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    # Calculate per-stage statistics.
     stage_statuses_data = []
     stage_done_quantities = {}  # stage -> qty_done
-    total_scrap = sum(f.qty_scrap for f in facts)
     stage_statuses_ordered = sorted(
         part.stage_statuses,
         key=lambda item: STAGE_FLOW_ORDER.index(item.stage) if item.stage in STAGE_FLOW_ORDER else len(STAGE_FLOW_ORDER)
     )
     
     for stage_status in stage_statuses_ordered:
-        stage_facts = [f for f in facts if f.stage == stage_status.stage]
-        qty_good = sum(f.qty_good for f in stage_facts)
-        qty_scrap = sum(f.qty_scrap for f in stage_facts)
+        stage_total = totals.get(stage_status.stage)
+        qty_good = stage_total.good if stage_total else 0
+        qty_scrap = stage_total.scrap if stage_total else 0
         
         # stage_done_qty = min(sum(qty_good), qty_plan) (requirement C)
         stage_done_qty = min(qty_good, part.qty_plan)
@@ -109,6 +116,7 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
             percent = 0
         
         stage_statuses_data.append(StageStatusResponse(
+            id=stage_status.id,
             stage=stage_status.stage,
             status=stage_status.status,
             percent=percent,
@@ -116,7 +124,8 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
             qty_scrap=qty_scrap,
             operator_id=stage_status.operator_id,
             started_at=stage_status.started_at,
-            completed_at=stage_status.completed_at
+            completed_at=stage_status.completed_at,
+            notes=stage_status.notes,
         ))
     
     # qty_ready = MIN(stage_done_qty) across production stages (excluding logistics and skipped).
@@ -137,7 +146,7 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
     progress = PartProgressResponse(
         overall_percent=overall_percent,
         overall_qty_done=qty_ready,  # This is qty_ready, not average
-        qty_scrap=total_scrap,
+        qty_scrap=int(total_scrap),
         bottleneck_stage=bottleneck_stage  # NEW: requirement C
     )
     
@@ -431,6 +440,8 @@ def create_part(
             status='pending'
         )
         db.add(stage_status)
+
+    recompute_part_state(db, part=part)
     
     # Audit log
     audit = AuditEvent(
@@ -509,6 +520,9 @@ def update_part(
     # Update fields
     for field, value in update_payload.items():
         setattr(part, field, value)
+
+    # Keep stage statuses / qty_done consistent after cooperation ETA/QC and stage changes.
+    recompute_part_state(db, part=part)
     
     # Audit log
     audit = AuditEvent(

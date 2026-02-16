@@ -1,4 +1,4 @@
-"""Helpers for keeping Part.qty_done/status and stage statuses consistent with facts."""
+"""Helpers for keeping Part.qty_done/status and stage statuses consistent with facts and movements."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import Part, PartStageStatus, StageFact
+from ..models import LogisticsEntry, Part, PartStageStatus, StageFact
 
 
 PROGRESS_STAGES: tuple[str, ...] = (
@@ -19,6 +19,10 @@ PROGRESS_STAGES: tuple[str, ...] = (
     "grinding",
     "qc",
 )
+
+INTERNAL_FACT_STAGES: tuple[str, ...] = ("machining", "fitting", "qc")
+EXTERNAL_MOVEMENT_STAGES: tuple[str, ...] = ("galvanic", "heat_treatment", "grinding")
+RECEIVED_MOVEMENT_STATUSES: tuple[str, ...] = ("received", "completed")
 
 
 STAGE_LABELS_RU: dict[str, str] = {
@@ -66,7 +70,7 @@ def stage_prerequisites(part: Part, stage: str) -> list[str]:
 
 
 def compute_stage_totals(db: Session, *, part: Part) -> dict[str, StageTotals]:
-    rows = (
+    fact_rows = (
         db.query(
             StageFact.stage.label("stage"),
             func.coalesce(func.sum(StageFact.qty_good), 0).label("good"),
@@ -84,7 +88,7 @@ def compute_stage_totals(db: Session, *, part: Part) -> dict[str, StageTotals]:
     )
 
     totals: dict[str, StageTotals] = {}
-    for row in rows:
+    for row in fact_rows:
         totals[str(row.stage)] = StageTotals(
             good=int(row.good or 0),
             scrap=int(row.scrap or 0),
@@ -92,6 +96,86 @@ def compute_stage_totals(db: Session, *, part: Part) -> dict[str, StageTotals]:
             first_at=row.first_at,
             last_at=row.last_at,
         )
+
+    movement_rows = (
+        db.query(
+            PartStageStatus.stage.label("stage"),
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        LogisticsEntry.qty_received,
+                        LogisticsEntry.qty_sent,
+                        LogisticsEntry.quantity,
+                        0,
+                    )
+                ),
+                0,
+            ).label("good"),
+            func.count(LogisticsEntry.id).label("events_count"),
+            func.min(
+                func.coalesce(
+                    LogisticsEntry.received_at,
+                    LogisticsEntry.updated_at,
+                    LogisticsEntry.sent_at,
+                    LogisticsEntry.created_at,
+                )
+            ).label("first_at"),
+            func.max(
+                func.coalesce(
+                    LogisticsEntry.received_at,
+                    LogisticsEntry.updated_at,
+                    LogisticsEntry.sent_at,
+                    LogisticsEntry.created_at,
+                )
+            ).label("last_at"),
+        )
+        .join(
+            PartStageStatus,
+            PartStageStatus.id == LogisticsEntry.stage_id,
+        )
+        .filter(
+            LogisticsEntry.part_id == part.id,
+            LogisticsEntry.org_id == part.org_id,
+            LogisticsEntry.stage_id.isnot(None),
+            LogisticsEntry.status.in_(RECEIVED_MOVEMENT_STATUSES),
+            PartStageStatus.part_id == part.id,
+            PartStageStatus.stage.in_(EXTERNAL_MOVEMENT_STAGES),
+        )
+        .group_by(PartStageStatus.stage)
+        .all()
+    )
+
+    for row in movement_rows:
+        totals[str(row.stage)] = StageTotals(
+            good=int(row.good or 0),
+            scrap=0,
+            facts_count=int(row.events_count or 0),
+            first_at=row.first_at,
+            last_at=row.last_at,
+        )
+
+    if part.is_cooperation:
+        qc_status = (part.cooperation_qc_status or "pending").strip().lower()
+        checked_at = part.cooperation_qc_checked_at
+        if qc_status == "accepted":
+            totals["qc"] = StageTotals(
+                good=int(part.qty_plan or 0),
+                scrap=0,
+                facts_count=1,
+                first_at=checked_at,
+                last_at=checked_at,
+            )
+        elif qc_status == "rejected":
+            totals["qc"] = StageTotals(
+                good=0,
+                scrap=0,
+                facts_count=1,
+                first_at=checked_at,
+                last_at=checked_at,
+            )
+        elif "qc" not in totals:
+            totals["qc"] = StageTotals()
+
     return totals
 
 
@@ -127,7 +211,7 @@ def recompute_part_state(
     part: Part,
     stage_totals: Optional[dict[str, StageTotals]] = None,
 ) -> dict[str, StageTotals]:
-    """Recalculate Part.qty_done/status and stage statuses from facts.
+    """Recalculate Part.qty_done/status and stage statuses from facts and movements.
 
     - Part.qty_done is treated as "ready quantity" after all production stages (machining..qc),
       i.e. bottleneck MIN across PROGRESS_STAGES included for the part.
@@ -146,10 +230,43 @@ def recompute_part_state(
             continue
 
         stage = stage_status.stage
-        stage_total = totals.get(stage)
-        has_facts = bool(stage_total and stage_total.facts_count > 0)
+        stage_total = totals.get(stage, StageTotals())
+        has_stage_activity = bool(stage_total.facts_count > 0 or stage_total.processed > 0)
 
-        if not has_facts:
+        if stage == "qc" and part.is_cooperation:
+            qc_status = (part.cooperation_qc_status or "pending").strip().lower()
+            if qc_status == "pending" and not has_stage_activity:
+                stage_status.status = "pending"
+                stage_status.started_at = None
+                stage_status.completed_at = None
+                stage_status.operator_id = None
+                continue
+
+            if stage_status.started_at is None:
+                stage_status.started_at = stage_total.first_at or func.now()
+
+            stage_status.operator_id = None
+            if qc_status == "accepted":
+                stage_status.status = "done"
+                stage_status.completed_at = (
+                    part.cooperation_qc_checked_at
+                    or stage_total.last_at
+                    or func.now()
+                )
+            elif qc_status == "rejected":
+                stage_status.status = "in_progress"
+                stage_status.completed_at = None
+            else:
+                if stage_total.good >= part.qty_plan:
+                    stage_status.status = "done"
+                    if stage_status.completed_at is None:
+                        stage_status.completed_at = stage_total.last_at or func.now()
+                else:
+                    stage_status.status = "in_progress"
+                    stage_status.completed_at = None
+            continue
+
+        if not has_stage_activity:
             stage_status.status = "pending"
             stage_status.started_at = None
             stage_status.completed_at = None
@@ -159,7 +276,7 @@ def recompute_part_state(
         if stage_status.started_at is None:
             stage_status.started_at = stage_total.first_at or func.now()
 
-        if stage_status.operator_id is None:
+        if stage_status.operator_id is None and stage in INTERNAL_FACT_STAGES:
             last_operator_id = (
                 db.query(StageFact.operator_id)
                 .filter(
@@ -173,10 +290,12 @@ def recompute_part_state(
             )
             if last_operator_id and last_operator_id[0]:
                 stage_status.operator_id = last_operator_id[0]
+        if stage in EXTERNAL_MOVEMENT_STAGES:
+            stage_status.operator_id = None
 
         # For logistics we currently don't have production facts, but keep the stage visible.
         if stage == "logistics":
-            stage_status.status = "in_progress"
+            stage_status.status = "in_progress" if has_stage_activity else "pending"
             stage_status.completed_at = None
             continue
 
@@ -203,9 +322,14 @@ def recompute_part_state(
     part.qty_done = max(0, int(ready_qty))
 
     facts_total = sum((stage_total.facts_count for stage_total in totals.values()), 0)
+    has_started = facts_total > 0 or any(
+        stage_status.status in {"in_progress", "done"}
+        for stage_status in stage_statuses
+        if stage_status.status != "skipped"
+    )
     if part.qty_done >= part.qty_plan:
         part.status = "done"
-    elif facts_total > 0:
+    elif has_started:
         part.status = "in_progress"
     else:
         part.status = "not_started"

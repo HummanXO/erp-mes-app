@@ -4,7 +4,8 @@ import React from "react"
 
 import { useState, useId } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Part, LogisticsEntry, MovementStatus } from "@/lib/types"
+import type { Part, LogisticsEntry, MovementStatus, ProductionStage } from "@/lib/types"
+import { STAGE_LABELS } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -55,6 +56,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
   const [plannedEta, setPlannedEta] = useState("")
   const [trackingNumber, setTrackingNumber] = useState("")
   const [notes, setNotes] = useState("")
+  const [stageId, setStageId] = useState("")
   const formId = useId()
   const fromLocationId = `${formId}-from-location`
   const fromHolderId = `${formId}-from-holder`
@@ -66,6 +68,16 @@ export function LogisticsList({ part }: LogisticsListProps) {
   const etaId = `${formId}-planned-eta`
   const trackingId = `${formId}-tracking`
   const notesId = `${formId}-notes`
+  const stageIdField = `${formId}-stage`
+  const externalStages: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
+  const stageOptions = (part.stage_statuses || []).filter(
+    (status) => Boolean(status.id) && externalStages.includes(status.stage)
+  )
+  const stageNameById = new Map(
+    (part.stage_statuses || [])
+      .filter((status) => Boolean(status.id))
+      .map((status) => [String(status.id), status.stage])
+  )
   
   const handleCreate = async () => {
     await createLogisticsEntry({
@@ -79,6 +91,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
       tracking_number: trackingNumber || undefined,
       planned_eta: plannedEta ? new Date(`${plannedEta}T00:00:00`).toISOString() : undefined,
       qty_sent: quantitySent ? Number.parseInt(quantitySent, 10) : undefined,
+      stage_id: stageId || undefined,
       description: description || "Перемещение",
       type: part.is_cooperation ? "coop_out" : "shipping_out",
       counterparty: toHolder || toLocation || undefined,
@@ -97,6 +110,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
     setPlannedEta("")
     setTrackingNumber("")
     setNotes("")
+    setStageId("")
     setIsCreating(false)
   }
   
@@ -190,7 +204,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
 		              />
 		            </div>
 		            
-		            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+			            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
 		              <div className="space-y-2">
 		                <Label htmlFor={fromLocationId}>Откуда (локация)</Label>
 		                <Input
@@ -284,7 +298,28 @@ export function LogisticsList({ part }: LogisticsListProps) {
 		                  Укажите дату, когда ожидаете получение у получателя.
 		                </div>
 		              </div>
-		            </div>
+			            </div>
+			{stageOptions.length > 0 && (
+			            <div className="space-y-2">
+			              <Label htmlFor={stageIdField}>Привязать к этапу (опционально)</Label>
+			              <Select
+			                value={stageId || "none"}
+			                onValueChange={(value) => setStageId(value === "none" ? "" : value)}
+			              >
+			                <SelectTrigger id={stageIdField} className="h-11">
+			                  <SelectValue placeholder="Без привязки к этапу" />
+			                </SelectTrigger>
+			                <SelectContent>
+			                  <SelectItem value="none">Без привязки к этапу</SelectItem>
+			                  {stageOptions.map((status) => (
+			                    <SelectItem key={String(status.id)} value={String(status.id)}>
+			                      {STAGE_LABELS[status.stage]}
+			                    </SelectItem>
+			                  ))}
+			                </SelectContent>
+			              </Select>
+			            </div>
+			)}
             
             <div className="space-y-2">
               <Label htmlFor={notesId}>Примечания</Label>
@@ -355,6 +390,11 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         )}
                         {entry.qty_received && (
                           <div className="text-sm">Получено: {entry.qty_received} шт</div>
+                        )}
+                        {entry.stage_id && stageNameById.has(entry.stage_id) && (
+                          <div className="text-xs text-muted-foreground">
+                            Этап: {STAGE_LABELS[stageNameById.get(entry.stage_id)!]}
+                          </div>
                         )}
                         {entry.tracking_number && (
                           <div className="text-xs text-muted-foreground">

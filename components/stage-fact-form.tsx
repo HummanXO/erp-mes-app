@@ -24,6 +24,7 @@ const STAGE_ORDER: ProductionStage[] = [
   "grinding",
   "qc",
 ]
+const FACT_INPUT_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
 
 // Determine current shift based on time (09:00-21:00 = day, 21:00-09:00 = night)
 function getCurrentShift(): ShiftType {
@@ -106,7 +107,12 @@ export function StageFactForm({ part }: StageFactFormProps) {
   // Get active stages (not done and not skipped) with null safety
   const stageStatuses = part.stage_statuses || []
   const activeStages = stageStatuses
-    .filter(s => (s.status === "pending" || s.status === "in_progress") && s.stage !== "logistics")
+    .filter(
+      (s) =>
+        (s.status === "pending" || s.status === "in_progress") &&
+        FACT_INPUT_STAGES.includes(s.stage) &&
+        s.stage !== "logistics"
+    )
     .map(s => s.stage)
     .sort((a, b) => STAGE_ORDER.indexOf(a) - STAGE_ORDER.indexOf(b))
   const availableStages = isOperator
@@ -117,7 +123,9 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const [shiftType, setShiftType] = useState<ShiftType>(getCurrentShift())
   const [stage, setStage] = useState<ProductionStage>(() => {
     if (isOperator) return "machining"
-    const inProgressStage = stageStatuses.find(s => s.status === "in_progress" && s.stage !== "logistics")?.stage
+    const inProgressStage = stageStatuses.find(
+      (s) => s.status === "in_progress" && FACT_INPUT_STAGES.includes(s.stage) && s.stage !== "logistics"
+    )?.stage
     return inProgressStage || availableStages[0] || "machining"
   })
   const [operatorId, setOperatorId] = useState<string>(currentUser?.role === "operator" ? currentUser.id : "")

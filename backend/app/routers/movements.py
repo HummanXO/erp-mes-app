@@ -15,6 +15,7 @@ from ..database import get_db
 from ..models import AuditEvent, LogisticsEntry, Part, PartStageStatus, StageFact, User
 from ..schemas import JourneyEventOut, JourneyOut, MovementCreate, MovementOut, MovementUpdate
 from ..security import can_access_part, require_org_entity
+from ..services.part_state import recompute_part_state
 from ..services.movement_rules import (
     ACTIVE_MOVEMENT_STATUSES,
     apply_status_timestamps,
@@ -141,6 +142,26 @@ def _resolve_eta(part: Part, active_movement: LogisticsEntry | None) -> datetime
     return datetime.combine(part.cooperation_due_date, time.min, tzinfo=timezone.utc)
 
 
+def _get_stage_status_in_org(
+    db: Session,
+    *,
+    stage_id: UUID,
+    org_id: UUID,
+) -> PartStageStatus:
+    stage_status = (
+        db.query(PartStageStatus)
+        .join(Part, Part.id == PartStageStatus.part_id)
+        .filter(
+            PartStageStatus.id == stage_id,
+            Part.org_id == org_id,
+        )
+        .first()
+    )
+    if not stage_status:
+        raise HTTPException(status_code=404, detail="Stage status not found")
+    return stage_status
+
+
 @router.post(
     "/parts/{part_id}/movements",
     response_model=MovementOut,
@@ -166,12 +187,10 @@ def create_movement(
         raise HTTPException(status_code=409, detail="qty_received cannot exceed qty_sent")
 
     if data.stage_id:
-        stage_status = require_org_entity(
+        stage_status = _get_stage_status_in_org(
             db,
-            PartStageStatus,
-            entity_id=data.stage_id,
+            stage_id=data.stage_id,
             org_id=current_user.org_id,
-            not_found="Stage status not found",
         )
         try:
             ensure_stage_link_matches_part(movement_part_id=part.id, stage_part_id=stage_status.part_id)
@@ -222,6 +241,7 @@ def create_movement(
     )
     db.add(movement)
     db.flush()
+    recompute_part_state(db, part=part)
 
     audit = AuditEvent(
         org_id=current_user.org_id,
@@ -286,12 +306,10 @@ def update_movement(
         raise HTTPException(status_code=409, detail="qty_received cannot exceed qty_sent")
 
     if "stage_id" in payload and payload["stage_id"]:
-        stage_status = require_org_entity(
+        stage_status = _get_stage_status_in_org(
             db,
-            PartStageStatus,
-            entity_id=payload["stage_id"],
+            stage_id=payload["stage_id"],
             org_id=current_user.org_id,
-            not_found="Stage status not found",
         )
         try:
             ensure_stage_link_matches_part(movement_part_id=movement.part_id, stage_part_id=stage_status.part_id)
@@ -358,8 +376,7 @@ def update_movement(
         if new_status == "received" and payload.get("qty_received") is None and movement.qty_received is None:
             movement.qty_received = movement.qty_sent
 
-    if normalize_movement_status(movement.status) in ACTIVE_MOVEMENT_STATUSES and movement.sent_at is None:
-        movement.sent_at = _now_utc()
+    recompute_part_state(db, part=part)
 
     audit = AuditEvent(
         org_id=current_user.org_id,

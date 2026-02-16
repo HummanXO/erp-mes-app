@@ -121,6 +121,7 @@ class MachineResponse(BaseModel):
 
 
 class StageStatusResponse(BaseModel):
+    id: UUID
     stage: str
     status: str
     percent: int
@@ -129,6 +130,7 @@ class StageStatusResponse(BaseModel):
     operator_id: Optional[UUID] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    notes: Optional[str] = None
 
 
 class PartProgressResponse(BaseModel):
