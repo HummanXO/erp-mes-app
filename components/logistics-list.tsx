@@ -258,7 +258,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
       active ? `${demoDate}T00:00:00` : undefined
     )
 
-    let statusLabel = "Не отправлено"
+    let statusLabel = "Ожидаем поступление"
     let statusTone: "ok" | "risk" | "neutral" = "neutral"
 
     if (active) {
@@ -289,6 +289,11 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
   const hasCooperationFlow = part.is_cooperation
   const hasStageFlow = stageCards.length > 0
+  const isInitialCooperationAwaitingInbound =
+    hasCooperationFlow &&
+    cooperationMovements.length === 0 &&
+    !cooperationFlow.activeMovement &&
+    cooperationFlow.qtyReceived === 0
 
   const [sendStageId, setSendStageId] = useState<string | null>(null)
   const [sendPartner, setSendPartner] = useState("")
@@ -355,6 +360,14 @@ export function LogisticsList({ part }: LogisticsListProps) {
     setSendTracking("")
     setSendCarrier("CDEK")
     setSendNotes("")
+    setEditingEtaMovementId(null)
+    setActionError("")
+  }
+
+  const openInitialCooperationReceiveForm = () => {
+    const qtyRemaining = Math.max(part.qty_plan - cooperationFlow.qtyReceived, 0)
+    setReceivingMovementId(COOP_FLOW_ID)
+    setReceiveQty(qtyRemaining > 0 ? String(qtyRemaining) : "")
     setEditingEtaMovementId(null)
     setActionError("")
   }
@@ -436,6 +449,67 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
   const handleConfirmReceive = async () => {
     if (!receivingMovementId) return
+
+    if (receivingMovementId === COOP_FLOW_ID) {
+      const parsedQty = receiveQty ? Number.parseInt(receiveQty, 10) : undefined
+      const remainingQty = Math.max(part.qty_plan - cooperationFlow.qtyReceived, 0)
+
+      if (parsedQty !== undefined && (!Number.isFinite(parsedQty) || parsedQty <= 0)) {
+        setActionError("Укажите корректное количество приёмки")
+        return
+      }
+
+      const qtyToReceive = parsedQty ?? remainingQty
+      if (qtyToReceive <= 0) {
+        setActionError("Приёмка недоступна: всё количество уже принято")
+        return
+      }
+      if (qtyToReceive > remainingQty) {
+        setActionError(`Нельзя принять больше остатка: доступно ${remainingQty} шт`)
+        return
+      }
+
+      const partner = part.cooperation_partner || cooperationFlow.partner || "Кооператор"
+      const dueDateInput = toDateInputValue(part.cooperation_due_date || undefined)
+      const plannedEta = dueDateInput
+        ? new Date(`${dueDateInput}T00:00:00`).toISOString()
+        : undefined
+
+      try {
+        const created = await createLogisticsEntry({
+          part_id: part.id,
+          status: "sent",
+          from_location: "Кооператор",
+          from_holder: partner,
+          to_location: "Цех",
+          to_holder: "Производство",
+          carrier: undefined,
+          tracking_number: undefined,
+          planned_eta: plannedEta,
+          qty_sent: qtyToReceive,
+          stage_id: undefined,
+          description: "Поступление от кооператора",
+          type: "coop_in",
+          counterparty: partner,
+          notes: undefined,
+          date: new Date().toISOString().split("T")[0],
+        })
+
+        await updateLogisticsEntry({
+          ...created,
+          status: "received",
+          qty_received: qtyToReceive,
+        })
+
+        setReceivingMovementId(null)
+        setReceiveQty("")
+        setActionError("")
+      } catch (error) {
+        setActionError(toErrorMessage(error))
+      }
+      return
+    }
+
     const movement = sortedLogistics.find((entry) => entry.id === receivingMovementId)
     if (!movement) return
 
@@ -539,7 +613,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
               Кооперация
             </CardTitle>
             <div className="text-xs text-muted-foreground">
-              Отправка и приёмка по кооператору. Ручной ввод ниже используйте только для нестандартных перемещений.
+              Отправка и приёмка по кооператору.
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -620,11 +694,20 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
               {permissions.canEditFacts && sendStageId !== COOP_FLOW_ID && (
                 <div className="flex flex-wrap items-center gap-2">
-                  {!cooperationFlow.activeMovement && (
-                    <Button type="button" className="h-8" onClick={openCooperationSendForm}>
-                      Отправить
-                    </Button>
-                  )}
+                  {!cooperationFlow.activeMovement &&
+                    (isInitialCooperationAwaitingInbound ? (
+                      <Button
+                        type="button"
+                        className="h-8"
+                        onClick={openInitialCooperationReceiveForm}
+                      >
+                        Принять поступление
+                      </Button>
+                    ) : (
+                      <Button type="button" className="h-8" onClick={openCooperationSendForm}>
+                        Отправить
+                      </Button>
+                    ))}
 
                   {cooperationFlow.activeMovement &&
                     receivingMovementId !== cooperationFlow.activeMovement.id && (
@@ -792,6 +875,40 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         </Label>
                         <Input
                           id={`receive-qty-cooperation-${cooperationFlow.activeMovement.id}`}
+                          type="number"
+                          value={receiveQty}
+                          onChange={(event) => setReceiveQty(event.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <Button type="button" className="h-9" onClick={() => void handleConfirmReceive()}>
+                        Подтвердить приёмку
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9"
+                        onClick={() => {
+                          setReceivingMovementId(null)
+                          setReceiveQty("")
+                        }}
+                      >
+                        Отмена
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+              {permissions.canEditFacts &&
+                isInitialCooperationAwaitingInbound &&
+                receivingMovementId === COOP_FLOW_ID && (
+                  <div className="rounded-md border bg-background p-3 space-y-2">
+                    <div className="text-sm font-medium">Первичная приёмка от кооператора</div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_auto_auto] sm:items-end">
+                      <div className="space-y-1">
+                        <Label htmlFor="receive-qty-cooperation-initial">Принято, шт</Label>
+                        <Input
+                          id="receive-qty-cooperation-initial"
                           type="number"
                           value={receiveQty}
                           onChange={(event) => setReceiveQty(event.target.value)}
