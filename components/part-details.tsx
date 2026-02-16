@@ -270,6 +270,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const routeCurrentHolder = journeySummary?.current_holder || (part.is_cooperation ? part.cooperation_partner || "Партнёр не указан" : "Не задано")
   const routeLastEventDescription = journeySummary?.last_event?.description || "Деталь создана"
   const routeLastEventAt = journeySummary?.last_event?.occurred_at
+  const routeNextStageTitle = part.is_cooperation ? "Плановый следующий шаг" : "Следующий этап"
   const routeNextStageLabel = journeySummary?.next_required_stage
     ? STAGE_LABELS[journeySummary.next_required_stage]
     : part.is_cooperation
@@ -641,7 +642,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   </div>
                 </div>
                 <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">Следующий этап</div>
+                  <div className="text-xs text-muted-foreground">{routeNextStageTitle}</div>
                   <div className="text-sm font-medium mt-1">
                     {routeNextStageLabel}
                   </div>
