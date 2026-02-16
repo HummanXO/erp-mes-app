@@ -48,7 +48,7 @@ export function CreatePartDialog({
   submitLabel = "Создать деталь",
   onPartCreated,
 }: CreatePartDialogProps) {
-  const { createPart, createLogisticsEntry, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
+  const { createPart, createLogisticsEntry, deletePart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -318,27 +318,37 @@ export function CreatePartDialog({
         source_specification_id: sourceSpecificationId,
       })
 
-      addCustomerToList(customer)
-      if (isCooperation) {
-        addCooperationPartnerToList(cooperationPartner)
-        if (cooperationDueDate) {
-          await createLogisticsEntry({
-            part_id: createdPart.id,
-            status: "pending",
-            description: "Стартовый срок от кооператора",
-            to_holder: cooperationPartner.trim() || undefined,
-            planned_eta: new Date(`${cooperationDueDate}T00:00:00`).toISOString(),
-            type: "coop_out",
-            date: new Date().toISOString().split("T")[0],
-            notes: "Создано автоматически при создании кооперационной детали",
-          })
+      try {
+        addCustomerToList(customer)
+        if (isCooperation) {
+          addCooperationPartnerToList(cooperationPartner)
+          if (cooperationDueDate) {
+            await createLogisticsEntry({
+              part_id: createdPart.id,
+              status: "pending",
+              description: "Стартовый срок от кооператора",
+              to_holder: cooperationPartner.trim() || undefined,
+              planned_eta: new Date(`${cooperationDueDate}T00:00:00`).toISOString(),
+              type: "coop_out",
+              date: new Date().toISOString().split("T")[0],
+              notes: "Создано автоматически при создании кооперационной детали",
+            })
+          }
         }
-      }
-      if (onPartCreated) {
-        await onPartCreated(createdPart)
-      }
-      if (drawingAttachment) {
-        await updatePartDrawing(createdPart.id, drawingAttachment.url)
+        if (onPartCreated) {
+          await onPartCreated(createdPart)
+        }
+        if (drawingAttachment) {
+          await updatePartDrawing(createdPart.id, drawingAttachment.url)
+        }
+      } catch (postCreateError) {
+        try {
+          await deletePart(createdPart.id)
+        } catch {
+          const message = postCreateError instanceof Error ? postCreateError.message : "Ошибка на этапе привязки после создания"
+          throw new Error(`${message}. Деталь создана, но откат не выполнен; удалите её вручную и повторите.`)
+        }
+        throw postCreateError
       }
 
       // Reset and close
