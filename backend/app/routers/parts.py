@@ -32,7 +32,7 @@ router = APIRouter(prefix="/parts", tags=["parts"])
 
 DEPRECATED_STAGES = {"logistics", "grinding"}
 COOP_REQUIRED_STAGES = {"qc"}
-COOP_OPTIONAL_STAGES = {"galvanic"}
+COOP_OPTIONAL_STAGES = {"galvanic", "heat_treatment"}
 COOP_ALLOWED_STAGES = COOP_REQUIRED_STAGES | COOP_OPTIONAL_STAGES
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
 SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment"}
@@ -402,10 +402,15 @@ def create_part(
     if existing:
         raise HTTPException(status_code=400, detail="Part with this code already exists")
     
+    part_payload = data.model_dump()
+    if not data.is_cooperation:
+        part_payload["cooperation_partner"] = None
+        part_payload["cooperation_due_date"] = None
+
     # Create part
     part = Part(
         org_id=current_user.org_id,
-        **{**data.model_dump(), "required_stages": ordered_required_stages}
+        **{**part_payload, "required_stages": ordered_required_stages}
     )
     db.add(part)
     db.flush()
@@ -479,6 +484,11 @@ def update_part(
         ).first()
         if not machine:
             raise HTTPException(status_code=404, detail="Machine not found")
+
+    will_be_cooperation = bool(update_payload.get("is_cooperation", part.is_cooperation))
+    if not will_be_cooperation:
+        update_payload["cooperation_due_date"] = None
+        update_payload["cooperation_partner"] = None
 
     # Update fields
     for field, value in update_payload.items():

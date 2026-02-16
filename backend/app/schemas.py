@@ -85,6 +85,7 @@ class PartCreate(BaseModel):
     deadline: date
     is_cooperation: bool = False
     cooperation_partner: Optional[str] = None
+    cooperation_due_date: Optional[date] = None
     machine_id: Optional[UUID] = None
     customer: Optional[str] = None
     required_stages: list[str]
@@ -98,6 +99,7 @@ class PartUpdate(BaseModel):
     deadline: Optional[date] = None
     is_cooperation: Optional[bool] = None
     cooperation_partner: Optional[str] = None
+    cooperation_due_date: Optional[date] = None
     machine_id: Optional[UUID] = None
     customer: Optional[str] = None
     required_stages: Optional[list[str]] = None
@@ -153,6 +155,7 @@ class PartResponse(BaseModel):
     drawing_url: Optional[str] = None
     is_cooperation: bool
     cooperation_partner: Optional[str] = None
+    cooperation_due_date: Optional[date] = None
     machine_id: Optional[UUID] = None
     machine: Optional[MachineResponse] = None
     customer: Optional[str] = None

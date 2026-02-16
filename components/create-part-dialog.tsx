@@ -48,7 +48,7 @@ export function CreatePartDialog({
   submitLabel = "Создать деталь",
   onPartCreated,
 }: CreatePartDialogProps) {
-  const { createPart, createLogisticsEntry, deletePart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
+  const { createPart, deletePart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -311,6 +311,7 @@ export function CreatePartDialog({
         status: "not_started",
         is_cooperation: isCooperation,
         cooperation_partner: isCooperation ? cooperationPartner.trim() : undefined,
+        cooperation_due_date: isCooperation && cooperationDueDate ? cooperationDueDate : undefined,
         required_stages: requiredStages,
         stage_statuses: stageStatuses,
         machine_id: !isCooperation ? machineId : undefined,
@@ -337,22 +338,6 @@ export function CreatePartDialog({
       addCustomerToList(customer)
       if (isCooperation) {
         addCooperationPartnerToList(cooperationPartner)
-      }
-      if (isCooperation && cooperationDueDate) {
-        try {
-          await createLogisticsEntry({
-            part_id: createdPart.id,
-            status: "pending",
-            description: "Стартовый срок от кооператора",
-            to_holder: cooperationPartner.trim() || undefined,
-            planned_eta: new Date(`${cooperationDueDate}T00:00:00`).toISOString(),
-            type: "coop_out",
-            date: new Date().toISOString().split("T")[0],
-            notes: "Создано автоматически при создании кооперационной детали",
-          })
-        } catch {
-          // Optional step: do not fail part/spec creation if due-date movement save failed.
-        }
       }
 
       // Reset and close
@@ -668,12 +653,12 @@ export function CreatePartDialog({
                       className="h-11"
                     />
                     <div className="text-xs text-muted-foreground">
-                      Необязательно. Можно задать позже во вкладке «Логистика».
+                      Необязательно. Можно задать позже в карточке детали.
                     </div>
                   </div>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  Здесь задаётся стартовый срок кооператора. Потом его можно корректировать в журнале перемещений.
+                  Это ориентировочный срок кооператора. Фактические отправки/получения ведутся отдельно в журнале перемещений.
                 </div>
               </CardContent>
             </Card>
@@ -688,7 +673,7 @@ export function CreatePartDialog({
               {isCooperation ? (
                 <>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Для кооперации обязателен ОТК. При необходимости можно добавить гальванику после кооперации.
+                    Для кооперации обязателен ОТК. При необходимости можно добавить гальванику или термообработку после кооперации.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                     {COOP_STAGES.map((stage) => (

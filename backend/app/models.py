@@ -151,6 +151,7 @@ class Part(Base):
     drawing_url = Column(Text, nullable=True)
     is_cooperation = Column(Boolean, default=False, index=True)
     cooperation_partner = Column(String(255), nullable=True)
+    cooperation_due_date = Column(Date, nullable=True)
     machine_id = Column(UUID(as_uuid=True), ForeignKey("machines.id"), index=True, nullable=True)
     customer = Column(String(255), nullable=True)
     required_stages = Column(JSONB, nullable=False, default=[])

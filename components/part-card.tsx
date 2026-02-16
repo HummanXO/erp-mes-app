@@ -59,7 +59,7 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
     const bTs = new Date(b.updated_at || b.created_at || b.sent_at || b.date || 0).getTime()
     return bTs - aTs
   })[0]
-  const etaValue = lastMovement?.planned_eta
+  const etaValue = lastMovement?.planned_eta || (part.cooperation_due_date ? `${part.cooperation_due_date}T00:00:00` : undefined)
   const etaDate = etaValue ? new Date(etaValue) : null
   const hasEta = Boolean(etaDate && !Number.isNaN(etaDate.getTime()))
   const etaDeltaDays =
