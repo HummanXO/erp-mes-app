@@ -65,6 +65,7 @@ jobs:
 
       - name: Run backend tests
         env:
+          PYTHONPATH: .
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp_mes
           REDIS_URL: redis://localhost:6379/0
           CELERY_BROKER_URL: redis://localhost:6379/1
