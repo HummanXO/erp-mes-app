@@ -22,6 +22,7 @@ import type {
   AccessEntityType,
   AccessPermission,
   SpecItemStatus,
+  JourneySummary,
 } from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { apiClient, ApiClientError, type TokenResponse } from "./api-client"
@@ -175,6 +176,63 @@ function transformAccessGrant(backendGrant: any): AccessGrant {
   }
 }
 
+function normalizeMovementStatus(status: string | undefined): LogisticsEntry["status"] {
+  if (!status) return "pending"
+  return status as LogisticsEntry["status"]
+}
+
+function transformMovement(backendMovement: any): LogisticsEntry {
+  return {
+    id: backendMovement.id,
+    part_id: backendMovement.part_id,
+    status: normalizeMovementStatus(backendMovement.status),
+    from_location: backendMovement.from_location ?? undefined,
+    from_holder: backendMovement.from_holder ?? undefined,
+    to_location: backendMovement.to_location ?? undefined,
+    to_holder: backendMovement.to_holder ?? undefined,
+    carrier: backendMovement.carrier ?? undefined,
+    tracking_number: backendMovement.tracking_number ?? undefined,
+    planned_eta: backendMovement.planned_eta ?? undefined,
+    sent_at: backendMovement.sent_at ?? undefined,
+    received_at: backendMovement.received_at ?? undefined,
+    returned_at: backendMovement.returned_at ?? undefined,
+    cancelled_at: backendMovement.cancelled_at ?? undefined,
+    qty_sent: backendMovement.qty_sent ?? undefined,
+    qty_received: backendMovement.qty_received ?? undefined,
+    stage_id: backendMovement.stage_id ?? undefined,
+    last_tracking_status: backendMovement.last_tracking_status ?? undefined,
+    tracking_last_checked_at: backendMovement.tracking_last_checked_at ?? undefined,
+    raw_payload: backendMovement.raw_payload ?? null,
+    notes: backendMovement.notes ?? undefined,
+    created_at: backendMovement.created_at ?? undefined,
+    updated_at: backendMovement.updated_at ?? undefined,
+    // Legacy mirror fields for compatibility with old UI fragments.
+    type: backendMovement.type ?? undefined,
+    description: backendMovement.description ?? undefined,
+    quantity: backendMovement.quantity ?? backendMovement.qty_sent ?? undefined,
+    date: backendMovement.date ?? undefined,
+    counterparty: backendMovement.counterparty ?? backendMovement.to_holder ?? backendMovement.to_location ?? undefined,
+  }
+}
+
+function transformJourney(backendJourney: any): JourneySummary {
+  return {
+    part_id: backendJourney.part_id,
+    current_location: backendJourney.current_location ?? null,
+    current_holder: backendJourney.current_holder ?? null,
+    next_required_stage: backendJourney.next_required_stage ?? null,
+    eta: backendJourney.eta ?? null,
+    last_movement: backendJourney.last_movement ? transformMovement(backendJourney.last_movement) : null,
+    last_event: backendJourney.last_event
+      ? {
+          event_type: backendJourney.last_event.event_type,
+          occurred_at: backendJourney.last_event.occurred_at ?? null,
+          description: backendJourney.last_event.description ?? null,
+        }
+      : null,
+  }
+}
+
 function resolveUploadUrl(url: string): string {
   if (!url) return url
   if (url.startsWith("/uploads/")) {
@@ -318,6 +376,85 @@ export async function getOwnProductionParts(): Promise<Part[]> {
   const response = await apiClient.getParts({ is_cooperation: false })
   const parts = response.data || response
   return parts.map(transformPart)
+}
+
+// Movements / logistics journal
+export async function getLogistics(): Promise<LogisticsEntry[]> {
+  if (!isAuthenticated()) return []
+  const parts = await getParts()
+  if (parts.length === 0) return []
+
+  const byPart = await Promise.all(
+    parts.map(async (part) => {
+      try {
+        const response = await apiClient.getPartMovements(part.id)
+        const movements = (response as any)?.data ?? response
+        return Array.isArray(movements) ? movements.map(transformMovement) : []
+      } catch {
+        return []
+      }
+    })
+  )
+  return byPart.flat()
+}
+
+export async function getLogisticsForPart(partId: string): Promise<LogisticsEntry[]> {
+  const response = await apiClient.getPartMovements(partId)
+  const movements = (response as any)?.data ?? response
+  return Array.isArray(movements) ? movements.map(transformMovement) : []
+}
+
+export async function createLogisticsEntry(entry: Omit<LogisticsEntry, "id">): Promise<LogisticsEntry> {
+  const payload = {
+    from_location: entry.from_location,
+    from_holder: entry.from_holder,
+    to_location: entry.to_location,
+    to_holder: entry.to_holder ?? entry.counterparty,
+    carrier: entry.carrier,
+    tracking_number: entry.tracking_number,
+    planned_eta: entry.planned_eta,
+    qty_sent: entry.qty_sent ?? entry.quantity,
+    qty_received: entry.qty_received,
+    stage_id: entry.stage_id,
+    notes: entry.notes,
+    description: entry.description,
+    type: entry.type,
+    allow_parallel: false,
+  }
+  const created = await apiClient.createMovement(entry.part_id, payload)
+  return transformMovement(created)
+}
+
+export async function updateLogisticsEntry(entry: LogisticsEntry): Promise<LogisticsEntry> {
+  const payload = {
+    status: entry.status,
+    from_location: entry.from_location,
+    from_holder: entry.from_holder,
+    to_location: entry.to_location,
+    to_holder: entry.to_holder ?? entry.counterparty,
+    carrier: entry.carrier,
+    tracking_number: entry.tracking_number,
+    planned_eta: entry.planned_eta,
+    qty_sent: entry.qty_sent ?? entry.quantity,
+    qty_received: entry.qty_received,
+    stage_id: entry.stage_id,
+    notes: entry.notes,
+    description: entry.description,
+  }
+  const updated = await apiClient.updateMovement(entry.id, payload)
+  return transformMovement(updated)
+}
+
+export async function getJourneyForPart(partId: string): Promise<JourneySummary | null> {
+  try {
+    const response = await apiClient.getPartJourney(partId)
+    return transformJourney(response)
+  } catch (error) {
+    if (error instanceof ApiClientError && error.statusCode === 404) {
+      return null
+    }
+    throw error
+  }
 }
 
 // Stage Facts

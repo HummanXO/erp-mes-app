@@ -2,24 +2,35 @@
 """Setup production environment with real users and machines."""
 import sys
 import uuid
+import subprocess
 from pathlib import Path
+from sqlalchemy import inspect
 
 # Add app to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.database import SessionLocal, Base, engine
+from app.database import SessionLocal, engine
 from app.models import Organization, User, Machine, Part, Task, StageFact, PartStageStatus, TaskReadStatus, TaskComment, TaskAttachment, NotificationOutbox, MachineNorm, AuditEvent
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+BASELINE_REVISION = "006a_baseline_createall"
 
 
 def setup():
     """Setup production environment."""
-    # Create all tables first
-    print("📦 Creating database tables...")
-    Base.metadata.create_all(bind=engine)
-    print("✅ Tables created")
+    # Production path: schema must be managed by Alembic migrations.
+    inspector = inspect(engine)
+    has_alembic_version = inspector.has_table("alembic_version")
+    has_existing_business_schema = inspector.has_table("organizations") or inspector.has_table("users") or inspector.has_table("parts")
+
+    if not has_alembic_version and has_existing_business_schema:
+        print(f"📦 Existing schema detected without alembic_version. Stamping baseline: {BASELINE_REVISION}")
+        subprocess.run(["alembic", "stamp", BASELINE_REVISION], check=True)
+
+    print("📦 Applying Alembic migrations...")
+    subprocess.run(["alembic", "upgrade", "head"], check=True)
+    print("✅ Migrations applied")
     
     db = SessionLocal()
     

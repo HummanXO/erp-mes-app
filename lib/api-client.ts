@@ -433,6 +433,28 @@ class ApiClient {
     return this.request<any>(`/parts/${id}`)
   }
 
+  async getPartMovements(partId: string) {
+    return this.request<any>(`/parts/${partId}/movements`)
+  }
+
+  async createMovement(partId: string, data: any) {
+    return this.request<any>(`/parts/${partId}/movements`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updateMovement(movementId: string, data: any) {
+    return this.request<any>(`/movements/${movementId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    })
+  }
+
+  async getPartJourney(partId: string) {
+    return this.request<any>(`/parts/${partId}/journey`)
+  }
+
   async createPart(data: any) {
     return this.request<any>("/parts", {
       method: "POST",

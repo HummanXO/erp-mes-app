@@ -330,6 +330,97 @@ class MachineNormResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Movements / transfers (logistics separated from production stages)
+class MovementCreate(BaseModel):
+    status: Optional[str] = Field(default="sent", pattern="^(pending|sent)$")
+    from_location: Optional[str] = None
+    from_holder: Optional[str] = None
+    to_location: Optional[str] = None
+    to_holder: Optional[str] = None
+    carrier: Optional[str] = None
+    tracking_number: Optional[str] = None
+    planned_eta: Optional[datetime] = None
+    qty_sent: Optional[int] = Field(default=None, ge=0)
+    qty_received: Optional[int] = Field(default=None, ge=0)
+    stage_id: Optional[UUID] = None
+    notes: Optional[str] = None
+    description: Optional[str] = None
+    type: Optional[str] = None  # deprecated legacy field
+    allow_parallel: bool = False
+
+
+class MovementUpdate(BaseModel):
+    status: Optional[str] = Field(
+        default=None,
+        pattern="^(sent|in_transit|received|returned|cancelled|pending|completed)$",
+    )
+    from_location: Optional[str] = None
+    from_holder: Optional[str] = None
+    to_location: Optional[str] = None
+    to_holder: Optional[str] = None
+    carrier: Optional[str] = None
+    tracking_number: Optional[str] = None
+    planned_eta: Optional[datetime] = None
+    qty_sent: Optional[int] = Field(default=None, ge=0)
+    qty_received: Optional[int] = Field(default=None, ge=0)
+    stage_id: Optional[UUID] = None
+    notes: Optional[str] = None
+    description: Optional[str] = None
+    allow_parallel: bool = False
+
+
+class MovementOut(BaseModel):
+    id: UUID
+    part_id: UUID
+    status: str
+    from_location: Optional[str] = None
+    from_holder: Optional[str] = None
+    to_location: Optional[str] = None
+    to_holder: Optional[str] = None
+    carrier: Optional[str] = None
+    tracking_number: Optional[str] = None
+    planned_eta: Optional[datetime] = None
+    sent_at: Optional[datetime] = None
+    received_at: Optional[datetime] = None
+    returned_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    qty_sent: Optional[int] = None
+    qty_received: Optional[int] = None
+    stage_id: Optional[UUID] = None
+    last_tracking_status: Optional[str] = None
+    tracking_last_checked_at: Optional[datetime] = None
+    raw_payload: Optional[dict] = None
+    notes: Optional[str] = None
+
+    # Deprecated legacy fields (kept for backward compatibility)
+    type: Optional[str] = None
+    description: Optional[str] = None
+    quantity: Optional[int] = None
+    date: Optional[date] = None
+    counterparty: Optional[str] = None
+
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class JourneyEventOut(BaseModel):
+    event_type: str
+    occurred_at: Optional[datetime] = None
+    description: Optional[str] = None
+
+
+class JourneyOut(BaseModel):
+    part_id: UUID
+    current_location: Optional[str] = None
+    current_holder: Optional[str] = None
+    next_required_stage: Optional[str] = None
+    eta: Optional[datetime] = None
+    last_movement: Optional[MovementOut] = None
+    last_event: Optional[JourneyEventOut] = None
+
+
 # Task schemas
 class TaskCreate(BaseModel):
     part_id: Optional[UUID] = None

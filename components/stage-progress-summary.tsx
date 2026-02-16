@@ -30,7 +30,6 @@ const STAGE_ORDER: ProductionStage[] = [
   "grinding",
   "galvanic",
   "qc",
-  "logistics",
 ]
 
 const OVERALL_PROGRESS_STAGES: ProductionStage[] = [
@@ -57,7 +56,7 @@ export function StageProgressSummary({ part, showDetails = true }: StageProgress
   const stageStatuses = part.stage_statuses || []
   // Sort stages by fixed order and filter out skipped
   const activeStages = stageStatuses
-    .filter(s => s.status !== "skipped")
+    .filter(s => s.status !== "skipped" && s.stage !== "logistics")
     .sort((a, b) => {
       const aIndex = STAGE_ORDER.indexOf(a.stage)
       const bIndex = STAGE_ORDER.indexOf(b.stage)

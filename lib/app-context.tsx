@@ -21,6 +21,7 @@ import type {
   AccessGrant,
   AccessEntityType,
   AccessPermission,
+  JourneySummary,
 } from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { ROLE_PERMISSIONS } from "./types"
@@ -103,8 +104,8 @@ interface AppContextType {
   setMachineNorm: (norm: Omit<MachineNorm, "configured_at">) => Promise<MachineNorm>
   
   // Logistics operations
-  createLogisticsEntry: (entry: Omit<LogisticsEntry, "id">) => LogisticsEntry
-  updateLogisticsEntry: (entry: LogisticsEntry) => void
+  createLogisticsEntry: (entry: Omit<LogisticsEntry, "id">) => Promise<LogisticsEntry>
+  updateLogisticsEntry: (entry: LogisticsEntry) => Promise<LogisticsEntry | void>
 
   // Inventory operations
   createInventoryMovement: (movement: Omit<InventoryMovement, "id">) => Promise<InventoryMovement>
@@ -164,6 +165,7 @@ interface AppContextType {
   getStageFactsForPart: (partId: string) => StageFact[]
   getStageFactsForPartAndStage: (partId: string, stage: ProductionStage) => StageFact[]
   getLogisticsForPart: (partId: string) => LogisticsEntry[]
+  getJourneyForPart: (partId: string) => Promise<JourneySummary | null>
   getOverdueTasks: () => Task[]
   getAllBlockers: () => Task[]
   isMissingShiftFact: (machineId: string, shiftType: ShiftType) => boolean
@@ -594,15 +596,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return newNorm
   }, [refreshData])
 
-  const createLogisticsEntry = useCallback((entry: Omit<LogisticsEntry, "id">) => {
-    const newEntry = dataProvider.createLogisticsEntry(entry)
-    refreshData()
+  const createLogisticsEntry = useCallback(async (entry: Omit<LogisticsEntry, "id">) => {
+    const newEntry = await dataProvider.createLogisticsEntry(entry)
+    await refreshData()
     return newEntry
   }, [refreshData])
 
-  const updateLogisticsEntry = useCallback((entry: LogisticsEntry) => {
-    dataProvider.updateLogisticsEntry(entry)
-    refreshData()
+  const updateLogisticsEntry = useCallback(async (entry: LogisticsEntry) => {
+    const updated = await dataProvider.updateLogisticsEntry(entry)
+    await refreshData()
+    return updated
   }, [refreshData])
 
   const createInventoryMovement = useCallback(async (movement: Omit<InventoryMovement, "id">) => {
@@ -951,6 +954,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return logistics.filter(l => l.part_id === partId)
   }, [logistics])
 
+  const getJourneyForPart = useCallback(async (partId: string) => {
+    const getter = (dataProvider as any).getJourneyForPart
+    if (typeof getter !== "function") return null
+    return await getter(partId)
+  }, [])
+
   const getOverdueTasks = useCallback(() => {
     return tasks.filter(t => t.status !== "done" && t.due_date < demoDate)
   }, [tasks, demoDate])
@@ -1156,6 +1165,7 @@ markTaskAsRead,
         getStageFactsForPart,
         getStageFactsForPartAndStage,
         getLogisticsForPart,
+        getJourneyForPart,
         getOverdueTasks,
         getAllBlockers,
         isMissingShiftFact,

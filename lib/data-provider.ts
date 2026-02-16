@@ -21,6 +21,7 @@ import type {
   AccessGrant,
   AccessEntityType,
   AccessPermission,
+  JourneySummary,
 } from "./types"
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement, Qty } from "./inventory-types"
 import { addAuditEntry } from "./audit-log"
@@ -587,6 +588,88 @@ export function updateLogisticsEntry(entry: LogisticsEntry): void {
   if (index !== -1) {
     logistics[index] = entry
     saveToStorage(STORAGE_KEYS.logistics, logistics)
+  }
+}
+
+export function getJourneyForPart(partId: string): JourneySummary | null {
+  const part = getPartById(partId)
+  if (!part) return null
+
+  const movements = getLogisticsForPart(partId)
+    .slice()
+    .sort((a, b) => {
+      const aTs = Date.parse(a.sent_at || a.updated_at || a.created_at || a.date || "")
+      const bTs = Date.parse(b.sent_at || b.updated_at || b.created_at || b.date || "")
+      return (Number.isNaN(bTs) ? 0 : bTs) - (Number.isNaN(aTs) ? 0 : aTs)
+    })
+
+  const lastMovement = movements[0]
+  const activeMovement = movements.find((m) => m.status === "sent" || m.status === "in_transit")
+
+  const stageOrder: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
+  const nextRequiredStage = stageOrder.find((stage) => {
+    const stageStatus = (part.stage_statuses || []).find((s) => s.stage === stage)
+    return stageStatus ? stageStatus.status === "pending" || stageStatus.status === "in_progress" : false
+  }) || null
+
+  const timelineFacts = getStageFactsForPart(partId)
+    .slice()
+    .sort((a, b) => Date.parse(b.created_at || b.date) - Date.parse(a.created_at || a.date))
+  const latestFact = timelineFacts[0]
+
+  const movementTsRaw = lastMovement?.cancelled_at
+    || lastMovement?.returned_at
+    || lastMovement?.received_at
+    || lastMovement?.sent_at
+    || lastMovement?.updated_at
+    || lastMovement?.created_at
+    || lastMovement?.date
+  const movementTs = movementTsRaw ? Date.parse(movementTsRaw) : Number.NaN
+  const factTsRaw = latestFact?.created_at || latestFact?.date
+  const factTs = factTsRaw ? Date.parse(factTsRaw) : Number.NaN
+
+  const movementNewer = !Number.isNaN(movementTs) && (Number.isNaN(factTs) || movementTs >= factTs)
+  const lastEvent = movementNewer && lastMovement
+    ? {
+        event_type: "movement",
+        occurred_at: movementTsRaw || null,
+        description: `Movement status: ${lastMovement.status}`,
+      }
+    : latestFact
+      ? {
+          event_type: "fact",
+          occurred_at: factTsRaw || null,
+          description: `Stage fact: ${latestFact.stage}`,
+        }
+      : null
+
+  const currentFromActive = activeMovement
+    ? {
+        current_location: activeMovement.to_location || activeMovement.from_location || null,
+        current_holder: activeMovement.to_holder || activeMovement.carrier || activeMovement.from_holder || null,
+      }
+    : null
+  const currentFromLast = lastMovement
+    ? {
+        current_location:
+          lastMovement.status === "received"
+            ? (lastMovement.to_location || lastMovement.from_location || null)
+            : (lastMovement.from_location || lastMovement.to_location || null),
+        current_holder:
+          lastMovement.status === "received"
+            ? (lastMovement.to_holder || lastMovement.from_holder || null)
+            : (lastMovement.from_holder || lastMovement.to_holder || null),
+      }
+    : null
+
+  return {
+    part_id: part.id,
+    current_location: currentFromActive?.current_location || currentFromLast?.current_location || null,
+    current_holder: currentFromActive?.current_holder || currentFromLast?.current_holder || null,
+    next_required_stage: nextRequiredStage,
+    eta: activeMovement?.planned_eta || null,
+    last_movement: lastMovement || null,
+    last_event: lastEvent,
   }
 }
 

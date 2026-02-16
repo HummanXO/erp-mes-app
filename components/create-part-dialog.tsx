@@ -19,11 +19,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
 import { Building2, AlertCircle, X, Loader2, Upload, CheckCircle, FileImage, FileText } from "lucide-react"
 
-const COOP_STAGES: ProductionStage[] = ["logistics", "qc"]
+const COOP_STAGES: ProductionStage[] = ["qc"]
 const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
-const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment", "grinding", "logistics"]
-const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc", "logistics"]
+const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
+const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
 const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 
 interface CreatePartDialogProps {
@@ -538,7 +538,7 @@ export function CreatePartDialog({
               {isCooperation ? (
                 <>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Для кооперации обязательны логистика и ОТК. При необходимости можно добавить гальванику после кооперации.
+                    Для кооперации обязателен ОТК. При необходимости можно добавить гальванику после кооперации.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                     {COOP_STAGES.map((stage) => (
