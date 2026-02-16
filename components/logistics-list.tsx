@@ -2,9 +2,9 @@
 
 import React from "react"
 
-import { useState, useId } from "react"
+import { useId, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Part, LogisticsEntry, MovementStatus, ProductionStage } from "@/lib/types"
+import type { LogisticsEntry, MovementStatus, Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,14 +13,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { 
-  Plus, 
-  Truck, 
+import { Progress } from "@/components/ui/progress"
+import {
+  ArrowRightLeft,
+  Ban,
   CheckCircle,
   Clock,
+  Plus,
   RotateCw,
+  Truck,
   Undo2,
-  Ban
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -34,463 +36,1057 @@ const STATUS_LABELS: Record<MovementStatus, string> = {
   received: "Получено",
   returned: "Возврат",
   cancelled: "Отменено",
-  pending: "Ожидание",
+  pending: "Черновик",
   completed: "Завершено",
 }
 
+const EXTERNAL_STAGE_FLOW: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
+const ACTIVE_MOVEMENT_STATUSES = new Set<MovementStatus>(["sent", "in_transit"])
+const RECEIVED_MOVEMENT_STATUSES = new Set<MovementStatus>(["received", "completed"])
+const TERMINAL_MOVEMENT_STATUSES = new Set<MovementStatus>(["received", "completed", "cancelled", "returned"])
+const ONE_DAY_MS = 24 * 60 * 60 * 1000
+
+function normalizeMovementStatus(status: string | undefined): MovementStatus {
+  if (!status) return "pending"
+  return status as MovementStatus
+}
+
+function movementTimestamp(entry: LogisticsEntry): number {
+  return new Date(
+    entry.received_at ||
+      entry.returned_at ||
+      entry.cancelled_at ||
+      entry.sent_at ||
+      entry.updated_at ||
+      entry.created_at ||
+      entry.date ||
+      new Date(0).toISOString()
+  ).getTime()
+}
+
+function toDateOnly(value?: string): Date | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())
+}
+
+function formatDate(value?: string): string {
+  if (!value) return "—"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return parsed.toLocaleDateString("ru-RU")
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return "Дата не указана"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "Дата не указана"
+  return parsed.toLocaleString("ru-RU")
+}
+
+function toDateInputValue(value?: string): string {
+  const date = toDateOnly(value)
+  if (!date) return ""
+  const yyyy = String(date.getFullYear())
+  const mm = String(date.getMonth() + 1).padStart(2, "0")
+  const dd = String(date.getDate()).padStart(2, "0")
+  return `${yyyy}-${mm}-${dd}`
+}
+
+function buildEtaDelta(
+  plannedEta?: string,
+  receivedAt?: string,
+  referenceDateIso?: string
+): { label: string; tone: "ok" | "risk" | "neutral" } | null {
+  const planned = toDateOnly(plannedEta)
+  if (!planned) return null
+
+  const actual = toDateOnly(receivedAt || referenceDateIso)
+  if (!actual) return null
+
+  const deltaDays = Math.ceil((actual.getTime() - planned.getTime()) / ONE_DAY_MS)
+  if (deltaDays > 0) {
+    return { label: `Задержка ${deltaDays} дн.`, tone: "risk" }
+  }
+  if (deltaDays < 0) {
+    return { label: `Раньше на ${Math.abs(deltaDays)} дн.`, tone: "ok" }
+  }
+  return { label: "В срок", tone: "ok" }
+}
+
+type StageCardData = {
+  stageId: string
+  stage: ProductionStage
+  stageStatus: string
+  qtyReady: number
+  percent: number
+  latestMovement?: LogisticsEntry
+  activeMovement?: LogisticsEntry
+  lastReceivedMovement?: LogisticsEntry
+  statusLabel: string
+  statusTone: "ok" | "risk" | "neutral"
+  lastPartner?: string
+  etaLabel: string
+  etaDelta: { label: string; tone: "ok" | "risk" | "neutral" } | null
+}
+
 export function LogisticsList({ part }: LogisticsListProps) {
-  const { getLogisticsForPart, createLogisticsEntry, updateLogisticsEntry, permissions } = useApp()
-  
+  const {
+    getLogisticsForPart,
+    createLogisticsEntry,
+    updateLogisticsEntry,
+    permissions,
+    demoDate,
+  } = useApp()
+
   const logistics = getLogisticsForPart(part.id)
-  const [isCreating, setIsCreating] = useState(false)
+  const sortedLogistics = useMemo(
+    () => [...logistics].sort((a, b) => movementTimestamp(b) - movementTimestamp(a)),
+    [logistics]
+  )
+
+  const stageOptions = useMemo(
+    () =>
+      (part.stage_statuses || [])
+        .filter((status) => Boolean(status.id) && EXTERNAL_STAGE_FLOW.includes(status.stage))
+        .sort(
+          (a, b) =>
+            EXTERNAL_STAGE_FLOW.indexOf(a.stage) -
+            EXTERNAL_STAGE_FLOW.indexOf(b.stage)
+        ),
+    [part.stage_statuses]
+  )
+
+  const stageNameById = useMemo(
+    () =>
+      new Map(
+        (part.stage_statuses || [])
+          .filter((status) => Boolean(status.id))
+          .map((status) => [String(status.id), status.stage])
+      ),
+    [part.stage_statuses]
+  )
+
+  const stageCards: StageCardData[] = useMemo(
+    () =>
+      stageOptions.map((stageStatus) => {
+        const stageId = String(stageStatus.id)
+        const linked = sortedLogistics.filter((entry) => entry.stage_id === stageId)
+        const active = linked.find((entry) =>
+          ACTIVE_MOVEMENT_STATUSES.has(normalizeMovementStatus(entry.status))
+        )
+        const latest = linked[0]
+        const lastReceived = linked.find((entry) =>
+          RECEIVED_MOVEMENT_STATUSES.has(normalizeMovementStatus(entry.status))
+        )
+
+        const movementReadyQty = linked
+          .filter((entry) => RECEIVED_MOVEMENT_STATUSES.has(normalizeMovementStatus(entry.status)))
+          .reduce(
+            (sum, entry) =>
+              sum + (entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0),
+            0
+          )
+
+        const qtyReady =
+          typeof stageStatus.qty_good === "number" ? stageStatus.qty_good : movementReadyQty
+        const percent =
+          part.qty_plan > 0
+            ? Math.max(0, Math.min(100, Math.round((qtyReady / part.qty_plan) * 100)))
+            : 0
+
+        const plannedEta = active?.planned_eta || latest?.planned_eta
+        const etaDelta = buildEtaDelta(
+          plannedEta,
+          lastReceived?.received_at,
+          active ? `${demoDate}T00:00:00` : undefined
+        )
+
+        let statusLabel = "Не отправлено"
+        let statusTone: StageCardData["statusTone"] = "neutral"
+
+        if (active) {
+          statusLabel = "У кооператора"
+          statusTone = "neutral"
+        } else if (stageStatus.status === "done" || lastReceived) {
+          statusLabel = "Получено"
+          statusTone = "ok"
+        } else if (latest) {
+          const latestStatus = normalizeMovementStatus(latest.status)
+          statusLabel = STATUS_LABELS[latestStatus] || "Есть движение"
+          statusTone = latestStatus === "cancelled" || latestStatus === "returned" ? "risk" : "neutral"
+        }
+
+        return {
+          stageId,
+          stage: stageStatus.stage,
+          stageStatus: stageStatus.status,
+          qtyReady,
+          percent,
+          latestMovement: latest,
+          activeMovement: active,
+          lastReceivedMovement: lastReceived,
+          statusLabel,
+          statusTone,
+          lastPartner: active?.to_holder || latest?.to_holder,
+          etaLabel: plannedEta ? formatDate(plannedEta) : "Не задан",
+          etaDelta,
+        }
+      }),
+    [demoDate, part.qty_plan, sortedLogistics, stageOptions]
+  )
+
+  const hasStageFlow = !part.is_cooperation && stageCards.length > 0
+
+  const [isCreatingManual, setIsCreatingManual] = useState(false)
+  const [manualFromLocation, setManualFromLocation] = useState("")
+  const [manualFromHolder, setManualFromHolder] = useState("")
+  const [manualToLocation, setManualToLocation] = useState("")
+  const [manualToHolder, setManualToHolder] = useState("")
+  const [manualCarrier, setManualCarrier] = useState("")
+  const [manualDescription, setManualDescription] = useState("")
+  const [manualQuantitySent, setManualQuantitySent] = useState("")
+  const [manualPlannedEta, setManualPlannedEta] = useState("")
+  const [manualTrackingNumber, setManualTrackingNumber] = useState("")
+  const [manualNotes, setManualNotes] = useState("")
+  const [manualStageId, setManualStageId] = useState("")
+
+  const [sendStageId, setSendStageId] = useState<string | null>(null)
+  const [sendPartner, setSendPartner] = useState("")
+  const [sendQty, setSendQty] = useState("")
+  const [sendEta, setSendEta] = useState("")
+  const [sendTracking, setSendTracking] = useState("")
+  const [sendCarrier, setSendCarrier] = useState("CDEK")
+  const [sendNotes, setSendNotes] = useState("")
+
+  const [receivingMovementId, setReceivingMovementId] = useState<string | null>(null)
+  const [receiveQty, setReceiveQty] = useState("")
+  const [editingEtaMovementId, setEditingEtaMovementId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState("")
+
   const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({})
-  
-  // Form state
-  const [fromLocation, setFromLocation] = useState("")
-  const [fromHolder, setFromHolder] = useState("")
-  const [toLocation, setToLocation] = useState("")
-  const [toHolder, setToHolder] = useState("")
-  const [carrier, setCarrier] = useState("")
-  const [description, setDescription] = useState("")
-  const [quantitySent, setQuantitySent] = useState("")
-  const [plannedEta, setPlannedEta] = useState("")
-  const [trackingNumber, setTrackingNumber] = useState("")
-  const [notes, setNotes] = useState("")
-  const [stageId, setStageId] = useState("")
+
   const formId = useId()
-  const fromLocationId = `${formId}-from-location`
-  const fromHolderId = `${formId}-from-holder`
-  const toLocationId = `${formId}-to-location`
-  const toHolderId = `${formId}-to-holder`
-  const carrierId = `${formId}-carrier`
-  const descriptionId = `${formId}-description`
-  const quantityId = `${formId}-qty-sent`
-  const etaId = `${formId}-planned-eta`
-  const trackingId = `${formId}-tracking`
-  const notesId = `${formId}-notes`
   const stageIdField = `${formId}-stage`
-  const externalStages: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
-  const stageOptions = (part.stage_statuses || []).filter(
-    (status) => Boolean(status.id) && externalStages.includes(status.stage)
-  )
-  const stageNameById = new Map(
-    (part.stage_statuses || [])
-      .filter((status) => Boolean(status.id))
-      .map((status) => [String(status.id), status.stage])
-  )
-  
-  const handleCreate = async () => {
-    await createLogisticsEntry({
-      part_id: part.id,
-      status: "sent",
-      from_location: fromLocation || undefined,
-      from_holder: fromHolder || undefined,
-      to_location: toLocation || undefined,
-      to_holder: toHolder || undefined,
-      carrier: carrier || undefined,
-      tracking_number: trackingNumber || undefined,
-      planned_eta: plannedEta ? new Date(`${plannedEta}T00:00:00`).toISOString() : undefined,
-      qty_sent: quantitySent ? Number.parseInt(quantitySent, 10) : undefined,
-      stage_id: stageId || undefined,
-      description: description || "Перемещение",
-      type: part.is_cooperation ? "coop_out" : "shipping_out",
-      counterparty: toHolder || toLocation || undefined,
-      notes: notes || undefined,
-      date: new Date().toISOString().split("T")[0],
-    })
-    
-    // Reset form
-    setFromLocation("")
-    setFromHolder("")
-    setToLocation("")
-    setToHolder("")
-    setCarrier("")
-    setDescription("")
-    setQuantitySent("")
-    setPlannedEta("")
-    setTrackingNumber("")
-    setNotes("")
-    setStageId("")
-    setIsCreating(false)
-  }
-  
-  const handleStatusUpdate = async (entry: LogisticsEntry, newStatus: MovementStatus) => {
-    await updateLogisticsEntry({
-      ...entry,
-      status: newStatus,
-      qty_received: newStatus === "received" ? (entry.qty_received ?? entry.qty_sent) : entry.qty_received,
-    })
-  }
 
-  const dateInputFromIso = (value?: string) => {
-    if (!value) return ""
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return ""
-    return parsed.toISOString().slice(0, 10)
-  }
+  const getEtaDraft = (entry: LogisticsEntry) =>
+    etaDrafts[entry.id] ?? toDateInputValue(entry.planned_eta)
 
-  const getEtaDraft = (entry: LogisticsEntry) => etaDrafts[entry.id] ?? dateInputFromIso(entry.planned_eta)
+  const toErrorMessage = (error: unknown): string => {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message
+    }
+    return "Не удалось выполнить действие. Обновите страницу и повторите."
+  }
 
   const handleEtaChange = (entryId: string, value: string) => {
     setEtaDrafts((prev) => ({ ...prev, [entryId]: value }))
   }
 
   const handleSaveEta = async (entry: LogisticsEntry) => {
-    const draft = getEtaDraft(entry)
-    await updateLogisticsEntry({
-      ...entry,
-      planned_eta: draft ? new Date(`${draft}T00:00:00`).toISOString() : undefined,
-    })
+    try {
+      const draft = getEtaDraft(entry)
+      await updateLogisticsEntry({
+        ...entry,
+        planned_eta: draft ? new Date(`${draft}T00:00:00`).toISOString() : undefined,
+      })
+      setEditingEtaMovementId(null)
+      setActionError("")
+    } catch (error) {
+      setActionError(toErrorMessage(error))
+    }
   }
 
-  // Sort by movement timestamp descending
-  const sortedLogistics = [...logistics].sort((a, b) => 
-    new Date(
-      b.sent_at || b.created_at || b.updated_at || b.date || new Date(0).toISOString()
-    ).getTime() - new Date(
-      a.sent_at || a.created_at || a.updated_at || a.date || new Date(0).toISOString()
-    ).getTime()
-  )
+  const resetManualForm = () => {
+    setManualFromLocation("")
+    setManualFromHolder("")
+    setManualToLocation("")
+    setManualToHolder("")
+    setManualCarrier("")
+    setManualDescription("")
+    setManualQuantitySent("")
+    setManualPlannedEta("")
+    setManualTrackingNumber("")
+    setManualNotes("")
+    setManualStageId("")
+  }
+
+  const handleCreateManualMovement = async () => {
+    try {
+      await createLogisticsEntry({
+        part_id: part.id,
+        status: "sent",
+        from_location: manualFromLocation || undefined,
+        from_holder: manualFromHolder || undefined,
+        to_location: manualToLocation || undefined,
+        to_holder: manualToHolder || undefined,
+        carrier: manualCarrier || undefined,
+        tracking_number: manualTrackingNumber || undefined,
+        planned_eta: manualPlannedEta ? new Date(`${manualPlannedEta}T00:00:00`).toISOString() : undefined,
+        qty_sent: manualQuantitySent ? Number.parseInt(manualQuantitySent, 10) : undefined,
+        stage_id: manualStageId || undefined,
+        description: manualDescription || "Ручное перемещение",
+        type: part.is_cooperation ? "coop_out" : "shipping_out",
+        counterparty: manualToHolder || manualToLocation || undefined,
+        notes: manualNotes || undefined,
+        date: new Date().toISOString().split("T")[0],
+      })
+
+      resetManualForm()
+      setIsCreatingManual(false)
+      setActionError("")
+    } catch (error) {
+      setActionError(toErrorMessage(error))
+    }
+  }
+
+  const openSendForm = (card: StageCardData) => {
+    const qtyRemaining = Math.max(part.qty_plan - card.qtyReady, 0)
+    setSendStageId(card.stageId)
+    setSendPartner(card.lastPartner || "")
+    setSendQty(qtyRemaining > 0 ? String(qtyRemaining) : "")
+    setSendEta("")
+    setSendTracking("")
+    setSendCarrier("CDEK")
+    setSendNotes("")
+    setEditingEtaMovementId(null)
+    setActionError("")
+  }
+
+  const handleSendToStage = async () => {
+    if (!sendStageId) return
+    const card = stageCards.find((item) => item.stageId === sendStageId)
+    if (!card) return
+
+    const qtyValue = Number.parseInt(sendQty, 10)
+    if (!Number.isFinite(qtyValue) || qtyValue <= 0) {
+      setActionError("Укажите корректное количество для отправки")
+      return
+    }
+    if (!sendPartner.trim()) {
+      setActionError("Укажите кооператора/получателя")
+      return
+    }
+
+    try {
+      await createLogisticsEntry({
+        part_id: part.id,
+        status: "sent",
+        from_location: "Цех",
+        from_holder: "Производство",
+        to_location: STAGE_LABELS[card.stage],
+        to_holder: sendPartner.trim(),
+        carrier: sendCarrier.trim() || undefined,
+        tracking_number: sendTracking.trim() || undefined,
+        planned_eta: sendEta ? new Date(`${sendEta}T00:00:00`).toISOString() : undefined,
+        qty_sent: qtyValue,
+        stage_id: sendStageId,
+        description: `Отправка на этап: ${STAGE_LABELS[card.stage]}`,
+        type: "coop_out",
+        counterparty: sendPartner.trim(),
+        notes: sendNotes.trim() || undefined,
+        date: new Date().toISOString().split("T")[0],
+      })
+
+      setSendStageId(null)
+      setSendPartner("")
+      setSendQty("")
+      setSendEta("")
+      setSendTracking("")
+      setSendCarrier("CDEK")
+      setSendNotes("")
+      setActionError("")
+    } catch (error) {
+      setActionError(toErrorMessage(error))
+    }
+  }
+
+  const handleStartReceive = (movement: LogisticsEntry) => {
+    setReceivingMovementId(movement.id)
+    setReceiveQty(String(movement.qty_sent ?? ""))
+    setEditingEtaMovementId(null)
+    setActionError("")
+  }
+
+  const handleConfirmReceive = async () => {
+    if (!receivingMovementId) return
+    const movement = sortedLogistics.find((entry) => entry.id === receivingMovementId)
+    if (!movement) return
+
+    const parsedQty = receiveQty ? Number.parseInt(receiveQty, 10) : undefined
+    if (parsedQty !== undefined && (!Number.isFinite(parsedQty) || parsedQty < 0)) {
+      setActionError("Укажите корректное количество приёмки")
+      return
+    }
+
+    try {
+      await updateLogisticsEntry({
+        ...movement,
+        status: "received",
+        qty_received: parsedQty ?? movement.qty_sent,
+      })
+
+      setReceivingMovementId(null)
+      setReceiveQty("")
+      setActionError("")
+    } catch (error) {
+      setActionError(toErrorMessage(error))
+    }
+  }
+
+  const handleUpdateStatus = async (entry: LogisticsEntry, status: MovementStatus) => {
+    try {
+      await updateLogisticsEntry({ ...entry, status })
+      setActionError("")
+    } catch (error) {
+      setActionError(toErrorMessage(error))
+    }
+  }
+
+  const handleReceiveFromHistory = async (entry: LogisticsEntry) => {
+    const parsedQty = receiveQty ? Number.parseInt(receiveQty, 10) : undefined
+    if (parsedQty !== undefined && (!Number.isFinite(parsedQty) || parsedQty < 0)) {
+      setActionError("Укажите корректное количество приёмки")
+      return
+    }
+
+    try {
+      await updateLogisticsEntry({
+        ...entry,
+        status: "received",
+        qty_received: parsedQty ?? entry.qty_sent,
+      })
+      setReceivingMovementId(null)
+      setReceiveQty("")
+      setActionError("")
+    } catch (error) {
+      setActionError(toErrorMessage(error))
+    }
+  }
 
   const statusTone = (status: MovementStatus) => {
-    const normalized = status
-    if (normalized === "received") return "text-green-600 border-green-600 bg-green-500/5 border-green-200"
-    if (normalized === "in_transit") return "text-blue-600 border-blue-600 bg-blue-500/5 border-blue-200"
-    if (normalized === "returned") return "text-amber-600 border-amber-600 bg-amber-500/5 border-amber-200"
-    if (normalized === "cancelled") return "text-zinc-600 border-zinc-600 bg-zinc-500/5 border-zinc-200"
-    if (normalized === "completed") return "text-green-700 border-green-700 bg-green-500/5 border-green-200"
-    return "text-indigo-600 border-indigo-600 bg-indigo-500/5 border-indigo-200"
+    if (status === "received" || status === "completed") {
+      return "text-green-700 border-green-200 bg-green-50/40"
+    }
+    if (status === "in_transit") {
+      return "text-blue-700 border-blue-200 bg-blue-50/40"
+    }
+    if (status === "returned") {
+      return "text-amber-700 border-amber-200 bg-amber-50/40"
+    }
+    if (status === "cancelled") {
+      return "text-zinc-700 border-zinc-200 bg-zinc-50/40"
+    }
+    return "text-indigo-700 border-indigo-200 bg-indigo-50/40"
   }
 
   const statusIcon = (status: MovementStatus) => {
-    const normalized = status
-    if (normalized === "received") return <CheckCircle className="h-3 w-3 mr-1" />
-    if (normalized === "in_transit") return <RotateCw className="h-3 w-3 mr-1" />
-    if (normalized === "returned") return <Undo2 className="h-3 w-3 mr-1" />
-    if (normalized === "cancelled") return <Ban className="h-3 w-3 mr-1" />
-    if (normalized === "completed") return <CheckCircle className="h-3 w-3 mr-1" />
-    return <Clock className="h-3 w-3 mr-1" />
+    if (status === "received" || status === "completed") {
+      return <CheckCircle className="mr-1 h-3 w-3" />
+    }
+    if (status === "in_transit") {
+      return <RotateCw className="mr-1 h-3 w-3" />
+    }
+    if (status === "returned") {
+      return <Undo2 className="mr-1 h-3 w-3" />
+    }
+    if (status === "cancelled") {
+      return <Ban className="mr-1 h-3 w-3" />
+    }
+    return <Clock className="mr-1 h-3 w-3" />
   }
 
-  const isReceivedActionAvailable = (status: MovementStatus) => status === "sent" || status === "in_transit"
-
   return (
-      <div className="space-y-4">
-		      {permissions.canEditFacts && !isCreating && (
-		        <Button onClick={() => setIsCreating(true)} className="w-full h-11">
-		          <Plus className="h-4 w-4 mr-2" />
-		          Добавить перемещение
-		        </Button>
-		      )}
-      
-      {/* Create form */}
-      {isCreating && (
+    <div className="space-y-4">
+      {hasStageFlow && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ArrowRightLeft className="h-4 w-4" />
+              Внешние этапы
+            </CardTitle>
+            <div className="text-xs text-muted-foreground">
+              Для этапов на стороне используйте кнопки «Отправить» и «Принять». Журнал ниже формируется автоматически.
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {stageCards.map((card) => {
+              const toneClass =
+                card.statusTone === "ok"
+                  ? "border-green-200 bg-green-50/40"
+                  : card.statusTone === "risk"
+                    ? "border-amber-200 bg-amber-50/40"
+                    : "border-border bg-muted/20"
+
+              const activeMovement = card.activeMovement
+
+              return (
+                <div key={card.stageId} className={cn("rounded-lg border p-3 space-y-3", toneClass)}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm font-medium">{STAGE_LABELS[card.stage]}</div>
+                      <div className="text-xs text-muted-foreground">Статус этапа: {card.statusLabel}</div>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        card.statusTone === "ok" && "border-green-600 text-green-700",
+                        card.statusTone === "risk" && "border-amber-600 text-amber-700",
+                        card.statusTone === "neutral" && "border-muted-foreground/40 text-muted-foreground"
+                      )}
+                    >
+                      {card.statusLabel}
+                    </Badge>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Готово по этапу</span>
+                      <span>{card.qtyReady.toLocaleString()} / {part.qty_plan.toLocaleString()} шт</span>
+                    </div>
+                    <Progress value={card.percent} className="h-1.5" />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-md bg-background/70 p-2">
+                      <div>Ориентир поступления</div>
+                      <div className="mt-1 text-sm font-medium text-foreground">{card.etaLabel}</div>
+                    </div>
+                    <div className="rounded-md bg-background/70 p-2">
+                      <div>Факт поступления</div>
+                      <div className="mt-1 text-sm font-medium text-foreground">
+                        {card.lastReceivedMovement ? formatDate(card.lastReceivedMovement.received_at) : "—"}
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-background/70 p-2">
+                      <div>Отклонение по сроку</div>
+                      <div
+                        className={cn(
+                          "mt-1 text-sm font-medium",
+                          card.etaDelta?.tone === "ok" && "text-green-700",
+                          card.etaDelta?.tone === "risk" && "text-amber-700",
+                          (!card.etaDelta || card.etaDelta.tone === "neutral") && "text-foreground"
+                        )}
+                      >
+                        {card.etaDelta?.label || "—"}
+                      </div>
+                    </div>
+                    <div className="rounded-md bg-background/70 p-2">
+                      <div>Последний кооператор</div>
+                      <div className="mt-1 text-sm font-medium text-foreground">{card.lastPartner || "—"}</div>
+                    </div>
+                  </div>
+
+                  {permissions.canEditFacts && sendStageId !== card.stageId && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!activeMovement && card.stageStatus !== "done" && (
+                        <Button type="button" className="h-8" onClick={() => openSendForm(card)}>
+                          Отправить
+                        </Button>
+                      )}
+
+                      {activeMovement && receivingMovementId !== activeMovement.id && (
+                        <Button type="button" className="h-8" onClick={() => handleStartReceive(activeMovement)}>
+                          Принять
+                        </Button>
+                      )}
+
+                      {activeMovement && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-8"
+                          onClick={() =>
+                            setEditingEtaMovementId((prev) =>
+                              prev === activeMovement.id ? null : activeMovement.id
+                            )
+                          }
+                        >
+                          Срок
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {permissions.canEditFacts &&
+                    activeMovement &&
+                    editingEtaMovementId === activeMovement.id && (
+                      <div className="rounded-md border bg-background p-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[220px_auto_auto] sm:items-end">
+                          <div className="space-y-1">
+                            <Label
+                              htmlFor={`eta-stage-${activeMovement.id}`}
+                              className="text-xs text-muted-foreground"
+                            >
+                              Ориентир поступления
+                            </Label>
+                            <Input
+                              id={`eta-stage-${activeMovement.id}`}
+                              type="date"
+                              className="h-9"
+                              value={getEtaDraft(activeMovement)}
+                              onChange={(event) => handleEtaChange(activeMovement.id, event.target.value)}
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            className="h-9"
+                            onClick={() => void handleSaveEta(activeMovement)}
+                          >
+                            Сохранить срок
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9"
+                            onClick={() => setEditingEtaMovementId(null)}
+                          >
+                            Отмена
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                  {permissions.canEditFacts && sendStageId === card.stageId && (
+                    <div className="rounded-md border bg-background p-3 space-y-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label htmlFor={`send-partner-${card.stageId}`}>Кооператор</Label>
+                          <Input
+                            id={`send-partner-${card.stageId}`}
+                            placeholder="Например: ПК Реном"
+                            value={sendPartner}
+                            onChange={(event) => setSendPartner(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`send-qty-${card.stageId}`}>Количество</Label>
+                          <Input
+                            id={`send-qty-${card.stageId}`}
+                            type="number"
+                            placeholder="шт"
+                            value={sendQty}
+                            onChange={(event) => setSendQty(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label htmlFor={`send-eta-${card.stageId}`}>Ориентир поступления</Label>
+                          <Input
+                            id={`send-eta-${card.stageId}`}
+                            type="date"
+                            value={sendEta}
+                            onChange={(event) => setSendEta(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`send-tracking-${card.stageId}`}>Трек / накладная</Label>
+                          <Input
+                            id={`send-tracking-${card.stageId}`}
+                            placeholder="Номер отслеживания"
+                            value={sendTracking}
+                            onChange={(event) => setSendTracking(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label htmlFor={`send-carrier-${card.stageId}`}>Перевозчик</Label>
+                          <Input
+                            id={`send-carrier-${card.stageId}`}
+                            placeholder="Например: CDEK"
+                            value={sendCarrier}
+                            onChange={(event) => setSendCarrier(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor={`send-notes-${card.stageId}`}>Примечание</Label>
+                          <Input
+                            id={`send-notes-${card.stageId}`}
+                            placeholder="Опционально"
+                            value={sendNotes}
+                            onChange={(event) => setSendNotes(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button type="button" variant="outline" className="h-9" onClick={() => setSendStageId(null)}>
+                          Отмена
+                        </Button>
+                        <Button type="button" className="h-9" onClick={() => void handleSendToStage()}>
+                          Отправить
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {permissions.canEditFacts && activeMovement && receivingMovementId === activeMovement.id && (
+                    <div className="rounded-md border bg-background p-3 space-y-2">
+                      <div className="text-sm font-medium">Приёмка с этапа {STAGE_LABELS[card.stage]}</div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_auto_auto] sm:items-end">
+                        <div className="space-y-1">
+                          <Label htmlFor={`receive-qty-${activeMovement.id}`}>Принято, шт</Label>
+                          <Input
+                            id={`receive-qty-${activeMovement.id}`}
+                            type="number"
+                            value={receiveQty}
+                            onChange={(event) => setReceiveQty(event.target.value)}
+                            className="h-9"
+                          />
+                        </div>
+                        <Button type="button" className="h-9" onClick={() => void handleConfirmReceive()}>
+                          Подтвердить приёмку
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9"
+                          onClick={() => {
+                            setReceivingMovementId(null)
+                            setReceiveQty("")
+                          }}
+                        >
+                          Отмена
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {actionError && <div className="text-sm text-destructive">{actionError}</div>}
+          </CardContent>
+        </Card>
+      )}
+
+      {permissions.canEditFacts && (
+        <Button
+          type="button"
+          variant={hasStageFlow ? "outline" : "default"}
+          className="w-full h-10"
+          onClick={() => setIsCreatingManual((prev) => !prev)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          {isCreatingManual ? "Скрыть ручной ввод" : hasStageFlow ? "Ручной ввод перемещения" : "Добавить перемещение"}
+        </Button>
+      )}
+
+      {isCreatingManual && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Truck className="h-4 w-4" />
-              Новое перемещение
+              Ручное перемещение
             </CardTitle>
+            <div className="text-xs text-muted-foreground">
+              Используйте только для нестандартных кейсов. Для внешних этапов выше удобнее кнопки «Отправить/Принять».
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-		            <div className="space-y-2">
-		              <Label htmlFor={descriptionId}>Описание</Label>
-		              <Input
-		                id={descriptionId}
-		                placeholder="Например: Отправка на термообработку"
-		                value={description}
-		                onChange={(e) => setDescription(e.target.value)}
-		                className="h-11"
-		              />
-		            </div>
-		            
-			            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-		              <div className="space-y-2">
-		                <Label htmlFor={fromLocationId}>Откуда (локация)</Label>
-		                <Input
-		                  id={fromLocationId}
-		                  placeholder="Цех / склад / адрес"
-		                  value={fromLocation}
-		                  onChange={(e) => setFromLocation(e.target.value)}
-		                  className="h-11"
-		                />
-		              </div>
-		              <div className="space-y-2">
-		                <Label htmlFor={fromHolderId}>Отправитель (держатель)</Label>
-		                <Input
-		                  id={fromHolderId}
-		                  placeholder="Кто отправляет"
-		                  value={fromHolder}
-		                  onChange={(e) => setFromHolder(e.target.value)}
-		                  className="h-11"
-		                />
-		              </div>
-		            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-from-location`}>Откуда (локация)</Label>
+                <Input
+                  id={`${formId}-from-location`}
+                  value={manualFromLocation}
+                  onChange={(e) => setManualFromLocation(e.target.value)}
+                  placeholder="Цех / склад / адрес"
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-from-holder`}>Отправитель (держатель)</Label>
+                <Input
+                  id={`${formId}-from-holder`}
+                  value={manualFromHolder}
+                  onChange={(e) => setManualFromHolder(e.target.value)}
+                  placeholder="Кто отправляет"
+                  className="h-10"
+                />
+              </div>
+            </div>
 
-		            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-		              <div className="space-y-2">
-		                <Label htmlFor={toLocationId}>Куда (локация)</Label>
-		                <Input
-		                  id={toLocationId}
-		                  placeholder="Цех / склад / адрес"
-		                  value={toLocation}
-		                  onChange={(e) => setToLocation(e.target.value)}
-		                  className="h-11"
-		                />
-		              </div>
-		              <div className="space-y-2">
-		                <Label htmlFor={toHolderId}>Получатель (держатель)</Label>
-		                <Input
-		                  id={toHolderId}
-		                  placeholder="Контрагент / участок"
-		                  value={toHolder}
-		                  onChange={(e) => setToHolder(e.target.value)}
-		                  className="h-11"
-		                />
-		              </div>
-		            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-to-location`}>Куда (локация)</Label>
+                <Input
+                  id={`${formId}-to-location`}
+                  value={manualToLocation}
+                  onChange={(e) => setManualToLocation(e.target.value)}
+                  placeholder="Цех / склад / адрес"
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-to-holder`}>Получатель (держатель)</Label>
+                <Input
+                  id={`${formId}-to-holder`}
+                  value={manualToHolder}
+                  onChange={(e) => setManualToHolder(e.target.value)}
+                  placeholder="Контрагент / участок"
+                  className="h-10"
+                />
+              </div>
+            </div>
 
-		            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-		              <div className="space-y-2">
-		                <Label htmlFor={carrierId}>Перевозчик</Label>
-		                <Input
-		                  id={carrierId}
-		                  placeholder="Например: CDEK"
-		                  value={carrier}
-		                  onChange={(e) => setCarrier(e.target.value)}
-		                  className="h-11"
-		                />
-		              </div>
-		              <div className="space-y-2">
-		                <Label htmlFor={quantityId}>Кол-во отправлено</Label>
-		                <Input
-		                  id={quantityId}
-		                  type="number"
-		                  placeholder="шт"
-		                  value={quantitySent}
-		                  onChange={(e) => setQuantitySent(e.target.value)}
-		                  className="h-11"
-		                />
-		              </div>
-		            </div>
-            
-		            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-		              <div className="space-y-2">
-		              <Label htmlFor={trackingId}>Трек-номер / Накладная</Label>
-		              <Input
-		                id={trackingId}
-		                placeholder="Номер отслеживания"
-		                value={trackingNumber}
-		                onChange={(e) => setTrackingNumber(e.target.value)}
-		                className="h-11"
-		              />
-		            </div>
-		              <div className="space-y-2">
-		                <Label htmlFor={etaId}>Ориентировочная дата поступления</Label>
-		                <Input
-		                  id={etaId}
-		                  type="date"
-		                  value={plannedEta}
-		                  onChange={(e) => setPlannedEta(e.target.value)}
-		                  className="h-11"
-		                />
-		                <div className="text-xs text-muted-foreground">
-		                  Укажите дату, когда ожидаете получение у получателя.
-		                </div>
-		              </div>
-			            </div>
-			{stageOptions.length > 0 && (
-			            <div className="space-y-2">
-			              <Label htmlFor={stageIdField}>Привязать к этапу (опционально)</Label>
-			              <Select
-			                value={stageId || "none"}
-			                onValueChange={(value) => setStageId(value === "none" ? "" : value)}
-			              >
-			                <SelectTrigger id={stageIdField} className="h-11">
-			                  <SelectValue placeholder="Без привязки к этапу" />
-			                </SelectTrigger>
-			                <SelectContent>
-			                  <SelectItem value="none">Без привязки к этапу</SelectItem>
-			                  {stageOptions.map((status) => (
-			                    <SelectItem key={String(status.id)} value={String(status.id)}>
-			                      {STAGE_LABELS[status.stage]}
-			                    </SelectItem>
-			                  ))}
-			                </SelectContent>
-			              </Select>
-			            </div>
-			)}
-            
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-qty`}>Кол-во отправлено</Label>
+                <Input
+                  id={`${formId}-qty`}
+                  type="number"
+                  value={manualQuantitySent}
+                  onChange={(e) => setManualQuantitySent(e.target.value)}
+                  placeholder="шт"
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-eta`}>Ориентир поступления</Label>
+                <Input
+                  id={`${formId}-eta`}
+                  type="date"
+                  value={manualPlannedEta}
+                  onChange={(e) => setManualPlannedEta(e.target.value)}
+                  className="h-10"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-carrier`}>Перевозчик</Label>
+                <Input
+                  id={`${formId}-carrier`}
+                  value={manualCarrier}
+                  onChange={(e) => setManualCarrier(e.target.value)}
+                  placeholder="Например: CDEK"
+                  className="h-10"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`${formId}-tracking`}>Трек / накладная</Label>
+                <Input
+                  id={`${formId}-tracking`}
+                  value={manualTrackingNumber}
+                  onChange={(e) => setManualTrackingNumber(e.target.value)}
+                  placeholder="Номер отслеживания"
+                  className="h-10"
+                />
+              </div>
+            </div>
+
+            {stageOptions.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor={stageIdField}>Привязка к этапу (опционально)</Label>
+                <Select
+                  value={manualStageId || "none"}
+                  onValueChange={(value) => setManualStageId(value === "none" ? "" : value)}
+                >
+                  <SelectTrigger id={stageIdField} className="h-10">
+                    <SelectValue placeholder="Без привязки" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Без привязки</SelectItem>
+                    {stageOptions.map((status) => (
+                      <SelectItem key={String(status.id)} value={String(status.id)}>
+                        {STAGE_LABELS[status.stage]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
             <div className="space-y-2">
-              <Label htmlFor={notesId}>Примечания</Label>
-              <Textarea
-                id={notesId}
-                placeholder="Дополнительная информация..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+              <Label htmlFor={`${formId}-description`}>Описание</Label>
+              <Input
+                id={`${formId}-description`}
+                value={manualDescription}
+                onChange={(e) => setManualDescription(e.target.value)}
+                placeholder="Например: Перемещение в центральный склад"
+                className="h-10"
               />
             </div>
-            
-		            <div className="flex gap-2">
-		              <Button variant="outline" className="flex-1 h-11 bg-transparent" onClick={() => setIsCreating(false)}>
-		                Отмена
-		              </Button>
-		              <Button className="flex-1 h-11" onClick={() => void handleCreate()} disabled={!toLocation && !toHolder}>
-		                Создать
-		              </Button>
-		            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor={`${formId}-notes`}>Примечания</Label>
+              <Textarea
+                id={`${formId}-notes`}
+                value={manualNotes}
+                onChange={(e) => setManualNotes(e.target.value)}
+                placeholder="Дополнительная информация"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" className="flex-1 h-10" onClick={() => setIsCreatingManual(false)}>
+                Отмена
+              </Button>
+              <Button
+                type="button"
+                className="flex-1 h-10"
+                onClick={() => void handleCreateManualMovement()}
+                disabled={!manualToLocation && !manualToHolder}
+              >
+                Создать
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
-      
-      {/* Logistics list */}
+
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm flex items-center gap-2">
             <Truck className="h-4 w-4" />
             Журнал перемещений ({logistics.length})
           </CardTitle>
-          {permissions.canEditFacts && (
-            <div className="text-xs text-muted-foreground">
-              Чтобы отметить, что деталь пришла, нажмите кнопку «Отметить получено» у нужного перемещения.
-            </div>
-          )}
         </CardHeader>
         <CardContent>
           {sortedLogistics.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Нет перемещений
-            </p>
+            <p className="text-sm text-muted-foreground text-center py-4">Нет перемещений</p>
           ) : (
             <div className="space-y-3">
-              {sortedLogistics.map(entry => (
-                <div 
-                  key={entry.id} 
-                  className={cn("p-3 rounded-lg border", statusTone(entry.status))}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="p-2 rounded bg-muted text-muted-foreground">
-                        <Truck className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="font-medium">{entry.description || "Перемещение"}</div>
+              {sortedLogistics.map((entry) => {
+                const status = normalizeMovementStatus(entry.status)
+                const stageName = entry.stage_id ? stageNameById.get(entry.stage_id) : undefined
+                const timelineDate =
+                  entry.received_at ||
+                  entry.returned_at ||
+                  entry.cancelled_at ||
+                  entry.sent_at ||
+                  entry.updated_at ||
+                  entry.created_at ||
+                  entry.date
+
+                const etaDelta = buildEtaDelta(
+                  entry.planned_eta,
+                  entry.received_at,
+                  ACTIVE_MOVEMENT_STATUSES.has(status) ? `${demoDate}T00:00:00` : undefined
+                )
+
+                return (
+                  <div key={entry.id} className={cn("p-3 rounded-lg border", statusTone(status))}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="font-medium truncate">{entry.description || "Перемещение"}</div>
                         <div className="text-sm text-muted-foreground">
-                          {(entry.from_location || entry.from_holder || "Источник не указан")}
-                          {" -> "}
-                          {(entry.to_location || entry.to_holder || "Назначение не указано")}
+                          {(entry.from_holder || entry.from_location || "Источник не указан")} {" -> "}
+                          {(entry.to_holder || entry.to_location || "Назначение не указано")}
                         </div>
-                        {(entry.from_holder || entry.to_holder) && (
-                          <div className="text-sm text-muted-foreground">
-                            {(entry.from_holder || "—")} {" -> "} {(entry.to_holder || entry.carrier || "—")}
-                          </div>
-                        )}
-                        {entry.qty_sent && (
-                          <div className="text-sm">Отправлено: {entry.qty_sent} шт</div>
-                        )}
-                        {entry.qty_received && (
-                          <div className="text-sm">Получено: {entry.qty_received} шт</div>
-                        )}
-                        {entry.stage_id && stageNameById.has(entry.stage_id) && (
-                          <div className="text-xs text-muted-foreground">
-                            Этап: {STAGE_LABELS[stageNameById.get(entry.stage_id)!]}
-                          </div>
-                        )}
-                        {entry.tracking_number && (
-                          <div className="text-xs text-muted-foreground">
-                            {entry.carrier ? `${entry.carrier.toUpperCase()} • ` : ""}Трек: {entry.tracking_number}
-                          </div>
-                        )}
-                        {entry.planned_eta && (
-                          <div className="text-xs text-muted-foreground">
-                            Ориентир поступления: {new Date(entry.planned_eta).toLocaleDateString("ru-RU")}
-                          </div>
-                        )}
-                        {entry.notes && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {entry.notes}
-                          </div>
-                        )}
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {new Date(
-                            entry.sent_at || entry.created_at || entry.updated_at || entry.date || new Date().toISOString()
-                          ).toLocaleString("ru-RU")}
-                        </div>
-                        {permissions.canEditFacts && !["received", "cancelled", "returned", "completed"].includes(entry.status) && (
-                          <div className="mt-2 flex items-end gap-2">
-                            <div className="space-y-1">
-                              <Label htmlFor={`eta-edit-${entry.id}`} className="text-xs text-muted-foreground">
-                                Срок от кооператора
-                              </Label>
-                              <Input
-                                id={`eta-edit-${entry.id}`}
-                                type="date"
-                                value={getEtaDraft(entry)}
-                                onChange={(e) => handleEtaChange(entry.id, e.target.value)}
-                                className="h-9 w-[190px]"
-                              />
-                            </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9"
-                              onClick={() => void handleSaveEta(entry)}
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          {stageName && <span>Этап: {STAGE_LABELS[stageName]}</span>}
+                          {entry.qty_sent !== undefined && <span>Отправлено: {entry.qty_sent} шт</span>}
+                          {entry.qty_received !== undefined && <span>Получено: {entry.qty_received} шт</span>}
+                          {entry.planned_eta && <span>Ориентир: {formatDate(entry.planned_eta)}</span>}
+                          {etaDelta && (
+                            <span
+                              className={cn(
+                                etaDelta.tone === "ok" && "text-green-700",
+                                etaDelta.tone === "risk" && "text-amber-700"
+                              )}
                             >
-                              Сохранить срок
-                            </Button>
-                          </div>
+                              {etaDelta.label}
+                            </span>
+                          )}
+                          {entry.tracking_number && (
+                            <span>
+                              {entry.carrier ? `${entry.carrier.toUpperCase()} • ` : ""}Трек: {entry.tracking_number}
+                            </span>
+                          )}
+                        </div>
+                        {entry.notes && <div className="mt-1 text-xs text-muted-foreground">{entry.notes}</div>}
+                        <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(timelineDate)}</div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2">
+                        <Badge variant="outline">
+                          {statusIcon(status)}
+                          {STATUS_LABELS[status]}
+                        </Badge>
+
+                        {permissions.canEditFacts && ACTIVE_MOVEMENT_STATUSES.has(status) && (
+                          <Button
+                            type="button"
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setReceivingMovementId(entry.id)
+                              setReceiveQty(String(entry.qty_sent ?? ""))
+                              setEditingEtaMovementId(null)
+                            }}
+                          >
+                            Принять
+                          </Button>
+                        )}
+
+                        {permissions.canEditFacts && !TERMINAL_MOVEMENT_STATUSES.has(status) && (
+                          <Select value={status} onValueChange={(v) => void handleUpdateStatus(entry, v as MovementStatus)}>
+                            <SelectTrigger className="h-8 w-[130px] text-xs">
+                              <SelectValue placeholder="Статус" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pending">Черновик</SelectItem>
+                              <SelectItem value="sent">Отправлено</SelectItem>
+                              <SelectItem value="in_transit">В пути</SelectItem>
+                              <SelectItem value="received">Получено</SelectItem>
+                              <SelectItem value="returned">Возврат</SelectItem>
+                              <SelectItem value="cancelled">Отменено</SelectItem>
+                            </SelectContent>
+                          </Select>
                         )}
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <Badge variant="outline">
-                        {statusIcon(entry.status)}
-                        {STATUS_LABELS[entry.status]}
-                      </Badge>
 
-                      {permissions.canEditFacts && entry.status === "pending" && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-8 text-xs"
-                          onClick={() => void handleStatusUpdate(entry, "sent")}
-                        >
-                          Отметить отправлено
-                        </Button>
-                      )}
-
-                      {permissions.canEditFacts && isReceivedActionAvailable(entry.status) && (
-                        <Button
-                          type="button"
-                          className="h-8 text-xs"
-                          onClick={() => void handleStatusUpdate(entry, "received")}
-                        >
-                          Отметить получено
-                        </Button>
-                      )}
-                      
-                      {permissions.canEditFacts && !["cancelled", "completed", "received", "returned"].includes(entry.status) && (
-                        <Select 
-                          value={entry.status} 
-                          onValueChange={(v) => void handleStatusUpdate(entry, v as MovementStatus)}
-                        >
-                          <SelectTrigger className="w-28 h-10 text-sm md:h-7 md:text-xs">
-                            <SelectValue placeholder="Статус" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pending">Черновик</SelectItem>
-                            <SelectItem value="sent">Отправлено</SelectItem>
-                            <SelectItem value="in_transit">В пути</SelectItem>
-                            <SelectItem value="received">Получено</SelectItem>
-                            <SelectItem value="returned">Возврат</SelectItem>
-                            <SelectItem value="cancelled">Отменено</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      )}
-                    </div>
+                    {permissions.canEditFacts && receivingMovementId === entry.id && (
+                      <div className="mt-3 rounded-md border bg-background p-3">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[180px_auto_auto] sm:items-end">
+                          <div className="space-y-1">
+                            <Label htmlFor={`receive-history-${entry.id}`}>Принято, шт</Label>
+                            <Input
+                              id={`receive-history-${entry.id}`}
+                              type="number"
+                              value={receiveQty}
+                              onChange={(event) => setReceiveQty(event.target.value)}
+                              className="h-8"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            className="h-8"
+                            onClick={() => void handleReceiveFromHistory(entry)}
+                          >
+                            Подтвердить
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8"
+                            onClick={() => {
+                              setReceivingMovementId(null)
+                              setReceiveQty("")
+                            }}
+                          >
+                            Отмена
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </CardContent>
