@@ -91,6 +91,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [isSavingCooperationDueDate, setIsSavingCooperationDueDate] = useState(false)
   const [cooperationDueDateError, setCooperationDueDateError] = useState("")
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
+  const isCooperationRouteOnly = part.is_cooperation
 
   const drawingUrlValue = drawingUrl.trim()
   const drawingUrlLower = drawingUrlValue.toLowerCase()
@@ -211,6 +212,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       isCancelled = true
     }
   }, [getJourneyForPart, part.id, logistics.length, stageFacts.length])
+
+  useEffect(() => {
+    if (!isCooperationRouteOnly) return
+    if (activeTab === "facts" || activeTab === "journal") {
+      setActiveTab("overview")
+    }
+  }, [activeTab, isCooperationRouteOnly])
   
   // Calculate stages progress with null safety
   const stageStatuses = part.stage_statuses || []
@@ -291,6 +299,12 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         routeLastEventAt
       )
     : routeLastEventAt
+  const cooperationRouteStages = part.required_stages
+    .filter((stage) => stage === "galvanic" || stage === "heat_treatment")
+    .map((stage) => STAGE_LABELS[stage])
+  const cooperationRouteText = cooperationRouteStages.length > 0
+    ? [...cooperationRouteStages, "ОТК"].join(" -> ")
+    : "ОТК"
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -588,8 +602,12 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         <div className="overflow-x-auto overflow-y-hidden py-1">
           <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
             <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>
-            <TabsTrigger value="facts" className="flex-none shrink-0">Факт</TabsTrigger>
-            <TabsTrigger value="journal" className="flex-none shrink-0">Журнал</TabsTrigger>
+            {!isCooperationRouteOnly && (
+              <TabsTrigger value="facts" className="flex-none shrink-0">Факт</TabsTrigger>
+            )}
+            {!isCooperationRouteOnly && (
+              <TabsTrigger value="journal" className="flex-none shrink-0">Журнал</TabsTrigger>
+            )}
             <TabsTrigger value="logistics" className="flex-none shrink-0">Логистика</TabsTrigger>
             <TabsTrigger value="tasks" className="flex-none shrink-0">Задачи</TabsTrigger>
             {permissions.canViewAudit ? <TabsTrigger value="audit" className="flex-none shrink-0">События</TabsTrigger> : null}
@@ -690,6 +708,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         </span>
                       )}
                     </div>
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      План после кооперации: {cooperationRouteText}
+                    </div>
                     {canEditCooperationDueDate && !isEditingCooperationDueDate && (
                       <div className="mt-3">
                         <Button
@@ -751,49 +772,51 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             </CardContent>
           </Card>
           
-          {/* Recent facts */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Последние записи</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {sortedFacts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Нет записей</p>
-              ) : (
-                <div className="space-y-2">
-                  {sortedFacts.slice(0, 5).map(fact => (
-                    <div key={fact.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50">
-                      <div className="flex items-center gap-2">
-                        {fact.shift_type === "day" ? (
-                          <Sun className="h-4 w-4 text-amber-500" />
-                        ) : (
-                          <Moon className="h-4 w-4 text-indigo-500" />
-                        )}
-                        <div>
-                          <span className="text-sm">{new Date(fact.date).toLocaleDateString("ru-RU")}</span>
-                          <span className="text-xs text-muted-foreground ml-2">{STAGE_LABELS[fact.stage]}</span>
+          {!isCooperationRouteOnly && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Последние записи</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {sortedFacts.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Нет записей</p>
+                ) : (
+                  <div className="space-y-2">
+                    {sortedFacts.slice(0, 5).map(fact => (
+                      <div key={fact.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50">
+                        <div className="flex items-center gap-2">
+                          {fact.shift_type === "day" ? (
+                            <Sun className="h-4 w-4 text-amber-500" />
+                          ) : (
+                            <Moon className="h-4 w-4 text-indigo-500" />
+                          )}
+                          <div>
+                            <span className="text-sm">{new Date(fact.date).toLocaleDateString("ru-RU")}</span>
+                            <span className="text-xs text-muted-foreground ml-2">{STAGE_LABELS[fact.stage]}</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 text-sm">
+                          <span className="text-green-600">+{fact.qty_good}</span>
+                          {fact.qty_scrap > 0 && (
+                            <span className="text-destructive">-{fact.qty_scrap}</span>
+                          )}
+                          {fact.deviation_reason && (
+                            <Badge variant="outline" className="text-xs">
+                              {DEVIATION_REASON_LABELS[fact.deviation_reason]}
+                            </Badge>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 text-sm">
-                        <span className="text-green-600">+{fact.qty_good}</span>
-                        {fact.qty_scrap > 0 && (
-                          <span className="text-destructive">-{fact.qty_scrap}</span>
-                        )}
-                        {fact.deviation_reason && (
-                          <Badge variant="outline" className="text-xs">
-                            {DEVIATION_REASON_LABELS[fact.deviation_reason]}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
         
-        <TabsContent value="facts" className="space-y-4">
+        {!isCooperationRouteOnly && (
+          <TabsContent value="facts" className="space-y-4">
           {permissions.canEditFacts && (
             <StageFactForm part={part} />
           )}
@@ -853,11 +876,14 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+          </TabsContent>
+        )}
         
-        <TabsContent value="journal">
-          <FactJournal part={part} />
-        </TabsContent>
+        {!isCooperationRouteOnly && (
+          <TabsContent value="journal">
+            <FactJournal part={part} />
+          </TabsContent>
+        )}
         
         <TabsContent value="logistics">
           <LogisticsList part={part} />
