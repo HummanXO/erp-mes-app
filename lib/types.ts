@@ -49,17 +49,65 @@ export type LogisticsType =
   | "coop_out"       // Отправка кооператору
   | "coop_in"        // Получение от кооператора
 
+export type MovementStatus =
+  | "sent"
+  | "in_transit"
+  | "received"
+  | "returned"
+  | "cancelled"
+  // Legacy statuses (backward compatibility).
+  | "pending"
+  | "completed"
+
 export interface LogisticsEntry {
   id: string
   part_id: string
-  type: LogisticsType
-  description: string
-  quantity?: number
-  date: string
-  status: "pending" | "in_transit" | "received" | "completed"
+  status: MovementStatus
+
+  // Movement fields (Option 2).
+  from_location?: string
+  from_holder?: string
+  to_location?: string
+  to_holder?: string
+  carrier?: string
   tracking_number?: string
+  planned_eta?: string
+  sent_at?: string
+  received_at?: string
+  returned_at?: string
+  cancelled_at?: string
+  qty_sent?: number
+  qty_received?: number
+  stage_id?: string
+  last_tracking_status?: string
+  tracking_last_checked_at?: string
+  raw_payload?: Record<string, unknown> | null
+
+  // Legacy fields kept for compatibility with historical records/UI.
+  type?: LogisticsType
+  description?: string
+  quantity?: number
+  date?: string
   counterparty?: string // Кто (поставщик/кооператор/клиент)
   notes?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface JourneyEvent {
+  event_type: "movement" | "fact" | string
+  occurred_at?: string | null
+  description?: string | null
+}
+
+export interface JourneySummary {
+  part_id: string
+  current_location?: string | null
+  current_holder?: string | null
+  next_required_stage?: ProductionStage | null
+  eta?: string | null
+  last_movement?: LogisticsEntry | null
+  last_event?: JourneyEvent | null
 }
 
 // Machine definition

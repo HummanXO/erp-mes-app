@@ -5,7 +5,7 @@ import React from "react"
 import { useEffect, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
 import type { Part, ProductionStage } from "@/lib/types"
-import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS, LOGISTICS_TYPE_LABELS } from "@/lib/types"
+import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -64,6 +64,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getMachineById,
     getStageFactsForPart,
     getLogisticsForPart,
+    getJourneyForPart,
     getUserById,
     demoDate,
     permissions,
@@ -83,6 +84,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [isUploadingDrawing, setIsUploadingDrawing] = useState(false)
   const [isSavingDrawing, setIsSavingDrawing] = useState(false)
   const [showLinkInput, setShowLinkInput] = useState(false)
+  const [journeySummary, setJourneySummary] = useState<Awaited<ReturnType<typeof getJourneyForPart>>>(null)
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
 
   const drawingUrlValue = drawingUrl.trim()
@@ -178,6 +180,21 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const forecast = getPartForecast(part.id)
   const stageFacts = getStageFactsForPart(part.id)
   const logistics = getLogisticsForPart(part.id)
+
+  useEffect(() => {
+    let isCancelled = false
+    void (async () => {
+      try {
+        const journey = await getJourneyForPart(part.id)
+        if (!isCancelled) setJourneySummary(journey)
+      } catch {
+        if (!isCancelled) setJourneySummary(null)
+      }
+    })()
+    return () => {
+      isCancelled = true
+    }
+  }, [getJourneyForPart, part.id, logistics.length, stageFacts.length])
   
   // Calculate stages progress with null safety
   const stageStatuses = part.stage_statuses || []
@@ -470,6 +487,45 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
               </CardContent>
             </Card>
           )}
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Маршрут</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-md bg-muted/50 p-3">
+                  <div className="text-xs text-muted-foreground">Текущее местоположение / держатель</div>
+                  <div className="text-sm font-medium mt-1">
+                    {(journeySummary?.current_location || "—")} / {(journeySummary?.current_holder || "—")}
+                  </div>
+                </div>
+                <div className="rounded-md bg-muted/50 p-3">
+                  <div className="text-xs text-muted-foreground">Следующий этап</div>
+                  <div className="text-sm font-medium mt-1">
+                    {journeySummary?.next_required_stage ? STAGE_LABELS[journeySummary.next_required_stage] : "—"}
+                  </div>
+                </div>
+                <div className="rounded-md bg-muted/50 p-3">
+                  <div className="text-xs text-muted-foreground">Последнее событие</div>
+                  <div className="text-sm font-medium mt-1">
+                    {journeySummary?.last_event?.description || "—"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {journeySummary?.last_event?.occurred_at
+                      ? new Date(journeySummary.last_event.occurred_at).toLocaleString("ru-RU")
+                      : "—"}
+                  </div>
+                </div>
+                <div className="rounded-md bg-muted/50 p-3">
+                  <div className="text-xs text-muted-foreground">ETA</div>
+                  <div className="text-sm font-medium mt-1">
+                    {journeySummary?.eta ? new Date(journeySummary.eta).toLocaleDateString("ru-RU") : "—"}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
           
           {/* Recent facts */}
           <Card>

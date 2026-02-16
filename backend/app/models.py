@@ -557,6 +557,7 @@ class AuditEvent(Base):
                 'task_sent_for_review', 'task_approved', 'task_returned', 'task_attachment_added',
                 'fact_added', 'fact_updated', 'part_created', 'part_updated', 'part_stage_changed',
                 'norm_configured', 'user_login', 'user_logout', 'password_changed',
+                'movement_created', 'movement_status_changed',
                 # Auth hardening / onboarding events
                 'LOGIN_FAILED', 'LOGIN_RATE_LIMITED',
                 'USER_CREATED_WITH_TEMP_PASSWORD', 'PASSWORD_RESET_BY_ADMIN',
@@ -636,9 +637,29 @@ class LogisticsEntry(Base):
     description = Column(Text, nullable=False)
     quantity = Column(Integer, nullable=True)
     date = Column(Date, nullable=False, index=True)
-    status = Column(String(20), default='pending')
-    tracking_number = Column(String(100), nullable=True)
+    status = Column(String(20), default='pending', index=True)
+    tracking_number = Column(String(100), nullable=True, index=True)
     counterparty = Column(String(255), nullable=True)
+
+    # New movement/transfer fields (Option 2).
+    from_location = Column(String(255), nullable=True)
+    from_holder = Column(String(255), nullable=True)
+    to_location = Column(String(255), nullable=True)
+    to_holder = Column(String(255), nullable=True)
+    carrier = Column(String(100), nullable=True)
+    planned_eta = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    received_at = Column(DateTime(timezone=True), nullable=True)
+    returned_at = Column(DateTime(timezone=True), nullable=True)
+    cancelled_at = Column(DateTime(timezone=True), nullable=True)
+    qty_sent = Column(Integer, nullable=True)
+    qty_received = Column(Integer, nullable=True)
+    stage_id = Column(UUID(as_uuid=True), ForeignKey("part_stage_statuses.id"), nullable=True, index=True)
+    last_tracking_status = Column(String(255), nullable=True)
+    tracking_last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    raw_payload = Column(JSONB, nullable=True)
+
+    # Deprecated legacy fields kept for backward compatibility with existing UI/data.
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -649,7 +670,10 @@ class LogisticsEntry(Base):
             name='chk_logistics_type'
         ),
         CheckConstraint(
-            status.in_(['pending', 'in_transit', 'received', 'completed']),
+            status.in_([
+                'pending', 'in_transit', 'received', 'completed',
+                'sent', 'returned', 'cancelled',
+            ]),
             name='chk_logistics_status'
         ),
     )

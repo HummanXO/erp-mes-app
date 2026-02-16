@@ -28,17 +28,23 @@ from ..services.part_state import recompute_part_state, validate_stage_flow
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
-COOP_REQUIRED_STAGES = {"logistics", "qc"}
+DEPRECATED_STAGE_LOGISTICS = "logistics"
+COOP_REQUIRED_STAGES = {"qc"}
 COOP_OPTIONAL_STAGES = {"galvanic"}
 COOP_ALLOWED_STAGES = COOP_REQUIRED_STAGES | COOP_OPTIONAL_STAGES
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
-SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding", "logistics"}
-STAGE_FLOW_ORDER = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc", "logistics"]
+SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment", "grinding"}
+STAGE_FLOW_ORDER = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
 PROGRESS_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
 
 
 def _sort_stages_by_flow(stages: set[str]) -> list[str]:
     return [stage for stage in STAGE_FLOW_ORDER if stage in stages]
+
+
+def _sanitize_requested_stages(stages: list[str]) -> set[str]:
+    """Backward compatibility: ignore deprecated logistics stage in incoming payloads."""
+    return {stage for stage in stages if stage != DEPRECATED_STAGE_LOGISTICS}
 
 
 def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressResponse, list[StageStatusResponse]]:
@@ -313,7 +319,7 @@ def create_part(
     db: Session = Depends(get_db)
 ):
     """Create new part."""
-    requested_stages = set(data.required_stages)
+    requested_stages = _sanitize_requested_stages(data.required_stages)
     if not requested_stages:
         raise HTTPException(status_code=400, detail="Нужно выбрать хотя бы один этап")
 
@@ -321,7 +327,7 @@ def create_part(
         if not COOP_REQUIRED_STAGES.issubset(requested_stages):
             raise HTTPException(
                 status_code=400,
-                detail="Для кооперации обязательны этапы: логистика и ОТК",
+                detail="Для кооперации обязателен этап: ОТК",
             )
         invalid_stages = requested_stages - COOP_ALLOWED_STAGES
         if invalid_stages:
@@ -440,6 +446,10 @@ def update_part(
 
     # Multi-tenant boundary: validate foreign keys on update.
     update_payload = data.model_dump(exclude_unset=True)
+    if "required_stages" in update_payload and isinstance(update_payload["required_stages"], list):
+        sanitized_stages = _sanitize_requested_stages(update_payload["required_stages"])
+        update_payload["required_stages"] = _sort_stages_by_flow(sanitized_stages)
+
     if "machine_id" in update_payload and update_payload["machine_id"] is not None:
         machine = db.query(Machine).filter(
             Machine.id == update_payload["machine_id"],

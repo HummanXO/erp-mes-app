@@ -40,6 +40,15 @@ docker-compose up postgres redis -d
 ### 4. Run Migrations
 
 ```bash
+# Fresh empty DB
+python alembic_bootstrap.py
+alembic upgrade head
+```
+
+If you have an existing database created historically via `Base.metadata.create_all()` and it has no `alembic_version` table:
+
+```bash
+python alembic_bootstrap.py
 alembic upgrade head
 ```
 

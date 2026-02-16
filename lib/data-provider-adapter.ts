@@ -202,19 +202,28 @@ export function deleteStageFact(factId: string) {
 }
 
 export function getLogistics() {
-  return local().getLogistics()
+  return USE_API ? httpProvider.getLogistics() : local().getLogistics()
 }
 
 export function getLogisticsForPart(partId: string) {
-  return local().getLogisticsForPart(partId)
+  return USE_API ? httpProvider.getLogisticsForPart(partId) : local().getLogisticsForPart(partId)
 }
 
 export function createLogisticsEntry(entry: any) {
-  return local().createLogisticsEntry(entry)
+  return USE_API ? httpProvider.createLogisticsEntry(entry) : local().createLogisticsEntry(entry)
 }
 
 export function updateLogisticsEntry(entry: any) {
-  return local().updateLogisticsEntry(entry)
+  return USE_API ? httpProvider.updateLogisticsEntry(entry) : local().updateLogisticsEntry(entry)
+}
+
+export function getJourneyForPart(partId: string) {
+  if (USE_API) return httpProvider.getJourneyForPart(partId)
+  const provider = local() as any
+  if (typeof provider.getJourneyForPart === "function") {
+    return Promise.resolve(provider.getJourneyForPart(partId))
+  }
+  return Promise.resolve(null)
 }
 
 export function getSpecifications() {
