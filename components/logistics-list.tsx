@@ -1042,10 +1042,14 @@ export function LogisticsList({ part }: LogisticsListProps) {
                 )}
 
               {permissions.canEditFacts &&
-                isInitialCooperationAwaitingInbound &&
+                canReceiveMoreFromCooperator &&
                 receivingMovementId === COOP_FLOW_ID && (
                   <div className="rounded-md border bg-background p-3 space-y-2">
-                    <div className="text-sm font-medium">Первичная приёмка от кооператора</div>
+                    <div className="text-sm font-medium">
+                      {isInitialCooperationAwaitingInbound
+                        ? "Первичная приёмка от кооператора"
+                        : "Дополнительное поступление от кооператора"}
+                    </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_auto_auto] sm:items-end">
                       <div className="space-y-1">
                         <Label htmlFor="receive-qty-cooperation-initial">Принято, шт</Label>
