@@ -39,6 +39,14 @@ SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
 SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment"}
 STAGE_FLOW_ORDER = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
 PROGRESS_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
+STAGE_LABELS = {
+    "machining": "механообработка",
+    "fitting": "слесарка",
+    "heat_treatment": "термообработка",
+    "galvanic": "гальваника",
+    "grinding": "шлифовка",
+    "qc": "ОТК",
+}
 
 
 def _sort_stages_by_flow(stages: set[str]) -> list[str]:
@@ -91,6 +99,61 @@ def _recompute_specification_status(db: Session, specification: Specification) -
 
     if specification.status != next_status:
         specification.status = next_status
+
+
+def _cooperation_received_qty(db: Session, *, part: Part) -> int:
+    qty = (
+        db.query(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        LogisticsEntry.qty_received,
+                        LogisticsEntry.qty_sent,
+                        LogisticsEntry.quantity,
+                        0,
+                    )
+                ),
+                0,
+            )
+        )
+        .filter(
+            LogisticsEntry.org_id == part.org_id,
+            LogisticsEntry.part_id == part.id,
+            LogisticsEntry.stage_id.is_(None),
+            LogisticsEntry.status.in_(("received", "completed")),
+        )
+        .scalar()
+    )
+    return int(qty or 0)
+
+
+def _assert_cooperation_qc_ready(db: Session, *, part: Part) -> None:
+    received_qty = _cooperation_received_qty(db, part=part)
+    if received_qty < int(part.qty_plan or 0):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Входной контроль можно завершить только после полного поступления от кооператора: "
+                f"получено {received_qty} из {part.qty_plan} шт."
+            ),
+        )
+
+    required_external = [
+        stage
+        for stage in (part.required_stages or [])
+        if stage in {"heat_treatment", "galvanic", "grinding"}
+    ]
+    if not required_external:
+        return
+
+    stage_status_map = {stage_status.stage: stage_status.status for stage_status in (part.stage_statuses or [])}
+    incomplete = [stage for stage in required_external if stage_status_map.get(stage) != "done"]
+    if incomplete:
+        labels = ", ".join(STAGE_LABELS.get(stage, stage) for stage in incomplete)
+        raise HTTPException(
+            status_code=409,
+            detail=f"Сначала завершите внешние этапы перед ОТК: {labels}.",
+        )
 
 
 def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressResponse, list[StageStatusResponse]]:
@@ -545,6 +608,12 @@ def update_part(
         and update_payload.get("cooperation_qc_status") == "pending"
     ):
         update_payload["cooperation_qc_checked_at"] = None
+    elif (
+        will_be_cooperation
+        and "cooperation_qc_status" in update_payload
+        and update_payload.get("cooperation_qc_status") in {"accepted", "rejected"}
+    ):
+        _assert_cooperation_qc_ready(db, part=part)
 
     # Update fields
     for field, value in update_payload.items():

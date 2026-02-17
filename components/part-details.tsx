@@ -309,6 +309,21 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const cooperationRouteText = cooperationRouteStages.length > 0
     ? [...cooperationRouteStages, "ОТК"].join(" -> ")
     : "ОТК"
+  const cooperationMovements = logistics.filter((entry) => !entry.stage_id)
+  const cooperationReceivedQty = cooperationMovements
+    .filter((entry) => entry.status === "received" || entry.status === "completed")
+    .reduce((sum, entry) => sum + (entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0), 0)
+  const cooperationHasActiveShipment = cooperationMovements.some(
+    (entry) => entry.status === "sent" || entry.status === "in_transit"
+  )
+  const cooperationExternalStages = part.required_stages.filter(
+    (stage) => stage === "heat_treatment" || stage === "galvanic" || stage === "grinding"
+  )
+  const stageStatusMap = new Map(stageStatuses.map((status) => [status.stage, status.status] as const))
+  const cooperationExternalStagesDone = cooperationExternalStages.every(
+    (stage) => stageStatusMap.get(stage) === "done"
+  )
+  const cooperationFullyReceived = cooperationReceivedQty >= part.qty_plan
   const cooperationQcStatus = part.cooperation_qc_status || "pending"
   const cooperationQcCheckedAt = part.cooperation_qc_checked_at
     ? new Date(part.cooperation_qc_checked_at).toLocaleString("ru-RU")
@@ -325,10 +340,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       : cooperationQcStatus === "rejected"
         ? "risk"
         : "neutral"
-  const canRunCooperationQcDecision = canEditCooperationDueDate && (
-    journeySummary?.last_movement?.status === "received" ||
-    journeySummary?.last_movement?.status === "completed"
-  )
+  const canRunCooperationQcDecision =
+    canEditCooperationDueDate &&
+    cooperationFullyReceived &&
+    !cooperationHasActiveShipment &&
+    cooperationExternalStagesDone
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -798,7 +814,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                       )}
                       {canEditCooperationDueDate && !canRunCooperationQcDecision && (
                         <div className="mt-2 text-xs text-muted-foreground">
-                          Сначала отметьте в логистике статус «Получено», затем фиксируйте входной контроль.
+                          Входной контроль доступен после полного поступления и завершения внешних этапов.
                         </div>
                       )}
                       {cooperationQcError && (
