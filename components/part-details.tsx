@@ -94,6 +94,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [cooperationQcError, setCooperationQcError] = useState("")
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
   const isCooperationRouteOnly = part.is_cooperation
+  const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
 
   const drawingUrlValue = drawingUrl.trim()
   const drawingUrlLower = drawingUrlValue.toLowerCase()
@@ -389,6 +390,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const handleUploadDrawing = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_DRAWING_FILE_SIZE_BYTES) {
+      setDrawingActionError("Файл слишком большой. Загрузите файл до 9 МБ.")
+      event.target.value = ""
+      return
+    }
     setDrawingActionError("")
     setIsUploadingDrawing(true)
     try {

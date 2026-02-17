@@ -26,6 +26,7 @@ const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["heat_treatment", "galvanic"]
 const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
 const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 const COOP_PARTNER_STORAGE_KEY = "erp_cooperation_partner_list"
+const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
 
 interface CreatePartDialogProps {
   open: boolean
@@ -381,6 +382,12 @@ export function CreatePartDialog({
   const handleDrawingFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_DRAWING_FILE_SIZE_BYTES) {
+      setDrawingUploadError("Файл слишком большой. Загрузите файл до 9 МБ.")
+      setDrawingAttachment(null)
+      event.target.value = ""
+      return
+    }
     resetDrawingPreview()
     const localPreviewUrl = URL.createObjectURL(file)
     setDrawingPreviewUrl(localPreviewUrl)

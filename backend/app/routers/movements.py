@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import ProgrammingError
 
 from ..auth import PermissionChecker, get_current_user
 from ..database import get_db
@@ -181,6 +182,41 @@ def _resolve_eta(part: Part, active_movement: LogisticsEntry | None) -> datetime
     return datetime.combine(part.cooperation_due_date, time.min, tzinfo=timezone.utc)
 
 
+def _to_movement_out_safe(movement: LogisticsEntry) -> MovementOut:
+    try:
+        return MovementOut.model_validate(movement)
+    except Exception:
+        fallback_ts = movement.updated_at or movement.created_at or _now_utc()
+        return MovementOut(
+            id=movement.id,
+            part_id=movement.part_id,
+            status=normalize_movement_status(movement.status),
+            from_location=movement.from_location,
+            from_holder=movement.from_holder,
+            to_location=movement.to_location,
+            to_holder=movement.to_holder,
+            carrier=movement.carrier,
+            tracking_number=movement.tracking_number,
+            planned_eta=movement.planned_eta,
+            sent_at=movement.sent_at,
+            received_at=movement.received_at,
+            returned_at=movement.returned_at,
+            cancelled_at=movement.cancelled_at,
+            qty_sent=movement.qty_sent,
+            qty_received=movement.qty_received,
+            stage_id=movement.stage_id,
+            last_tracking_status=movement.last_tracking_status,
+            tracking_last_checked_at=movement.tracking_last_checked_at,
+            raw_payload=movement.raw_payload,
+            notes=movement.notes,
+            type=movement.type,
+            description=movement.description,
+            quantity=movement.quantity,
+            date=movement.date,
+            counterparty=movement.counterparty,
+            created_at=movement.created_at or fallback_ts,
+            updated_at=movement.updated_at or fallback_ts,
+        )
 def _get_stage_status_in_org(
     db: Session,
     *,
@@ -479,9 +515,15 @@ def get_part_movements(
             LogisticsEntry.part_id == part.id,
         )
         .order_by(func.coalesce(LogisticsEntry.sent_at, LogisticsEntry.created_at).desc())
-        .all()
     )
-    return [MovementOut.model_validate(movement) for movement in movements]
+    try:
+        rows = movements.all()
+    except ProgrammingError as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Ошибка схемы БД для перемещений. Требуется применить миграции backend (alembic upgrade head).",
+        ) from error
+    return [_to_movement_out_safe(movement) for movement in rows]
 
 
 @router.get("/parts/{part_id}/journey", response_model=JourneyOut)
@@ -500,15 +542,21 @@ def get_part_journey(
     if not can_access_part(db, part, current_user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    movements = (
-        db.query(LogisticsEntry)
-        .filter(
-            LogisticsEntry.org_id == current_user.org_id,
-            LogisticsEntry.part_id == part.id,
+    try:
+        movements = (
+            db.query(LogisticsEntry)
+            .filter(
+                LogisticsEntry.org_id == current_user.org_id,
+                LogisticsEntry.part_id == part.id,
+            )
+            .order_by(func.coalesce(LogisticsEntry.sent_at, LogisticsEntry.created_at).desc())
+            .all()
         )
-        .order_by(func.coalesce(LogisticsEntry.sent_at, LogisticsEntry.created_at).desc())
-        .all()
-    )
+    except ProgrammingError as error:
+        raise HTTPException(
+            status_code=500,
+            detail="Ошибка схемы БД для маршрута/перемещений. Требуется применить миграции backend (alembic upgrade head).",
+        ) from error
 
     last_movement = movements[0] if movements else None
     active_movement = next(
@@ -588,6 +636,6 @@ def get_part_journey(
         current_holder=current_holder,
         next_required_stage=next_required_stage,
         eta=eta,
-        last_movement=MovementOut.model_validate(last_movement) if last_movement else None,
+        last_movement=_to_movement_out_safe(last_movement) if last_movement else None,
         last_event=last_event,
     )
