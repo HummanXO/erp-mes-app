@@ -319,9 +319,14 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
     if (active) {
       statusLabel = "У кооператора"
-    } else if (lastReceived) {
-      statusLabel = "Получено"
-      statusTone = "ok"
+    } else if (qtyReceived > 0) {
+      if (qtyReceived >= part.qty_plan) {
+        statusLabel = "Получено полностью"
+        statusTone = "ok"
+      } else {
+        statusLabel = "Частично получено"
+        statusTone = "neutral"
+      }
     } else if (latest) {
       const latestStatus = normalizeMovementStatus(latest.status)
       statusLabel = STATUS_LABELS[latestStatus] || "Есть движение"
@@ -341,10 +346,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
       etaLabel: plannedEta ? formatDate(plannedEta) : "Не задан",
       etaDelta,
     }
-  }, [cooperationMovements, demoDate, part.cooperation_due_date, part.cooperation_partner])
+  }, [cooperationMovements, demoDate, part.cooperation_due_date, part.cooperation_partner, part.qty_plan])
 
   const hasCooperationFlow = part.is_cooperation
   const hasStageFlow = stageCards.length > 0
+  const cooperationRemainingQty = Math.max(part.qty_plan - cooperationFlow.qtyReceived, 0)
+  const canReceiveMoreFromCooperator =
+    hasCooperationFlow && !cooperationFlow.activeMovement && cooperationRemainingQty > 0
   const isInitialCooperationAwaitingInbound =
     hasCooperationFlow &&
     cooperationMovements.length === 0 &&
@@ -780,20 +788,15 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
               {permissions.canEditFacts && sendStageId !== COOP_FLOW_ID && (
                 <div className="flex flex-wrap items-center gap-2">
-                  {!cooperationFlow.activeMovement &&
-                    (isInitialCooperationAwaitingInbound ? (
-                      <Button
-                        type="button"
-                        className="h-8"
-                        onClick={openInitialCooperationReceiveForm}
-                      >
-                        Принять поступление
-                      </Button>
-                    ) : (
-                      <Button type="button" className="h-8" onClick={openCooperationSendForm}>
-                        Отправить
-                      </Button>
-                    ))}
+                  {canReceiveMoreFromCooperator && (
+                    <Button
+                      type="button"
+                      className="h-8"
+                      onClick={openInitialCooperationReceiveForm}
+                    >
+                      {isInitialCooperationAwaitingInbound ? "Принять поступление" : "Добавить поступление"}
+                    </Button>
+                  )}
 
                   {cooperationFlow.activeMovement &&
                     receivingMovementId !== cooperationFlow.activeMovement.id && (
