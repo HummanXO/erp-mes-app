@@ -220,10 +220,21 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
+        const contentType = response.headers.get("content-type") || ""
+        const isJson = contentType.includes("application/json")
+        const errorData = isJson ? await response.json().catch(() => null) : null
+        const errorText = isJson ? "" : await response.text().catch(() => "")
+        const fallback = response.statusText || `HTTP ${response.status}`
+        const normalized = errorData
+          ? normalizeApiError(response.status, errorData, fallback)
+          : {
+              code: `HTTP_${response.status}`,
+              message: (errorText || fallback || "Request failed").slice(0, 500),
+              details: errorText ? { raw: errorText.slice(0, 1000) } : undefined,
+            }
         throw new ApiClientError(
           response.status,
-          normalizeApiError(response.status, errorData, response.statusText || "Request failed")
+          normalized
         )
       }
 
@@ -495,13 +506,25 @@ class ApiClient {
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          error: {
-            code: "UNKNOWN_ERROR",
-            message: response.statusText,
-          },
-        }))
-        throw new ApiClientError(response.status, errorData.error || errorData)
+        const contentType = response.headers.get("content-type") || ""
+        const isJson = contentType.includes("application/json")
+        const errorData = isJson ? await response.json().catch(() => null) : null
+        const errorText = isJson ? "" : await response.text().catch(() => "")
+        if (response.status === 413) {
+          throw new ApiClientError(413, {
+            code: "PAYLOAD_TOO_LARGE",
+            message: "Файл слишком большой для сервера (лимит загрузки). Уменьшите размер файла.",
+            details: errorText ? { raw: errorText.slice(0, 1000) } : undefined,
+          })
+        }
+        const normalized = errorData
+          ? normalizeApiError(response.status, errorData, response.statusText || `HTTP ${response.status}`)
+          : {
+              code: `HTTP_${response.status}`,
+              message: (errorText || response.statusText || "Upload failed").slice(0, 500),
+              details: errorText ? { raw: errorText.slice(0, 1000) } : undefined,
+            }
+        throw new ApiClientError(response.status, normalized)
       }
 
       return await response.json()
