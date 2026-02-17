@@ -1,48 +1,34 @@
 "use client"
 
-import React from "react"
-
-import { useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import { useApp } from "@/lib/app-context"
-import {
-  ASSIGNEE_ROLE_GROUPS,
-  ROLE_LABELS,
-  STAGE_LABELS,
-  TASK_CATEGORY_LABELS,
-  TASK_STATUS_LABELS,
-} from "@/lib/types"
-import type {
-  ProductionStage,
-  Task,
-  TaskAssigneeType,
-  TaskCategory,
-  TaskStatus,
-  UserRole,
-} from "@/lib/types"
+import { TASK_CATEGORY_LABELS, STAGE_LABELS, ROLE_LABELS, ASSIGNEE_ROLE_GROUPS } from "@/lib/types"
+import type { TaskStatus, TaskCategory, ProductionStage, UserRole, TaskAssigneeType } from "@/lib/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { Circle, Clock3, MessageSquare, Plus, Search } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { 
+  Plus, 
+  AlertTriangle, 
+  Clock, 
+  CheckCircle,
+  Circle,
+  Loader2,
+  User,
+  UserCheck,
+  EyeOff,
+  Users,
+  Eye,
+  MessageSquare,
+  ChevronRight
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { TaskDetails } from "./task-details"
 
@@ -51,74 +37,22 @@ interface TasksListProps {
   machineId?: string
 }
 
-type AssigneeFilter = "all" | "mine" | "team"
-type DueFilter = "all" | "overdue" | "today" | "week"
-type DensityMode = "comfortable" | "compact"
-
-function formatDateTime(value?: string): string {
-  if (!value) return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleString("ru-RU")
-}
-
-function formatDate(value?: string): string {
-  if (!value) return "—"
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return "—"
-  return parsed.toLocaleDateString("ru-RU")
-}
-
-function dueDateBucket(dueDate: string, demoDate: string): Exclude<DueFilter, "all"> | null {
-  const due = new Date(dueDate)
-  const base = new Date(demoDate)
-  if (Number.isNaN(due.getTime()) || Number.isNaN(base.getTime())) return null
-
-  const dayDue = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime()
-  const dayBase = new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime()
-  const deltaDays = Math.floor((dayDue - dayBase) / (24 * 60 * 60 * 1000))
-
-  if (deltaDays < 0) return "overdue"
-  if (deltaDays === 0) return "today"
-  if (deltaDays <= 7) return "week"
-  return null
-}
-
-function resolveAssigneeLabel(task: Task, users: Array<{ id: string; initials: string }>): string {
-  if (task.assignee_type === "all") return "Всем"
-  if (task.assignee_type === "role" && task.assignee_role) {
-    return ASSIGNEE_ROLE_GROUPS[task.assignee_role] || task.assignee_role
-  }
-  if (task.assignee_type === "user" && task.assignee_id) {
-    const user = users.find((u) => u.id === task.assignee_id)
-    return user?.initials || "Не назначено"
-  }
-  return "Не назначено"
-}
-
-function statusBadgeTone(status: TaskStatus): string {
-  if (status === "done") return "border-[var(--status-success-border)] text-[var(--status-success-fg)]"
-  if (status === "review") return "border-[var(--status-warning-border)] text-[var(--status-warning-fg)]"
-  if (status === "in_progress") return "border-[var(--status-info-border)] text-[var(--status-info-fg)]"
-  return "border-border text-muted-foreground"
-}
-
 export function TasksList({ partId, machineId }: TasksListProps) {
-  const {
-    tasks,
-    createTask,
-    updateTask,
-    currentUser,
+  const { 
+    tasks, 
+    createTask, 
+    updateTask, 
+    currentUser, 
     users,
     permissions,
     demoDate,
+    getPartById,
     acceptTask,
-    isTaskAssignedToUser,
+    isTaskAssignedToUser
   } = useApp()
-
+  
   const [showForm, setShowForm] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [isBlocker, setIsBlocker] = useState(false)
@@ -128,123 +62,70 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   const [dueDate, setDueDate] = useState("")
   const [category, setCategory] = useState<TaskCategory>("general")
   const [stage, setStage] = useState<ProductionStage | "none">("none")
-
-  const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all")
-  const [assigneeFilter, setAssigneeFilter] = useState<AssigneeFilter>("all")
-  const [dueFilter, setDueFilter] = useState<DueFilter>("all")
-  const [density, setDensity] = useState<DensityMode>("comfortable")
+  
+  // Filter tasks
+  const filteredTasks = tasks.filter(t => {
+    if (partId && t.part_id !== partId) return false
+    if (machineId && !partId && t.machine_id !== machineId) return false
+    return true
+  })
+  
+  // Apply status filter
+  const statusFilteredTasks = statusFilter === "all" 
+    ? filteredTasks.filter(t => t.status !== "done")
+    : filteredTasks.filter(t => t.status === statusFilter)
+  
+  const activeTasks = statusFilteredTasks.filter(t => t.status !== "done" && t.status !== "review")
+  const reviewTasks = statusFilteredTasks.filter(t => t.status === "review")
+  const doneTasks = filteredTasks.filter(t => t.status === "done")
+  
+  const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) : null
+  const isMaster = currentUser?.role === "master"
+  const isShopHead = currentUser?.role === "shop_head"
+  const allowedUsers = users.filter((user) => {
+    if (isMaster) return user.role === "operator"
+    if (isShopHead) return user.role !== "director"
+    return true
+  })
+  const allowedRoleEntries = Object.entries(ASSIGNEE_ROLE_GROUPS).filter(([role]) => {
+    if (isMaster) return role === "operator"
+    if (isShopHead) return role !== "director"
+    return true
+  })
 
-  useEffect(() => {
-    const handler = (event: Event) => {
-      if (!permissions.canCreateTasks) return
-      const detail = (event as CustomEvent<{ partId?: string }>).detail
-      if (partId && detail?.partId && detail.partId !== partId) return
-      setShowForm(true)
-    }
-
-    window.addEventListener("pc-part-tasks-create", handler)
-    return () => window.removeEventListener("pc-part-tasks-create", handler)
-  }, [partId, permissions.canCreateTasks])
-
-  const selectedTask = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null
+  const unreadActiveCount = currentUser
+    ? activeTasks.filter(t => !t.read_by.includes(currentUser.id)).length
+    : 0
+  
+  // If a task is selected, show task details
   if (selectedTask) {
     return <TaskDetails task={selectedTask} onBack={() => setSelectedTaskId(null)} />
   }
-
-  const isMaster = currentUser?.role === "master"
-  const isShopHead = currentUser?.role === "shop_head"
-
-  const allowedUsers = useMemo(
-    () =>
-      users.filter((user) => {
-        if (isMaster) return user.role === "operator"
-        if (isShopHead) return user.role !== "director"
-        return true
-      }),
-    [users, isMaster, isShopHead]
-  )
-
-  const allowedRoleEntries = useMemo(
-    () =>
-      Object.entries(ASSIGNEE_ROLE_GROUPS).filter(([role]) => {
-        if (isMaster) return role === "operator"
-        if (isShopHead) return role !== "director"
-        return true
-      }),
-    [isMaster, isShopHead]
-  )
-
-  const visibleTasks = useMemo(() => {
-    let rows = tasks.filter((task) => {
-      if (partId && task.part_id !== partId) return false
-      if (machineId && !partId && task.machine_id !== machineId) return false
-      return true
-    })
-
-    const query = searchQuery.trim().toLowerCase()
-    if (query) {
-      rows = rows.filter((task) =>
-        [task.title, task.description, task.review_comment]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(query))
-      )
-    }
-
-    if (statusFilter !== "all") {
-      rows = rows.filter((task) => task.status === statusFilter)
-    }
-
-    if (assigneeFilter === "mine" && currentUser) {
-      rows = rows.filter((task) => isTaskAssignedToUser(task, currentUser))
-    } else if (assigneeFilter === "team" && currentUser) {
-      rows = rows.filter((task) => !isTaskAssignedToUser(task, currentUser))
-    }
-
-    if (dueFilter !== "all") {
-      rows = rows.filter((task) => dueDateBucket(task.due_date, demoDate) === dueFilter)
-    }
-
-    rows.sort((a, b) => {
-      const dueDiff = new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
-      if (dueDiff !== 0) return dueDiff
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    })
-
-    return rows
-  }, [tasks, partId, machineId, searchQuery, statusFilter, assigneeFilter, currentUser, isTaskAssignedToUser, dueFilter, demoDate])
-
-  const handleStatusChange = (task: Task, status: TaskStatus) => {
-    updateTask({ ...task, status })
-  }
-
-  const handleAcceptTask = async (taskId: string) => {
-    await acceptTask(taskId)
-  }
-
-  const handleCreateTask = async () => {
-    if (!title.trim() || !currentUser) return
-
+  
+  const handleCreateTask = () => {
+    if (!title || !currentUser) return
+    
     const normalizedAssigneeType =
       (isMaster || isShopHead) && assigneeType === "all" ? "role" : assigneeType
 
-    await createTask({
+    createTask({
       part_id: partId,
       machine_id: machineId,
       stage: stage !== "none" ? stage : undefined,
-      title: title.trim(),
-      description: description.trim(),
+      title,
+      description,
       creator_id: currentUser.id,
       assignee_type: normalizedAssigneeType,
-      assignee_id: normalizedAssigneeType === "user" ? assigneeId || undefined : undefined,
+      assignee_id: normalizedAssigneeType === "user" ? assigneeId : undefined,
       assignee_role: normalizedAssigneeType === "role" ? assigneeRole : undefined,
       status: "open",
       is_blocker: isBlocker,
       due_date: dueDate || demoDate,
       category,
-      comments: [],
     })
-
+    
+    // Reset form
     setTitle("")
     setDescription("")
     setIsBlocker(false)
@@ -256,289 +137,198 @@ export function TasksList({ partId, machineId }: TasksListProps) {
     setStage("none")
     setShowForm(false)
   }
+  
+  const handleStatusChange = (taskId: string, newStatus: TaskStatus) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (task) {
+      updateTask({ ...task, status: newStatus })
+    }
+  }
+  
+  const handleAcceptTask = (taskId: string) => {
+    acceptTask(taskId)
+  }
+  
+  const getStatusIcon = (status: TaskStatus) => {
+    switch (status) {
+      case "done": return <CheckCircle className="h-4 w-4 text-green-500" />
+      case "review": return <Eye className="h-4 w-4 text-amber-500" />
+      case "in_progress": return <Loader2 className="h-4 w-4 text-blue-500" />
+      case "accepted": return <UserCheck className="h-4 w-4 text-teal-500" />
+      default: return <Circle className="h-4 w-4 text-muted-foreground" />
+    }
+  }
+  
+  // Get assignee display text
+  const getAssigneeDisplay = (task: typeof tasks[0]) => {
+    if (task.assignee_type === "all") return "Всем"
+    if (task.assignee_type === "role" && task.assignee_role) {
+      return ASSIGNEE_ROLE_GROUPS[task.assignee_role]
+    }
+    if (task.assignee_type === "user" && task.assignee_id) {
+      const user = users.find(u => u.id === task.assignee_id)
+      return user?.initials || "Неизвестно"
+    }
+    return "Не назначено"
+  }
 
-  const rowPadding = density === "compact" ? "py-1.5" : "py-2.5"
-
+// Status filter counts
+  const statusCounts: Record<TaskStatus | "all", number> = {
+    all: filteredTasks.filter(t => t.status !== "done").length,
+    open: filteredTasks.filter(t => t.status === "open").length,
+    accepted: filteredTasks.filter(t => t.status === "accepted").length,
+    in_progress: filteredTasks.filter(t => t.status === "in_progress").length,
+    review: filteredTasks.filter(t => t.status === "review").length,
+    done: filteredTasks.filter(t => t.status === "done").length,
+  }
+  
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as TaskStatus | "all")}>
-          <SelectTrigger className="w-[170px]">
-            <SelectValue placeholder="Статус" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все статусы</SelectItem>
-            {(Object.keys(TASK_STATUS_LABELS) as TaskStatus[]).map((status) => (
-              <SelectItem key={status} value={status}>{TASK_STATUS_LABELS[status]}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select value={assigneeFilter} onValueChange={(value) => setAssigneeFilter(value as AssigneeFilter)}>
-          <SelectTrigger className="w-[170px]">
-            <SelectValue placeholder="Исполнитель" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все исполнители</SelectItem>
-            <SelectItem value="mine">Назначено мне</SelectItem>
-            <SelectItem value="team">Другие исполнители</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={dueFilter} onValueChange={(value) => setDueFilter(value as DueFilter)}>
-          <SelectTrigger className="w-[170px]">
-            <SelectValue placeholder="Срок" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Любой срок</SelectItem>
-            <SelectItem value="overdue">Просрочено</SelectItem>
-            <SelectItem value="today">Сегодня</SelectItem>
-            <SelectItem value="week">7 дней</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <Select value={density} onValueChange={(value) => setDensity(value as DensityMode)}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Плотность" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="comfortable">Comfortable</SelectItem>
-            <SelectItem value="compact">Compact</SelectItem>
-          </SelectContent>
-        </Select>
-
-        <div className="relative min-w-[220px] flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Поиск по названию и описанию"
-            className="pl-9"
-          />
-        </div>
-      </div>
-
-      <Card className="gap-0 border shadow-none py-0">
-        <CardHeader className="px-4 py-4 sm:px-6 sm:py-5">
-          <div className="flex items-center justify-between gap-3">
-            <CardTitle className="text-sm font-semibold">Список задач</CardTitle>
-            {permissions.canCreateTasks ? (
-              <Button onClick={() => setShowForm(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Создать задачу
-              </Button>
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardContent className="px-4 pb-5 sm:px-6">
-          {visibleTasks.length === 0 ? (
-            <div className="rounded-md bg-muted/40 px-4 py-8 text-center">
-              <p className="text-sm text-muted-foreground">Задач по выбранным фильтрам нет.</p>
-              {permissions.canCreateTasks ? (
-                <Button className="mt-3" onClick={() => setShowForm(true)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Создать задачу
-                </Button>
-              ) : null}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[140px]">Статус</TableHead>
-                  <TableHead>Задача</TableHead>
-                  <TableHead className="w-[140px]">Срок</TableHead>
-                  <TableHead className="w-[180px]">Исполнитель</TableHead>
-                  <TableHead className="w-[180px]">Обновлено</TableHead>
-                  <TableHead className="w-[220px] text-right">Быстрые действия</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {visibleTasks.map((task) => {
-                  const assigneeLabel = resolveAssigneeLabel(task, users)
-                  const isAssignedToCurrent = currentUser ? isTaskAssignedToUser(task, currentUser) : false
-                  const canAccept =
-                    isAssignedToCurrent &&
-                    task.status === "open" &&
-                    task.assignee_type !== "all" &&
-                    !task.accepted_by_id
-
-                  const updatedAt = task.reviewed_at || task.accepted_at || task.created_at
-
-                  return (
-                    <TableRow key={task.id} className={cn("min-h-11", density === "compact" && "text-xs")}> 
-                      <TableCell className={rowPadding}>
-                        <Badge variant="outline" className={cn("bg-transparent", statusBadgeTone(task.status))}>
-                          {TASK_STATUS_LABELS[task.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className={rowPadding}>
-                        <div className="flex items-center gap-2">
-                          {task.is_blocker ? (
-                            <Badge variant="outline" className="border-[var(--status-danger-border)] text-[var(--status-danger-fg)]">
-                              Блокер
-                            </Badge>
-                          ) : (
-                            <Circle className="h-3.5 w-3.5 text-muted-foreground" />
-                          )}
-                          <div>
-                            <div className="font-medium">{task.title}</div>
-                            {task.description ? (
-                              <div className="text-xs text-muted-foreground line-clamp-2">{task.description}</div>
-                            ) : null}
-                            <div className="mt-1 flex flex-wrap gap-1 text-xs text-muted-foreground">
-                              <span>{TASK_CATEGORY_LABELS[task.category]}</span>
-                              {task.stage ? <span>· {STAGE_LABELS[task.stage]}</span> : null}
-                              {task.comments.length > 0 ? (
-                                <span className="inline-flex items-center gap-1">
-                                  · <MessageSquare className="h-3 w-3" /> {task.comments.length}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell className={cn("whitespace-nowrap", rowPadding)}>
-                        <div className="inline-flex items-center gap-1 text-sm">
-                          <Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
-                          {formatDate(task.due_date)}
-                        </div>
-                      </TableCell>
-                      <TableCell className={rowPadding}>{assigneeLabel}</TableCell>
-                      <TableCell className={cn("whitespace-nowrap text-muted-foreground", rowPadding)}>
-                        {formatDateTime(updatedAt)}
-                      </TableCell>
-                      <TableCell className={cn("text-right", rowPadding)}>
-                        <div className="flex justify-end gap-1">
-                          <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelectedTaskId(task.id)}>
-                            Открыть
-                          </Button>
-
-                          {canAccept ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 bg-transparent"
-                              onClick={() => void handleAcceptTask(task.id)}
-                            >
-                              Принять
-                            </Button>
-                          ) : null}
-
-                          {(task.status === "accepted" || task.status === "open") && isAssignedToCurrent ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 bg-transparent"
-                              onClick={() => handleStatusChange(task, "in_progress")}
-                            >
-                              В работу
-                            </Button>
-                          ) : null}
-
-                          {task.status === "in_progress" ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 bg-transparent"
-                              onClick={() => handleStatusChange(task, "review")}
-                            >
-                              На проверку
-                            </Button>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
+  <div className="space-y-4">
+  {/* Status filter chips */}
+  <div className="overflow-x-auto overflow-y-hidden py-1">
+    <div className="flex w-max min-w-full items-center justify-start gap-1">
+      {(["all", "open", "accepted", "in_progress", "review", "done"] as const).map((status) => {
+        const labels: Record<string, string> = {
+          all: "Все",
+          open: "Открытые",
+          accepted: "Принятые",
+          in_progress: "В работе",
+          review: "На проверке",
+          done: "Готовые"
+        }
+        return (
+          <Button
+            key={status}
+            size="sm"
+            variant={statusFilter === status ? "default" : "outline"}
+            className={cn(
+              "h-9 text-sm md:h-7 md:text-xs",
+              statusFilter === status ? "" : "bg-transparent",
+            )}
+            onClick={() => setStatusFilter(status === "all" ? "all" : status)}
+          >
+            {labels[status]} ({statusCounts[status]})
+          </Button>
+        )
+      })}
+    </div>
+  </div>
+  
+  {/* Create button */}
+  {permissions.canCreateTasks && (
+    <>
+      <Button
+        variant="default"
+        className="w-full h-11"
+        onClick={() => setShowForm(true)}
+      >
+        <Plus className="h-4 w-4 mr-2" />
+        Создать задачу
+      </Button>
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Новая задача</DialogTitle>
           </DialogHeader>
-
-          <div className="grid gap-4 py-2">
+          <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label htmlFor="task-title">Название</Label>
               <Input
                 id="task-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
                 placeholder="Что нужно сделать?"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
               />
             </div>
-
+            
             <div className="space-y-2">
-              <Label htmlFor="task-description">Описание</Label>
+              <Label htmlFor="task-desc">Описание</Label>
               <Textarea
-                id="task-description"
+                id="task-desc"
+                placeholder="Подробности..."
                 value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                rows={3}
-                placeholder="Детали задачи"
+                onChange={(e) => setDescription(e.target.value)}
+                rows={2}
               />
             </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
+            
+            {/* Assignee type selection */}
+            <div className="space-y-2">
+              <Label htmlFor="assignee-type-tabs">Кому назначить</Label>
+              <Tabs value={assigneeType} onValueChange={(v) => setAssigneeType(v as TaskAssigneeType)}>
+                <TabsList
+                  id="assignee-type-tabs"
+                  className={cn(
+                    "grid w-full h-auto gap-1",
+                    isMaster || isShopHead ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-3",
+                  )}
+                >
+                  <TabsTrigger value="user">
+                    <User className="h-4 w-4 mr-1" />
+                    Человеку
+                  </TabsTrigger>
+                  <TabsTrigger value="role">
+                    <Users className="h-4 w-4 mr-1" />
+                    Группе
+                  </TabsTrigger>
+                  {!isMaster && !isShopHead && (
+                    <TabsTrigger value="all">
+                      <Users className="h-4 w-4 mr-1" />
+                      Всем
+                    </TabsTrigger>
+                  )}
+                </TabsList>
+              </Tabs>
+            </div>
+            
+            {assigneeType === "user" && (
               <div className="space-y-2">
-                <Label htmlFor="task-assignee-type">Кому назначить</Label>
-                <Select value={assigneeType} onValueChange={(value) => setAssigneeType(value as TaskAssigneeType)}>
-                  <SelectTrigger id="task-assignee-type">
-                    <SelectValue />
+                <Label>Исполнитель</Label>
+                <Select value={assigneeId} onValueChange={setAssigneeId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Выберите человека" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="user">Конкретному сотруднику</SelectItem>
-                    <SelectItem value="role">Группе по роли</SelectItem>
-                    {!isMaster && !isShopHead ? <SelectItem value="all">Всем</SelectItem> : null}
+                    {allowedUsers.map(user => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.initials} ({ROLE_LABELS[user.role]})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              {assigneeType === "user" ? (
-                <div className="space-y-2">
-                  <Label htmlFor="task-assignee-user">Исполнитель</Label>
-                  <Select value={assigneeId} onValueChange={setAssigneeId}>
-                    <SelectTrigger id="task-assignee-user">
-                      <SelectValue placeholder="Выберите сотрудника" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allowedUsers.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.initials} ({ROLE_LABELS[user.role]})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-
-              {assigneeType === "role" ? (
-                <div className="space-y-2">
-                  <Label htmlFor="task-assignee-role">Роль</Label>
-                  <Select value={assigneeRole} onValueChange={(value) => setAssigneeRole(value as UserRole)}>
-                    <SelectTrigger id="task-assignee-role">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allowedRoleEntries.map(([role, label]) => (
-                        <SelectItem key={role} value={role}>{label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-3">
+            )}
+            
+            {assigneeType === "role" && (
+              <div className="space-y-2">
+                <Label htmlFor="assignee-role">Группа</Label>
+                <Select value={assigneeRole} onValueChange={(v) => setAssigneeRole(v as UserRole)}>
+                  <SelectTrigger id="assignee-role">
+                    <SelectValue placeholder="Выберите группу" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allowedRoleEntries.map(([role, label]) => (
+                      <SelectItem key={role} value={role}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="task-due">Срок</Label>
+                <Input
+                  id="task-due"
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                />
+              </div>
+              
               <div className="space-y-2">
                 <Label htmlFor="task-category">Категория</Label>
-                <Select value={category} onValueChange={(value) => setCategory(value as TaskCategory)}>
+                <Select value={category} onValueChange={(v) => setCategory(v as TaskCategory)}>
                   <SelectTrigger id="task-category">
                     <SelectValue />
                   </SelectTrigger>
@@ -549,49 +339,305 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="task-stage">Этап</Label>
-                <Select value={stage} onValueChange={(value) => setStage(value as ProductionStage | "none")}> 
-                  <SelectTrigger id="task-stage">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Без этапа</SelectItem>
-                    {(Object.keys(STAGE_LABELS) as ProductionStage[]).map((stageKey) => (
-                      <SelectItem key={stageKey} value={stageKey}>{STAGE_LABELS[stageKey]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="task-due-date">Срок</Label>
-                <Input
-                  id="task-due-date"
-                  type="date"
-                  value={dueDate}
-                  onChange={(event) => setDueDate(event.target.value)}
-                />
-              </div>
             </div>
-
-            <label className="inline-flex items-center gap-2 text-sm">
-              <Checkbox checked={isBlocker} onCheckedChange={(value) => setIsBlocker(Boolean(value))} />
-              Блокирующая задача
-            </label>
+            
+            <div className="space-y-2">
+              <Label htmlFor="task-stage">Этап (опционально)</Label>
+              <Select value={stage} onValueChange={(v) => setStage(v as ProductionStage | "none")}>
+                <SelectTrigger id="task-stage">
+                  <SelectValue placeholder="Любой этап" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Любой этап</SelectItem>
+                  {Object.entries(STAGE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="is-blocker"
+                checked={isBlocker}
+                onCheckedChange={(checked) => setIsBlocker(checked === true)}
+              />
+              <Label htmlFor="is-blocker" className="text-sm font-normal">
+                Это блокер (останавливает работу)
+              </Label>
+            </div>
+            
+            <DialogFooter className="gap-2">
+              <Button variant="outline" className="bg-transparent" onClick={() => setShowForm(false)}>
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleCreateTask} 
+                disabled={!title || (assigneeType === "user" && !assigneeId)}
+              >
+                Создать задачу
+              </Button>
+            </DialogFooter>
           </div>
-
-          <DialogFooter>
-            <Button variant="outline" className="bg-transparent" onClick={() => setShowForm(false)}>
-              Отмена
-            </Button>
-            <Button onClick={() => void handleCreateTask()} disabled={!title.trim()}>
-              Создать
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  )}
+      
+      {/* Active tasks */}
+      {activeTasks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">
+              Активные задачи ({activeTasks.length}
+              {unreadActiveCount > 0 && `, непрочитанных: ${unreadActiveCount}`})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {activeTasks.map(task => {
+              const isOverdue = task.due_date < demoDate
+              const creator = users.find(u => u.id === task.creator_id)
+              const acceptedBy = task.accepted_by_id ? users.find(u => u.id === task.accepted_by_id) : null
+              const part = task.part_id ? getPartById(task.part_id) : null
+              const isMyTask = currentUser && isTaskAssignedToUser(task, currentUser)
+              const isUnread = currentUser && !task.read_by.includes(currentUser.id)
+              const isGroupTask = task.assignee_type === "role" || task.assignee_type === "all"
+              
+              const openTask = () => setSelectedTaskId(task.id)
+              const handleKeyOpen = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  openTask()
+                }
+              }
+
+              return (
+                <div 
+                  key={task.id} 
+                  className={cn(
+                    "p-3 rounded-md border transition-colors",
+                    task.is_blocker && "border-destructive bg-destructive/5",
+                    isOverdue && !task.is_blocker && "border-amber-500 bg-amber-500/5",
+                    isUnread && isMyTask && !task.is_blocker && !isOverdue && "border-blue-500 bg-blue-50/50 dark:bg-blue-950/20",
+                    !task.is_blocker && !isOverdue && !(isUnread && isMyTask) && "hover:bg-muted/50"
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={openTask}
+                      onKeyDown={handleKeyOpen}
+                      className="flex-1 text-left flex items-start gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 rounded-md"
+                      aria-label={`Открыть задачу ${task.title}`}
+                    >
+                      <span className="mt-0.5" aria-hidden>
+                        {getStatusIcon(task.status)}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {isUnread && isMyTask && (
+                            <Badge variant="default" className="gap-1 bg-blue-500">
+                              <EyeOff className="h-3 w-3" />
+                              Новое
+                            </Badge>
+                          )}
+                          <span className="font-medium">{task.title}</span>
+                          {task.is_blocker && (
+                            <Badge variant="destructive" className="gap-1">
+                              <AlertTriangle className="h-3 w-3" />
+                              Блокер
+                            </Badge>
+                          )}
+                          {isOverdue && (
+                            <Badge variant="outline" className="text-amber-600 border-amber-600 gap-1">
+                              <Clock className="h-3 w-3" />
+                              Просрочено
+                            </Badge>
+                          )}
+                          {isGroupTask && (
+                            <Badge variant="outline" className="gap-1">
+                              <Users className="h-3 w-3" />
+                              {getAssigneeDisplay(task)}
+                            </Badge>
+                          )}
+                          {task.stage && (
+                            <Badge variant="outline" className="text-xs">
+                              {STAGE_LABELS[task.stage]}
+                            </Badge>
+                          )}
+                          {task.accepted_by_id && (
+                            <Badge variant="secondary" className="gap-1 text-green-600">
+                              <UserCheck className="h-3 w-3" />
+                              Принято: {acceptedBy?.initials}
+                            </Badge>
+                          )}
+                        </div>
+                        {task.description && (
+                          <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                          {part && <span className="font-mono">{part.code}</span>}
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" />
+                            {creator?.initials}
+                          </span>
+                          {!isGroupTask && <span>Кому: {getAssigneeDisplay(task)}</span>}
+                          <span>до {new Date(task.due_date).toLocaleDateString("ru-RU")}</span>
+                          <Badge variant="secondary" className="text-xs">
+                            {TASK_CATEGORY_LABELS[task.category]}
+                          </Badge>
+                        </div>
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label={task.status === "open" ? "Отметить как в работе" : "Отметить как выполнено"}
+                        className="rounded-md h-10 w-10 flex items-center justify-center hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")
+                        }}
+                      >
+                        {getStatusIcon(task.status)}
+                      </button>
+                      {isMyTask && task.status === "open" && !task.accepted_by_id && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-10 text-sm md:h-8 md:text-xs bg-transparent"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleAcceptTask(task.id)
+                          }}
+                        >
+                          <UserCheck className="h-3 w-3 mr-1" />
+                          Принять
+                        </Button>
+                      )}
+                      {task.comments && task.comments.length > 0 && (
+                        <div className="flex items-center gap-1 text-muted-foreground" aria-label={`Комментариев: ${task.comments.length}`}>
+                          <MessageSquare className="h-3 w-3" />
+                          <span className="text-xs">{task.comments.length}</span>
+                        </div>
+                      )}
+                      <Select 
+                        value={task.status} 
+                        onValueChange={(v) => {
+                          v && handleStatusChange(task.id, v as TaskStatus)
+                        }}
+                      >
+                        <SelectTrigger
+                          className="w-32 h-10 text-sm md:text-xs"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="open">Открыта</SelectItem>
+                          <SelectItem value="accepted">Принята</SelectItem>
+                          <SelectItem value="in_progress">В работе</SelectItem>
+                          <SelectItem value="review">На проверке</SelectItem>
+                          <SelectItem value="done">Готово</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+      
+      {/* Review tasks */}
+      {reviewTasks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-amber-600 flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              На проверке ({reviewTasks.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {reviewTasks.map(task => {
+              const creator = users.find(u => u.id === task.creator_id)
+              const part = task.part_id ? getPartById(task.part_id) : null
+              
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => setSelectedTaskId(task.id)}
+                  aria-label={`Открыть задачу ${task.title}`}
+                  className="w-full text-left p-3 rounded-md border border-amber-200 bg-amber-50/50 hover:bg-amber-100/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Eye className="h-4 w-4 text-amber-500" aria-hidden />
+                      <span className="font-medium">{task.title}</span>
+                      {task.is_blocker && (
+                        <Badge variant="destructive" className="gap-1 text-xs">
+                          Блокер
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {task.comments && task.comments.length > 0 && (
+                        <div className="flex items-center gap-1 text-muted-foreground" aria-label={`Комментариев: ${task.comments.length}`}>
+                          <MessageSquare className="h-3 w-3" />
+                          <span className="text-xs">{task.comments.length}</span>
+                        </div>
+                      )}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                    {part && <span className="font-mono">{part.code}</span>}
+                    <span>Создал: {creator?.initials}</span>
+                    {task.review_comment && (
+                      <span className="italic">"{task.review_comment.slice(0, 30)}..."</span>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+      
+      {/* Done tasks */}
+      {doneTasks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-muted-foreground">
+              Выполненные ({doneTasks.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {doneTasks.slice(0, 5).map(task => (
+              <div key={task.id} className="p-2 rounded-md bg-muted/50 flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span className="text-sm line-through text-muted-foreground">{task.title}</span>
+              </div>
+            ))}
+            {doneTasks.length > 5 && (
+              <p className="text-xs text-muted-foreground text-center">
+                +{doneTasks.length - 5} ещё
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      
+      {filteredTasks.length === 0 && !showForm && (
+        <Card>
+          <CardContent className="p-6 text-center text-muted-foreground">
+            <p>Нет задач</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
