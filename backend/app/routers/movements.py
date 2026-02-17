@@ -31,7 +31,7 @@ from ..services.movement_rules import (
 
 router = APIRouter(tags=["movements"])
 
-STAGE_FLOW_ORDER = ("machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc")
+STAGE_FLOW_ORDER = ("machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc")
 STAGE_LABELS: dict[str, str] = {
     "machining": "механообработка",
     "fitting": "слесарка",
@@ -49,6 +49,45 @@ MOVEMENT_STATUS_LABELS: dict[str, str] = {
     "cancelled": "отменено",
     "completed": "завершено",
 }
+
+
+def _stage_prerequisites_for_part(*, part: Part, stage: str) -> list[str]:
+    required_stages = set(part.required_stages or [])
+
+    if stage == "heat_treatment":
+        return ["fitting"] if "fitting" in required_stages else []
+    if stage == "galvanic":
+        if "heat_treatment" in required_stages:
+            return ["heat_treatment"]
+        return ["fitting"] if "fitting" in required_stages else []
+    if stage == "grinding":
+        if "galvanic" in required_stages:
+            return ["galvanic"]
+        if "heat_treatment" in required_stages:
+            return ["heat_treatment"]
+        return ["fitting"] if "fitting" in required_stages else []
+    return []
+
+
+def _ensure_stage_movement_allowed(*, part: Part, stage_status: PartStageStatus) -> None:
+    if stage_status.status == "done":
+        raise HTTPException(status_code=409, detail="Этап уже завершён, отправка недоступна")
+
+    prerequisites = _stage_prerequisites_for_part(part=part, stage=stage_status.stage)
+    if not prerequisites:
+        return
+
+    stage_status_map = {s.stage: s.status for s in (part.stage_statuses or [])}
+    blocked = [stage for stage in prerequisites if stage_status_map.get(stage) != "done"]
+    if not blocked:
+        return
+
+    blocked_labels = ", ".join(STAGE_LABELS.get(stage, stage) for stage in blocked)
+    raise HTTPException(
+        status_code=409,
+        detail=f"Нельзя отправить на этап «{STAGE_LABELS.get(stage_status.stage, stage_status.stage)}»: "
+        f"сначала завершите этапы ({blocked_labels}).",
+    )
 
 
 def _now_utc() -> datetime:
@@ -186,6 +225,7 @@ def create_movement(
     if data.qty_sent is not None and data.qty_received is not None and data.qty_received > data.qty_sent:
         raise HTTPException(status_code=409, detail="qty_received cannot exceed qty_sent")
 
+    stage_status: PartStageStatus | None = None
     if data.stage_id:
         stage_status = _get_stage_status_in_org(
             db,
@@ -198,12 +238,23 @@ def create_movement(
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     requested_initial_status = normalize_movement_status(data.status)
+    status = requested_initial_status
+    sent_at: datetime | None = None
+    received_at: datetime | None = None
+
     if requested_initial_status == "sent":
         status, sent_at = initial_movement_state()
     elif requested_initial_status == "pending":
         status, sent_at = "pending", None
+    elif requested_initial_status == "received":
+        sent_at = _now_utc()
+        received_at = sent_at
+        ensure_received_requires_sent(sent_at=sent_at, next_status="received")
     else:
         raise HTTPException(status_code=400, detail="Invalid initial movement status")
+
+    if stage_status is not None and status in {"sent", "received"}:
+        _ensure_stage_movement_allowed(part=part, stage_status=stage_status)
 
     active_count = _count_active_movements(db, org_id=current_user.org_id, part_id=part.id)
     try:
@@ -221,6 +272,7 @@ def create_movement(
         part_id=part.id,
         status=status,
         sent_at=sent_at,
+        received_at=received_at,
         from_location=data.from_location,
         from_holder=data.from_holder,
         to_location=data.to_location,
@@ -229,7 +281,7 @@ def create_movement(
         tracking_number=data.tracking_number,
         planned_eta=data.planned_eta,
         qty_sent=data.qty_sent,
-        qty_received=data.qty_received,
+        qty_received=data.qty_received if data.qty_received is not None else (data.qty_sent if status == "received" else None),
         stage_id=data.stage_id,
         notes=data.notes,
         # Deprecated fields kept populated for backward compatibility.

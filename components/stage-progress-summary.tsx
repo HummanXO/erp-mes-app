@@ -27,16 +27,16 @@ const STAGE_ORDER: ProductionStage[] = [
   "machining",
   "fitting", 
   "heat_treatment",
-  "grinding",
   "galvanic",
+  "grinding",
   "qc",
 ]
 
 const OVERALL_PROGRESS_STAGES: ProductionStage[] = [
   "machining",
   "fitting",
-  "galvanic",
   "heat_treatment",
+  "galvanic",
   "grinding",
   "qc",
 ]

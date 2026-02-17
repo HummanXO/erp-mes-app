@@ -20,10 +20,10 @@ import { cn } from "@/lib/utils"
 import { Building2, AlertCircle, X, Loader2, Upload, CheckCircle, FileImage, FileText } from "lucide-react"
 
 const COOP_STAGES: ProductionStage[] = ["qc"]
-const COOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment"]
+const COOP_OPTIONAL_STAGES: ProductionStage[] = ["heat_treatment", "galvanic"]
 const SHOP_REQUIRED_STAGES: ProductionStage[] = ["machining", "fitting", "qc"]
-const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["galvanic", "heat_treatment"]
-const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "qc"]
+const SHOP_OPTIONAL_STAGES: ProductionStage[] = ["heat_treatment", "galvanic"]
+const STAGE_FLOW_ORDER: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
 const CUSTOMER_STORAGE_KEY = "erp_customer_list"
 const COOP_PARTNER_STORAGE_KEY = "erp_cooperation_partner_list"
 
@@ -48,7 +48,7 @@ export function CreatePartDialog({
   submitLabel = "Создать деталь",
   onPartCreated,
 }: CreatePartDialogProps) {
-  const { createPart, deletePart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
+  const { createPart, deletePart, machines, permissions, parts, uploadAttachment } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -64,6 +64,8 @@ export function CreatePartDialog({
   const [drawingUploadError, setDrawingUploadError] = useState("")
   const [isDrawingUploading, setIsDrawingUploading] = useState(false)
   const [drawingAttachment, setDrawingAttachment] = useState<{ url: string; name: string; type: "image" | "file" } | null>(null)
+  const [drawingPreviewUrl, setDrawingPreviewUrl] = useState<string | null>(null)
+  const [drawingPreviewKind, setDrawingPreviewKind] = useState<"image" | "pdf" | null>(null)
   const formId = useId()
   const codeId = `${formId}-code`
   const nameId = `${formId}-name`
@@ -263,6 +265,22 @@ export function CreatePartDialog({
 
   const showCustomerSuggestions = isCustomerFocused && filteredCustomers.length > 0
   const showCooperationPartnerSuggestions = isCooperationPartnerFocused && filteredCooperationPartners.length > 0
+
+  const resetDrawingPreview = () => {
+    if (drawingPreviewUrl) {
+      URL.revokeObjectURL(drawingPreviewUrl)
+    }
+    setDrawingPreviewUrl(null)
+    setDrawingPreviewKind(null)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (drawingPreviewUrl) {
+        URL.revokeObjectURL(drawingPreviewUrl)
+      }
+    }
+  }, [drawingPreviewUrl])
   
   const handleCreate = async () => {
     setFormError("")
@@ -312,6 +330,7 @@ export function CreatePartDialog({
         is_cooperation: isCooperation,
         cooperation_partner: isCooperation ? cooperationPartner.trim() : undefined,
         cooperation_due_date: isCooperation && cooperationDueDate ? cooperationDueDate : undefined,
+        drawing_url: drawingAttachment?.url || undefined,
         required_stages: requiredStages,
         stage_statuses: stageStatuses,
         machine_id: !isCooperation ? machineId : undefined,
@@ -322,9 +341,6 @@ export function CreatePartDialog({
       try {
         if (onPartCreated) {
           await onPartCreated(createdPart)
-        }
-        if (drawingAttachment) {
-          await updatePartDrawing(createdPart.id, drawingAttachment.url)
         }
       } catch (postCreateError) {
         try {
@@ -361,6 +377,16 @@ export function CreatePartDialog({
   const handleDrawingFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
+    resetDrawingPreview()
+    const localPreviewUrl = URL.createObjectURL(file)
+    setDrawingPreviewUrl(localPreviewUrl)
+    if (file.type.startsWith("image/")) {
+      setDrawingPreviewKind("image")
+    } else if (file.type === "application/pdf") {
+      setDrawingPreviewKind("pdf")
+    } else {
+      setDrawingPreviewKind(null)
+    }
     setDrawingUploadError("")
     setIsDrawingUploading(true)
     try {
@@ -370,6 +396,7 @@ export function CreatePartDialog({
       const message = error instanceof Error ? error.message : "Не удалось загрузить чертёж"
       setDrawingUploadError(message)
       setDrawingAttachment(null)
+      resetDrawingPreview()
     } finally {
       setIsDrawingUploading(false)
       event.target.value = ""
@@ -379,6 +406,7 @@ export function CreatePartDialog({
   const clearDrawing = () => {
     setDrawingAttachment(null)
     setDrawingUploadError("")
+    resetDrawingPreview()
   }
 
   const resetForm = () => {
@@ -403,6 +431,7 @@ export function CreatePartDialog({
     setDrawingAttachment(null)
     setDrawingUploadError("")
     setIsDrawingUploading(false)
+    resetDrawingPreview()
   }
 
   return (
@@ -839,6 +868,29 @@ export function CreatePartDialog({
             {drawingUploadError && (
               <div className="text-sm text-destructive" role="status" aria-live="polite">
                 {drawingUploadError}
+              </div>
+            )}
+            {drawingAttachment && drawingPreviewUrl && drawingPreviewKind === "image" && (
+              <div className="rounded-lg border bg-muted/20 p-2">
+                <img
+                  src={drawingPreviewUrl}
+                  alt="Предпросмотр чертежа"
+                  className="max-h-40 w-full rounded-md object-contain"
+                />
+              </div>
+            )}
+            {drawingAttachment && drawingPreviewUrl && drawingPreviewKind === "pdf" && (
+              <div className="rounded-lg border bg-muted/20 p-2 text-xs text-muted-foreground flex items-center justify-between gap-2">
+                <span>PDF загружен, предпросмотр в карточке детали на вкладке «Чертёж».</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => window.open(drawingPreviewUrl, "_blank", "noopener,noreferrer")}
+                >
+                  <FileText className="h-4 w-4 mr-1" />
+                  Открыть PDF
+                </Button>
               </div>
             )}
           </div>

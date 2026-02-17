@@ -37,7 +37,7 @@ const STATUS_LABELS: Record<MovementStatus, string> = {
   completed: "Завершено",
 }
 
-const EXTERNAL_STAGE_FLOW: ProductionStage[] = ["galvanic", "heat_treatment", "grinding"]
+const EXTERNAL_STAGE_FLOW: ProductionStage[] = ["heat_treatment", "galvanic", "grinding"]
 const ACTIVE_MOVEMENT_STATUSES = new Set<MovementStatus>(["sent", "in_transit"])
 const RECEIVED_MOVEMENT_STATUSES = new Set<MovementStatus>(["received", "completed"])
 const ONE_DAY_MS = 24 * 60 * 60 * 1000
@@ -116,6 +116,8 @@ type StageCardData = {
   stageId: string
   stage: ProductionStage
   stageStatus: string
+  blockedReason: string | null
+  canSend: boolean
   qtyReady: number
   percent: number
   latestMovement?: LogisticsEntry
@@ -126,6 +128,43 @@ type StageCardData = {
   lastPartner?: string
   etaLabel: string
   etaDelta: { label: string; tone: "ok" | "risk" | "neutral" } | null
+}
+
+function stagePrerequisites(part: Part, stage: ProductionStage): ProductionStage[] {
+  const requiredStages = new Set(part.required_stages || [])
+
+  if (part.is_cooperation) {
+    if (stage === "qc") {
+      const chain: ProductionStage[] = ["heat_treatment", "galvanic", "grinding"]
+      return chain.filter((candidate) => requiredStages.has(candidate))
+    }
+    return []
+  }
+
+  if (stage === "fitting") {
+    return requiredStages.has("machining") ? ["machining"] : []
+  }
+  if (stage === "heat_treatment") {
+    return requiredStages.has("fitting") ? ["fitting"] : []
+  }
+  if (stage === "galvanic") {
+    if (requiredStages.has("heat_treatment")) return ["heat_treatment"]
+    return requiredStages.has("fitting") ? ["fitting"] : []
+  }
+  if (stage === "grinding") {
+    if (requiredStages.has("galvanic")) return ["galvanic"]
+    if (requiredStages.has("heat_treatment")) return ["heat_treatment"]
+    return requiredStages.has("fitting") ? ["fitting"] : []
+  }
+  if (stage === "qc") {
+    const prereq: ProductionStage[] = []
+    if (requiredStages.has("fitting")) prereq.push("fitting")
+    for (const candidate of ["heat_treatment", "galvanic", "grinding"] as const) {
+      if (requiredStages.has(candidate)) prereq.push(candidate)
+    }
+    return prereq
+  }
+  return []
 }
 
 export function LogisticsList({ part }: LogisticsListProps) {
@@ -165,6 +204,14 @@ export function LogisticsList({ part }: LogisticsListProps) {
     [part.stage_statuses]
   )
 
+  const stageStatusByStage = useMemo(
+    () =>
+      new Map(
+        (part.stage_statuses || []).map((status) => [status.stage, status.status] as const)
+      ),
+    [part.stage_statuses]
+  )
+
   const stageCards: StageCardData[] = useMemo(
     () =>
       stageOptions.map((stageStatus) => {
@@ -199,6 +246,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
           lastReceived?.received_at,
           active ? `${demoDate}T00:00:00` : undefined
         )
+        const blockedStages = stagePrerequisites(part, stageStatus.stage).filter(
+          (candidate) => stageStatusByStage.get(candidate) !== "done"
+        )
+        const blockedReason =
+          blockedStages.length > 0
+            ? `Сначала завершите: ${blockedStages.map((candidate) => STAGE_LABELS[candidate]).join(", ")}`
+            : null
 
         let statusLabel = "Не отправлено"
         let statusTone: StageCardData["statusTone"] = "neutral"
@@ -219,6 +273,8 @@ export function LogisticsList({ part }: LogisticsListProps) {
           stageId,
           stage: stageStatus.stage,
           stageStatus: stageStatus.status,
+          blockedReason,
+          canSend: blockedReason === null,
           qtyReady,
           percent,
           latestMovement: latest,
@@ -231,7 +287,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
           etaDelta,
         }
       }),
-    [demoDate, part.qty_plan, sortedLogistics, stageOptions]
+    [demoDate, part, part.qty_plan, sortedLogistics, stageOptions, stageStatusByStage]
   )
 
   const cooperationMovements = useMemo(
@@ -339,6 +395,10 @@ export function LogisticsList({ part }: LogisticsListProps) {
   }
 
   const openSendForm = (card: StageCardData) => {
+    if (!card.canSend) {
+      setActionError(card.blockedReason || "Отправка пока недоступна для этого этапа")
+      return
+    }
     const qtyRemaining = Math.max(part.qty_plan - card.qtyReady, 0)
     setSendStageId(card.stageId)
     setSendPartner(card.lastPartner || "")
@@ -379,6 +439,10 @@ export function LogisticsList({ part }: LogisticsListProps) {
       ? undefined
       : stageCards.find((item) => item.stageId === sendStageId)
     if (!isCooperationSend && !card) return
+    if (!isCooperationSend && card && !card.canSend) {
+      setActionError(card.blockedReason || "Отправка пока недоступна для этого этапа")
+      return
+    }
 
     const qtyValue = Number.parseInt(sendQty, 10)
     if (!Number.isFinite(qtyValue) || qtyValue <= 0) {
@@ -476,9 +540,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
         : undefined
 
       try {
-        const created = await createLogisticsEntry({
+        await createLogisticsEntry({
           part_id: part.id,
-          status: "sent",
+          status: "received",
           from_location: "Кооператор",
           from_holder: partner,
           to_location: "Цех",
@@ -487,18 +551,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
           tracking_number: undefined,
           planned_eta: plannedEta,
           qty_sent: qtyToReceive,
+          qty_received: qtyToReceive,
           stage_id: undefined,
           description: "Поступление от кооператора",
           type: "coop_in",
           counterparty: partner,
           notes: undefined,
           date: new Date().toISOString().split("T")[0],
-        })
-
-        await updateLogisticsEntry({
-          ...created,
-          status: "received",
-          qty_received: qtyToReceive,
         })
 
         setReceivingMovementId(null)
@@ -764,7 +823,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                       <Button
                         type="button"
                         className="h-9"
-                        onClick={() => void handleSaveEta(cooperationFlow.activeMovement)}
+                        onClick={() => void handleSaveEta(cooperationFlow.activeMovement!)}
                       >
                         Сохранить срок
                       </Button>
@@ -1020,10 +1079,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
                   {permissions.canEditFacts && sendStageId !== card.stageId && (
                     <div className="flex flex-wrap items-center gap-2">
-                      {!activeMovement && card.stageStatus !== "done" && (
+                      {!activeMovement && card.stageStatus !== "done" && card.canSend && (
                         <Button type="button" className="h-8" onClick={() => openSendForm(card)}>
                           Отправить
                         </Button>
+                      )}
+                      {!activeMovement && card.stageStatus !== "done" && !card.canSend && (
+                        <span className="text-xs text-muted-foreground">{card.blockedReason}</span>
                       )}
 
                       {activeMovement && receivingMovementId !== activeMovement.id && (

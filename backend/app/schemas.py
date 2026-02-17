@@ -81,6 +81,7 @@ class PartCreate(BaseModel):
     code: str
     name: str
     description: Optional[str] = None
+    drawing_url: Optional[str] = None
     qty_plan: int = Field(gt=0)
     deadline: date
     is_cooperation: bool = False
@@ -346,7 +347,7 @@ class MachineNormResponse(BaseModel):
 
 # Movements / transfers (logistics separated from production stages)
 class MovementCreate(BaseModel):
-    status: Optional[str] = Field(default="sent", pattern="^(pending|sent)$")
+    status: Optional[str] = Field(default="sent", pattern="^(pending|sent|received)$")
     from_location: Optional[str] = None
     from_holder: Optional[str] = None
     to_location: Optional[str] = None

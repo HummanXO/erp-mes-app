@@ -618,7 +618,7 @@ export function getJourneyForPart(partId: string): JourneySummary | null {
   const lastMovement = movements[0]
   const activeMovement = movements.find((m) => m.status === "sent" || m.status === "in_transit")
 
-  const stageOrder: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
+  const stageOrder: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
   const nextRequiredStage = stageOrder.find((stage) => {
     const stageStatus = (part.stage_statuses || []).find((s) => s.stage === stage)
     return stageStatus ? stageStatus.status === "pending" || stageStatus.status === "in_progress" : false

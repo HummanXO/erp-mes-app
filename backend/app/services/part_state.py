@@ -14,14 +14,14 @@ from ..models import LogisticsEntry, Part, PartStageStatus, StageFact
 PROGRESS_STAGES: tuple[str, ...] = (
     "machining",
     "fitting",
-    "galvanic",
     "heat_treatment",
+    "galvanic",
     "grinding",
     "qc",
 )
 
 INTERNAL_FACT_STAGES: tuple[str, ...] = ("machining", "fitting", "qc")
-EXTERNAL_MOVEMENT_STAGES: tuple[str, ...] = ("galvanic", "heat_treatment", "grinding")
+EXTERNAL_MOVEMENT_STAGES: tuple[str, ...] = ("heat_treatment", "galvanic", "grinding")
 RECEIVED_MOVEMENT_STATUSES: tuple[str, ...] = ("received", "completed")
 
 
@@ -55,16 +55,26 @@ def stage_prerequisites(part: Part, stage: str) -> list[str]:
 
     if part.is_cooperation:
         if stage == "qc":
-            return [s for s in ("galvanic", "heat_treatment", "grinding") if s in required_stages]
+            return [s for s in ("heat_treatment", "galvanic", "grinding") if s in required_stages]
         return []
 
     if stage == "fitting":
         return ["machining"] if "machining" in required_stages else []
-    if stage in {"galvanic", "heat_treatment", "grinding"}:
+    if stage == "heat_treatment":
+        return ["fitting"] if "fitting" in required_stages else []
+    if stage == "galvanic":
+        if "heat_treatment" in required_stages:
+            return ["heat_treatment"]
+        return ["fitting"] if "fitting" in required_stages else []
+    if stage == "grinding":
+        if "galvanic" in required_stages:
+            return ["galvanic"]
+        if "heat_treatment" in required_stages:
+            return ["heat_treatment"]
         return ["fitting"] if "fitting" in required_stages else []
     if stage == "qc":
         prereq: list[str] = ["fitting"] if "fitting" in required_stages else []
-        prereq += [s for s in ("galvanic", "heat_treatment", "grinding") if s in required_stages]
+        prereq += [s for s in ("heat_treatment", "galvanic", "grinding") if s in required_stages]
         return prereq
     return []
 

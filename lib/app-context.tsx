@@ -183,8 +183,8 @@ interface AppContextType {
 }
 
 const defaultPermissions = ROLE_PERMISSIONS["operator"]
-const RISK_STAGES: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding"]
-const PROGRESS_STAGES: ProductionStage[] = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
+const RISK_STAGES: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding"]
+const PROGRESS_STAGES: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
 
 const AppContext = createContext<AppContextType | null>(null)
 
