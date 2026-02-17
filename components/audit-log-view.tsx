@@ -2,26 +2,31 @@
 
 import React from "react"
 
-import { useState, useEffect } from "react"
-import { getAllAuditEntries, getAuditEntriesForPart, AUDIT_ACTION_LABELS, type AuditEntry, type AuditAction, type AuditEntityType } from "@/lib/audit-log"
+import { useEffect, useMemo, useState } from "react"
+import {
+  AUDIT_ACTION_LABELS,
+  getAllAuditEntries,
+  getAuditEntriesForPart,
+  type AuditAction,
+  type AuditEntityType,
+  type AuditEntry,
+} from "@/lib/audit-log"
 import { isUsingApi } from "@/lib/data-provider-adapter"
 import { apiClient } from "@/lib/api-client"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { 
-  ClipboardList,
-  CheckCircle,
-  MessageSquare,
-  FileText,
-  Cog,
-  User,
-  Clock,
-  Filter,
-  RefreshCw
-} from "lucide-react"
+import { Separator } from "@/components/ui/separator"
+import { Filter, RefreshCw, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface AuditLogViewProps {
@@ -29,38 +34,14 @@ interface AuditLogViewProps {
   compact?: boolean
 }
 
-const ACTION_ICONS: Partial<Record<AuditAction, React.ReactNode>> = {
-  task_created: <FileText className="h-4 w-4" />,
-  task_status_changed: <RefreshCw className="h-4 w-4" />,
-  task_accepted: <CheckCircle className="h-4 w-4" />,
-  task_comment_added: <MessageSquare className="h-4 w-4" />,
-  task_sent_for_review: <Clock className="h-4 w-4" />,
-  task_approved: <CheckCircle className="h-4 w-4" />,
-  task_returned: <RefreshCw className="h-4 w-4" />,
-  task_attachment_added: <FileText className="h-4 w-4" />,
-  fact_added: <Cog className="h-4 w-4" />,
-  fact_updated: <Cog className="h-4 w-4" />,
-  part_created: <FileText className="h-4 w-4" />,
-  part_updated: <RefreshCw className="h-4 w-4" />,
-  part_stage_changed: <Cog className="h-4 w-4" />,
-  norm_configured: <Cog className="h-4 w-4" />,
-}
+type ActionFilter = "all" | "tasks" | "facts" | "comments" | "logistics"
 
-const ACTION_COLORS: Partial<Record<AuditAction, string>> = {
-  task_created: "text-blue-600 bg-blue-100",
-  task_status_changed: "text-amber-600 bg-amber-100",
-  task_accepted: "text-teal-600 bg-teal-100",
-  task_comment_added: "text-purple-600 bg-purple-100",
-  task_sent_for_review: "text-amber-600 bg-amber-100",
-  task_approved: "text-green-600 bg-green-100",
-  task_returned: "text-red-600 bg-red-100",
-  task_attachment_added: "text-purple-600 bg-purple-100",
-  fact_added: "text-green-600 bg-green-100",
-  fact_updated: "text-amber-600 bg-amber-100",
-  part_created: "text-blue-600 bg-blue-100",
-  part_updated: "text-amber-600 bg-amber-100",
-  part_stage_changed: "text-teal-600 bg-teal-100",
-  norm_configured: "text-blue-600 bg-blue-100",
+type GroupKey = "today" | "this_week" | "older"
+
+const GROUP_LABELS: Record<GroupKey, string> = {
+  today: "Today",
+  this_week: "This week",
+  older: "Older",
 }
 
 const ENTITY_TYPE_LABELS: Record<AuditEntityType, string> = {
@@ -71,15 +52,64 @@ const ENTITY_TYPE_LABELS: Record<AuditEntityType, string> = {
   logistics: "Логистика",
 }
 
+function formatDate(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return parsed.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "short",
+    weekday: "short",
+  })
+}
+
+function formatTime(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "—"
+  return parsed.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function getGroupKey(timestamp: string): GroupKey {
+  const now = new Date()
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return "older"
+
+  const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const dateDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+  const dayDiff = Math.floor((nowDay - dateDay) / (24 * 60 * 60 * 1000))
+
+  if (dayDiff <= 0) return "today"
+  if (dayDiff <= 7) return "this_week"
+  return "older"
+}
+
+function getDetailsSummary(entry: AuditEntry): string {
+  const details = entry.details || {}
+  if (details.oldStatus && details.newStatus) {
+    return `${details.oldStatus} -> ${details.newStatus}`
+  }
+  if (details.message) return String(details.message)
+  if (details.comment) return String(details.comment)
+  return ""
+}
+
+function actionFilterMatches(action: AuditAction, filter: ActionFilter): boolean {
+  if (filter === "all") return true
+  if (filter === "tasks") return action.startsWith("task_")
+  if (filter === "facts") return action.startsWith("fact_")
+  if (filter === "comments") return action === "task_comment_added" || action === "task_attachment_added"
+  if (filter === "logistics") return action.includes("logistic") || action.includes("movement")
+  return true
+}
+
 export function AuditLogView({ partId, compact = false }: AuditLogViewProps) {
   const [entries, setEntries] = useState<AuditEntry[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<AuditEntityType | "all">("all")
-  const [actionFilter, setActionFilter] = useState<"all" | "tasks" | "facts" | "comments">("all")
-  
-  useEffect(() => {
-    void loadEntries()
-  }, [partId])
-  
+  const [actionFilter, setActionFilter] = useState<ActionFilter>("all")
+
   const loadEntries = async () => {
     if (isUsingApi()) {
       try {
@@ -87,212 +117,185 @@ export function AuditLogView({ partId, compact = false }: AuditLogViewProps) {
           part_id: partId,
           limit: 500,
         })
-        const apiEntries = (response.data || response || []) as AuditEntry[]
-        setEntries(apiEntries.filter(e => !!e.timestamp))
+        const apiRows = (response.data || response || []) as AuditEntry[]
+        setEntries(apiRows.filter((entry) => Boolean(entry.timestamp)))
         return
       } catch (error) {
         console.error("Failed to load audit events from API", error)
       }
     }
 
-    const localEntries = partId ? getAuditEntriesForPart(partId) : getAllAuditEntries()
-    setEntries(localEntries)
-  }
-  
-  // Filter entries
-  let filteredEntries = entries
-  
-  if (typeFilter !== "all") {
-    filteredEntries = filteredEntries.filter(e => e.entity_type === typeFilter)
-  }
-  
-  if (actionFilter === "tasks") {
-    filteredEntries = filteredEntries.filter(e => e.action.startsWith("task_"))
-  } else if (actionFilter === "facts") {
-    filteredEntries = filteredEntries.filter(e => e.action.startsWith("fact_"))
-  } else if (actionFilter === "comments") {
-    filteredEntries = filteredEntries.filter(e => e.action === "task_comment_added" || e.action === "task_attachment_added")
-  }
-  
-  // Group by date
-  const groupedByDate: Record<string, AuditEntry[]> = {}
-  for (const entry of filteredEntries) {
-    const date = entry.timestamp.split("T")[0]
-    if (!groupedByDate[date]) groupedByDate[date] = []
-    groupedByDate[date].push(entry)
-  }
-  
-  const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString("ru-RU", {
-      hour: "2-digit",
-      minute: "2-digit"
-    })
-  }
-  
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("ru-RU", {
-      weekday: "short",
-      day: "numeric",
-      month: "short"
-    })
-  }
-  
-  const getDetailsSummary = (entry: AuditEntry): string => {
-    const details = entry.details
-    if (details.oldStatus && details.newStatus) {
-      return `${details.oldStatus} → ${details.newStatus}`
-    }
-    if (details.message) {
-      const msg = String(details.message)
-      return msg.length > 50 ? `${msg.slice(0, 50)}...` : msg
-    }
-    if (details.comment) {
-      const com = String(details.comment)
-      return com.length > 50 ? `${com.slice(0, 50)}...` : com
-    }
-    return ""
+    const localRows = partId ? getAuditEntriesForPart(partId) : getAllAuditEntries()
+    setEntries(localRows)
   }
 
-  if (compact) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <ClipboardList className="h-4 w-4" />
-            Журнал событий
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ScrollArea className="md:h-[200px]">
-            {filteredEntries.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Нет событий</p>
-            ) : (
-              <div className="space-y-2">
-                {filteredEntries.slice(0, 10).map(entry => (
-                  <div key={entry.id} className="flex items-start gap-2 text-xs">
-                    <div className={cn("p-1 rounded", ACTION_COLORS[entry.action] || "bg-muted")}>
-                      {ACTION_ICONS[entry.action] || <FileText className="h-3 w-3" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium">{AUDIT_ACTION_LABELS[entry.action]}</div>
-                      <div className="text-muted-foreground truncate">
-                        {entry.user_name} - {formatTime(entry.timestamp)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </CardContent>
-      </Card>
-    )
-  }
+  useEffect(() => {
+    void loadEntries()
+  }, [partId])
 
-  return (
+  const filteredEntries = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+
+    return entries
+      .filter((entry) => {
+        if (typeFilter !== "all" && entry.entity_type !== typeFilter) return false
+        if (!actionFilterMatches(entry.action, actionFilter)) return false
+
+        if (!query) return true
+
+        return [
+          entry.user_name,
+          entry.entity_name,
+          entry.part_code,
+          AUDIT_ACTION_LABELS[entry.action],
+          getDetailsSummary(entry),
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query))
+      })
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+  }, [entries, searchQuery, typeFilter, actionFilter])
+
+  const grouped = useMemo(() => {
+    const byGroup: Record<GroupKey, AuditEntry[]> = {
+      today: [],
+      this_week: [],
+      older: [],
+    }
+
+    for (const entry of filteredEntries) {
+      byGroup[getGroupKey(entry.timestamp)].push(entry)
+    }
+
+    return byGroup
+  }, [filteredEntries])
+
+  const content = (
     <div className="space-y-4">
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        <div className="flex gap-1">
-          {(["all", "tasks", "facts", "comments"] as const).map(f => (
-            <Button
-              key={f}
-              size="sm"
-              variant={actionFilter === f ? "default" : "outline"}
-              className={actionFilter === f ? "" : "bg-transparent"}
-              onClick={() => setActionFilter(f)}
-            >
-              {f === "all" ? "Все" : f === "tasks" ? "Задачи" : f === "facts" ? "Факты" : "Комментарии"}
-            </Button>
-          ))}
+      {!compact ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Поиск по событиям"
+              className="pl-9"
+            />
+          </div>
+
+          <Select value={actionFilter} onValueChange={(value) => setActionFilter(value as ActionFilter)}>
+            <SelectTrigger className="w-[170px]">
+              <SelectValue placeholder="Категория" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все действия</SelectItem>
+              <SelectItem value="tasks">Задачи</SelectItem>
+              <SelectItem value="facts">Факты</SelectItem>
+              <SelectItem value="comments">Комментарии</SelectItem>
+              <SelectItem value="logistics">Логистика</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value as AuditEntityType | "all")}> 
+            <SelectTrigger className="w-[170px]">
+              <Filter className="mr-2 h-4 w-4" />
+              <SelectValue placeholder="Тип" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все типы</SelectItem>
+              {Object.entries(ENTITY_TYPE_LABELS).map(([key, label]) => (
+                <SelectItem key={key} value={key}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button variant="outline" className="bg-transparent" onClick={() => void loadEntries()}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Обновить
+          </Button>
         </div>
-        
-        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as AuditEntityType | "all")}>
-          <SelectTrigger className="w-40">
-            <Filter className="h-4 w-4 mr-2" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все типы</SelectItem>
-            {Object.entries(ENTITY_TYPE_LABELS).map(([key, label]) => (
-              <SelectItem key={key} value={key}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        
-        <Button variant="outline" size="sm" onClick={() => void loadEntries()} className="bg-transparent">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Обновить
-        </Button>
-      </div>
-      
-      {/* Entries */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <ClipboardList className="h-4 w-4" />
+      ) : null}
+
+      <Card className="gap-0 border shadow-none py-0">
+        <CardHeader className="px-4 py-4 sm:px-6 sm:py-5">
+          <CardTitle className="text-sm font-semibold">
             Журнал событий ({filteredEntries.length})
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
-            История всех действий: факты производства, задачи, комментарии
-          </p>
         </CardHeader>
-        <CardContent>
-          <ScrollArea className="md:h-[400px]">
-            {filteredEntries.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <ClipboardList className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>Нет событий</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {Object.entries(groupedByDate).map(([date, dayEntries]) => (
-                  <div key={date}>
-                    <div className="sticky top-0 bg-background py-1 mb-2 border-b">
-                      <span className="font-medium text-sm">{formatDate(date)}</span>
-                    </div>
-                    <div className="space-y-2 pl-2">
-                      {dayEntries.map(entry => (
-                        <div key={entry.id} className="flex items-start gap-3 p-2 rounded-lg hover:bg-muted/50">
-                          <div className={cn("p-2 rounded-lg shrink-0", ACTION_COLORS[entry.action] || "bg-muted")}>
-                            {ACTION_ICONS[entry.action] || <FileText className="h-4 w-4" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium text-sm">{AUDIT_ACTION_LABELS[entry.action]}</span>
-                              {entry.entity_name && (
-                                <span className="text-xs text-muted-foreground">"{entry.entity_name}"</span>
-                              )}
-                              {entry.part_code && (
-                                <Badge variant="outline" className="text-xs font-mono">{entry.part_code}</Badge>
-                              )}
+        <CardContent className="px-4 pb-5 sm:px-6">
+          {filteredEntries.length === 0 ? (
+            <div className="rounded-md bg-muted/40 px-4 py-8 text-center text-sm text-muted-foreground">
+              События появятся здесь после действий по партии.
+            </div>
+          ) : (
+            <ScrollArea className={cn(compact ? "h-[240px]" : "h-[520px]")}>
+              <div className="space-y-6 pr-4">
+                {(Object.keys(GROUP_LABELS) as GroupKey[]).map((groupKey) => {
+                  const rows = grouped[groupKey]
+                  if (rows.length === 0) return null
+
+                  return (
+                    <div key={groupKey} className="space-y-3">
+                      <div className="sticky top-0 z-10 bg-card/95 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
+                        {GROUP_LABELS[groupKey]}
+                      </div>
+
+                      <div className="divide-y">
+                        {rows.map((entry) => {
+                          const details = getDetailsSummary(entry)
+
+                          return (
+                            <div key={entry.id} className="py-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-medium">{AUDIT_ACTION_LABELS[entry.action]}</div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                    <span>{entry.user_name}</span>
+                                    <span>•</span>
+                                    <span>{formatDate(entry.timestamp)}</span>
+                                    <span>•</span>
+                                    <span>{formatTime(entry.timestamp)}</span>
+                                    {entry.entity_name ? (
+                                      <>
+                                        <span>•</span>
+                                        <span>{entry.entity_name}</span>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                </div>
+
+                                <div className="flex shrink-0 items-center gap-2">
+                                  {entry.part_code ? (
+                                    <Badge variant="outline" className="bg-transparent font-mono text-xs">
+                                      {entry.part_code}
+                                    </Badge>
+                                  ) : null}
+                                  <Badge variant="outline" className="bg-transparent text-xs">
+                                    {ENTITY_TYPE_LABELS[entry.entity_type] || entry.entity_type}
+                                  </Badge>
+                                </div>
+                              </div>
+
+                              {details ? (
+                                <p className="mt-2 text-xs text-muted-foreground">{details}</p>
+                              ) : null}
                             </div>
-                            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1">
-                                <User className="h-3 w-3" />
-                                {entry.user_name}
-                              </span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {formatTime(entry.timestamp)}
-                              </span>
-                            </div>
-                            {getDetailsSummary(entry) && (
-                              <p className="text-xs text-muted-foreground mt-1 italic">
-                                {getDetailsSummary(entry)}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                          )
+                        })}
+                      </div>
+
+                      <Separator />
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
-            )}
-          </ScrollArea>
+            </ScrollArea>
+          )}
         </CardContent>
       </Card>
     </div>
   )
+
+  return content
 }
