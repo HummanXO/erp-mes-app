@@ -540,25 +540,52 @@ export function LogisticsList({ part }: LogisticsListProps) {
         : undefined
 
       try {
-        await createLogisticsEntry({
-          part_id: part.id,
-          status: "received",
-          from_location: "Кооператор",
-          from_holder: partner,
-          to_location: "Цех",
-          to_holder: "Производство",
-          carrier: undefined,
-          tracking_number: undefined,
-          planned_eta: plannedEta,
-          qty_sent: qtyToReceive,
-          qty_received: qtyToReceive,
-          stage_id: undefined,
-          description: "Поступление от кооператора",
-          type: "coop_in",
-          counterparty: partner,
-          notes: undefined,
-          date: new Date().toISOString().split("T")[0],
-        })
+        try {
+          await createLogisticsEntry({
+            part_id: part.id,
+            status: "received",
+            from_location: "Кооператор",
+            from_holder: partner,
+            to_location: "Цех",
+            to_holder: "Производство",
+            carrier: undefined,
+            tracking_number: undefined,
+            planned_eta: plannedEta,
+            qty_sent: qtyToReceive,
+            qty_received: qtyToReceive,
+            stage_id: undefined,
+            description: "Поступление от кооператора",
+            type: "coop_in",
+            counterparty: partner,
+            notes: undefined,
+            date: new Date().toISOString().split("T")[0],
+          })
+        } catch {
+          // Compatibility fallback for backends that do not allow initial status="received".
+          const created = await createLogisticsEntry({
+            part_id: part.id,
+            status: "sent",
+            from_location: "Кооператор",
+            from_holder: partner,
+            to_location: "Цех",
+            to_holder: "Производство",
+            carrier: undefined,
+            tracking_number: undefined,
+            planned_eta: plannedEta,
+            qty_sent: qtyToReceive,
+            stage_id: undefined,
+            description: "Поступление от кооператора",
+            type: "coop_in",
+            counterparty: partner,
+            notes: undefined,
+            date: new Date().toISOString().split("T")[0],
+          })
+          await updateLogisticsEntry({
+            ...created,
+            status: "received",
+            qty_received: qtyToReceive,
+          })
+        }
 
         setReceivingMovementId(null)
         setReceiveQty("")

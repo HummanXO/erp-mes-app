@@ -48,7 +48,7 @@ export function CreatePartDialog({
   submitLabel = "Создать деталь",
   onPartCreated,
 }: CreatePartDialogProps) {
-  const { createPart, deletePart, machines, permissions, parts, uploadAttachment } = useApp()
+  const { createPart, deletePart, machines, permissions, parts, uploadAttachment, updatePartDrawing } = useApp()
   
   // Form state
   const [code, setCode] = useState("")
@@ -339,6 +339,10 @@ export function CreatePartDialog({
       })
 
       try {
+        if (drawingAttachment) {
+          // Backward-compatible: old backend may ignore drawing_url in create payload.
+          await updatePartDrawing(createdPart.id, drawingAttachment.url)
+        }
         if (onPartCreated) {
           await onPartCreated(createdPart)
         }
