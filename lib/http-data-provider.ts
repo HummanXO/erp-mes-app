@@ -441,7 +441,8 @@ export async function createLogisticsEntry(entry: Omit<LogisticsEntry, "id">): P
     notes: entry.notes,
     description: entry.description,
     type: entry.type,
-    allow_parallel: false,
+    // Allow parallel in-flight movements for partial batches of the same part.
+    allow_parallel: true,
   }
   const created = await apiClient.createMovement(entry.part_id, payload)
   return transformMovement(created)
@@ -462,6 +463,8 @@ export async function updateLogisticsEntry(entry: LogisticsEntry): Promise<Logis
     stage_id: entry.stage_id,
     notes: entry.notes,
     description: entry.description,
+    // Keep updates compatible with parallel movement mode.
+    allow_parallel: true,
   }
   const updated = await apiClient.updateMovement(entry.id, payload)
   return transformMovement(updated)
