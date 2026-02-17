@@ -427,6 +427,7 @@ export async function getLogisticsForPart(partId: string): Promise<LogisticsEntr
 
 export async function createLogisticsEntry(entry: Omit<LogisticsEntry, "id">): Promise<LogisticsEntry> {
   const payload = {
+    status: entry.status,
     from_location: entry.from_location,
     from_holder: entry.from_holder,
     to_location: entry.to_location,

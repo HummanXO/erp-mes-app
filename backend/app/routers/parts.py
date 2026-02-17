@@ -5,6 +5,7 @@ from sqlalchemy import func
 from uuid import UUID
 from typing import Optional
 from datetime import date, datetime
+from urllib.parse import urlparse
 from ..database import get_db
 from ..models import (
     User,
@@ -36,7 +37,7 @@ COOP_OPTIONAL_STAGES = {"galvanic", "heat_treatment"}
 COOP_ALLOWED_STAGES = COOP_REQUIRED_STAGES | COOP_OPTIONAL_STAGES
 SHOP_REQUIRED_STAGES = {"machining", "fitting", "qc"}
 SHOP_ALLOWED_STAGES = SHOP_REQUIRED_STAGES | {"galvanic", "heat_treatment"}
-STAGE_FLOW_ORDER = ["machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"]
+STAGE_FLOW_ORDER = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
 PROGRESS_STAGES = {"machining", "fitting", "galvanic", "heat_treatment", "grinding", "qc"}
 
 
@@ -47,6 +48,30 @@ def _sort_stages_by_flow(stages: set[str]) -> list[str]:
 def _sanitize_requested_stages(stages: list[str]) -> set[str]:
     """Backward compatibility: ignore deprecated/disabled stages in incoming payloads."""
     return {stage for stage in stages if stage not in DEPRECATED_STAGES}
+
+
+def _normalize_drawing_url(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    candidate = value.strip()
+    if not candidate:
+        return None
+
+    parsed = urlparse(candidate)
+    path = parsed.path if parsed.scheme else candidate
+
+    if path.startswith("/uploads/"):
+        filename = path.rsplit("/", 1)[-1]
+        if filename:
+            return f"/api/v1/attachments/serve/{filename}"
+
+    if path.startswith("/api/v1/attachments/serve/"):
+        filename = path.rsplit("/", 1)[-1]
+        if filename:
+            return f"/api/v1/attachments/serve/{filename}"
+
+    return candidate
 
 
 def _recompute_specification_status(db: Session, specification: Specification) -> None:
@@ -412,6 +437,8 @@ def create_part(
         raise HTTPException(status_code=400, detail="Part with this code already exists")
     
     part_payload = data.model_dump()
+    if "drawing_url" in part_payload:
+        part_payload["drawing_url"] = _normalize_drawing_url(part_payload.get("drawing_url"))
     if data.is_cooperation and not part_payload.get("cooperation_qc_status"):
         part_payload["cooperation_qc_status"] = "pending"
         part_payload["cooperation_qc_checked_at"] = None
@@ -491,6 +518,8 @@ def update_part(
 
     # Multi-tenant boundary: validate foreign keys on update.
     update_payload = data.model_dump(exclude_unset=True)
+    if "drawing_url" in update_payload:
+        update_payload["drawing_url"] = _normalize_drawing_url(update_payload.get("drawing_url"))
     if "required_stages" in update_payload and isinstance(update_payload["required_stages"], list):
         sanitized_stages = _sanitize_requested_stages(update_payload["required_stages"])
         update_payload["required_stages"] = _sort_stages_by_flow(sanitized_stages)
