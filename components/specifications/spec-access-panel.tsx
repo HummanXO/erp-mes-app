@@ -3,7 +3,6 @@
 import { useState } from "react"
 import type { AccessGrant, AccessPermission, User } from "@/lib/types"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -75,9 +74,9 @@ export function SpecAccessPanel({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
-          <CardTitle className="text-sm">Доступ операторов</CardTitle>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Доступ операторов</div>
           {canGrantSpecificationAccess && (
             <Button
               variant="outline"
@@ -90,8 +89,7 @@ export function SpecAccessPanel({
               Выдать доступ
             </Button>
           )}
-        </CardHeader>
-        <CardContent className="space-y-3">
+        </div>
           {!hasOperators && canGrantSpecificationAccess && (
             <div className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
               Нет пользователей с ролью «Оператор». Создайте оператора, затем выдайте доступ.
@@ -142,8 +140,7 @@ export function SpecAccessPanel({
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+      </div>
 
       <Dialog open={grantModalOpen} onOpenChange={setGrantModalOpen}>
         <DialogContent className="sm:max-w-lg">

@@ -3,9 +3,10 @@
 import type { KeyboardEvent } from "react"
 import type { Specification, SpecificationStatus } from "@/lib/types"
 import { SPEC_STATUS_LABELS } from "@/lib/types"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/inventory/status-badge"
@@ -68,13 +69,10 @@ export function SpecListPane({
   }
 
   return (
-    <div className="space-y-4">
-      {showFilters && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Фильтры</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        {showFilters && (
+          <>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
@@ -98,15 +96,13 @@ export function SpecListPane({
                 </SelectContent>
               </Select>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Список спецификаций ({specifications.length})</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
+            <Separator />
+          </>
+        )}
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Список ({specifications.length})
+        </div>
+        <div className="space-y-2">
           {error ? (
             <div className="rounded-md border border-[color:var(--status-danger-border)] bg-[color:var(--status-danger-bg)] px-3 py-2 text-sm text-[color:var(--status-danger-fg)]">
               Ошибка загрузки: {error}
@@ -155,8 +151,8 @@ export function SpecListPane({
               </button>
             ))
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

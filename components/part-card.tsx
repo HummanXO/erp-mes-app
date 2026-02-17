@@ -6,7 +6,6 @@ import { useApp } from "@/lib/app-context"
 import type { Part } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
-import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { 
@@ -99,7 +98,7 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
         isAtRisk && !isOverdue && blockers.length === 0 && "border border-amber-500/50"
       )}
     >
-      <CardContent className="p-4 space-y-3">
+      <div className="p-4 space-y-3">
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
@@ -297,7 +296,7 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
             )}
           </div>
         )}
-      </CardContent>
+      </div>
     </button>
   )
 }

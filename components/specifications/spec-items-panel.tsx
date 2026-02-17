@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react"
 import type { Part, ProductionStage, SpecItem } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -105,12 +104,11 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
   const ownCount = visibleParts.filter((part) => !part.is_cooperation).length
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Позиции спецификации ({visibleParts.length})</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {showFilters && (
+    <div className="space-y-3">
+      <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Позиции спецификации ({visibleParts.length})
+      </div>
+      {showFilters && (
           <div className="space-y-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
@@ -196,7 +194,6 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
             <PartCard key={part.id} part={part} onClick={() => onOpenPart(part.id)} />
           ))
         )}
-      </CardContent>
-    </Card>
+    </div>
   )
 }
