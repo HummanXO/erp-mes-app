@@ -54,6 +54,18 @@ def stage_prerequisites(part: Part, stage: str) -> list[str]:
     required_stages = set(part.required_stages or [])
 
     if part.is_cooperation:
+        if stage == "heat_treatment":
+            return []
+        if stage == "galvanic":
+            if "heat_treatment" in required_stages:
+                return ["heat_treatment"]
+            return []
+        if stage == "grinding":
+            if "galvanic" in required_stages:
+                return ["galvanic"]
+            if "heat_treatment" in required_stages:
+                return ["heat_treatment"]
+            return []
         if stage == "qc":
             return [s for s in ("heat_treatment", "galvanic", "grinding") if s in required_stages]
         return []

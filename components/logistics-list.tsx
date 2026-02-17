@@ -118,6 +118,7 @@ type StageCardData = {
   stageStatus: string
   blockedReason: string | null
   canSend: boolean
+  sendableQty: number
   qtyReady: number
   percent: number
   latestMovement?: LogisticsEntry
@@ -134,6 +135,16 @@ function stagePrerequisites(part: Part, stage: ProductionStage): ProductionStage
   const requiredStages = new Set(part.required_stages || [])
 
   if (part.is_cooperation) {
+    if (stage === "heat_treatment") return []
+    if (stage === "galvanic") {
+      if (requiredStages.has("heat_treatment")) return ["heat_treatment"]
+      return []
+    }
+    if (stage === "grinding") {
+      if (requiredStages.has("galvanic")) return ["galvanic"]
+      if (requiredStages.has("heat_treatment")) return ["heat_treatment"]
+      return []
+    }
     if (stage === "qc") {
       const chain: ProductionStage[] = ["heat_treatment", "galvanic", "grinding"]
       return chain.filter((candidate) => requiredStages.has(candidate))
@@ -204,12 +215,30 @@ export function LogisticsList({ part }: LogisticsListProps) {
     [part.stage_statuses]
   )
 
-  const stageStatusByStage = useMemo(
+  const stageQtyByStage = useMemo(
     () =>
       new Map(
-        (part.stage_statuses || []).map((status) => [status.stage, status.status] as const)
+        (part.stage_statuses || []).map((status) => [
+          status.stage,
+          typeof status.qty_good === "number" ? status.qty_good : 0,
+        ] as const)
       ),
     [part.stage_statuses]
+  )
+
+  const cooperationInboundReceivedQty = useMemo(
+    () =>
+      sortedLogistics
+        .filter(
+          (entry) =>
+            !entry.stage_id &&
+            RECEIVED_MOVEMENT_STATUSES.has(normalizeMovementStatus(entry.status))
+        )
+        .reduce(
+          (sum, entry) => sum + (entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0),
+          0
+        ),
+    [sortedLogistics]
   )
 
   const stageCards: StageCardData[] = useMemo(
@@ -240,18 +269,41 @@ export function LogisticsList({ part }: LogisticsListProps) {
             ? Math.max(0, Math.min(100, Math.round((qtyReady / part.qty_plan) * 100)))
             : 0
 
+        const prereqStages = stagePrerequisites(part, stageStatus.stage)
+        const sourceQty =
+          prereqStages.length > 0
+            ? Math.min(
+                ...prereqStages.map((candidate) => Number(stageQtyByStage.get(candidate) ?? 0))
+              )
+            : part.is_cooperation
+              ? cooperationInboundReceivedQty
+              : part.qty_plan
+
+        const allocatedQty = linked.reduce((sum, entry) => {
+          const status = normalizeMovementStatus(entry.status)
+          if (RECEIVED_MOVEMENT_STATUSES.has(status)) {
+            return sum + (entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0)
+          }
+          if (ACTIVE_MOVEMENT_STATUSES.has(status)) {
+            return sum + (entry.qty_sent ?? entry.quantity ?? 0)
+          }
+          return sum
+        }, 0)
+        const sendableQty = Math.max(sourceQty - allocatedQty, 0)
+
         const plannedEta = active?.planned_eta || latest?.planned_eta
         const etaDelta = buildEtaDelta(
           plannedEta,
           lastReceived?.received_at,
           active ? `${demoDate}T00:00:00` : undefined
         )
-        const blockedStages = stagePrerequisites(part, stageStatus.stage).filter(
-          (candidate) => stageStatusByStage.get(candidate) !== "done"
-        )
         const blockedReason =
-          blockedStages.length > 0
-            ? `Сначала завершите: ${blockedStages.map((candidate) => STAGE_LABELS[candidate]).join(", ")}`
+          sendableQty <= 0
+            ? prereqStages.length > 0
+              ? `Недостаточно объёма после этапов: ${prereqStages.map((candidate) => STAGE_LABELS[candidate]).join(", ")}`
+              : part.is_cooperation
+                ? "Нет поступившего объёма от кооператора для отправки на этап"
+                : "Нет доступного объёма для отправки"
             : null
 
         let statusLabel = "Не отправлено"
@@ -275,6 +327,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
           stageStatus: stageStatus.status,
           blockedReason,
           canSend: blockedReason === null,
+          sendableQty,
           qtyReady,
           percent,
           latestMovement: latest,
@@ -287,7 +340,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
           etaDelta,
         }
       }),
-    [demoDate, part, part.qty_plan, sortedLogistics, stageOptions, stageStatusByStage]
+    [cooperationInboundReceivedQty, demoDate, part, part.qty_plan, sortedLogistics, stageOptions, stageQtyByStage]
   )
 
   const cooperationMovements = useMemo(
@@ -407,7 +460,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
       setActionError(card.blockedReason || "Отправка пока недоступна для этого этапа")
       return
     }
-    const qtyRemaining = Math.max(part.qty_plan - card.qtyReady, 0)
+    const qtyRemaining = Math.max(card.sendableQty, 0)
     setSendStageId(card.stageId)
     setSendPartner(card.lastPartner || "")
     setSendQty(qtyRemaining > 0 ? String(qtyRemaining) : "")
@@ -464,7 +517,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
     const remainingQty = isCooperationSend
       ? Math.max(part.qty_plan - cooperationFlow.qtyReceived, 0)
-      : Math.max(part.qty_plan - (card?.qtyReady || 0), 0)
+      : Math.max(card?.sendableQty || 0, 0)
     if (remainingQty <= 0) {
       setActionError("Отправка недоступна: остаток для отправки равен 0")
       return

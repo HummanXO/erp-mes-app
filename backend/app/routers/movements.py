@@ -16,7 +16,7 @@ from ..database import get_db
 from ..models import AuditEvent, LogisticsEntry, Part, PartStageStatus, StageFact, User
 from ..schemas import JourneyEventOut, JourneyOut, MovementCreate, MovementOut, MovementUpdate
 from ..security import can_access_part, require_org_entity
-from ..services.part_state import recompute_part_state
+from ..services.part_state import compute_stage_totals, recompute_part_state, stage_prerequisites
 from ..services.movement_rules import (
     ACTIVE_MOVEMENT_STATUSES,
     apply_status_timestamps,
@@ -50,45 +50,167 @@ MOVEMENT_STATUS_LABELS: dict[str, str] = {
     "cancelled": "отменено",
     "completed": "завершено",
 }
+RECEIVED_MOVEMENT_STATUSES: tuple[str, ...] = ("received", "completed")
 
 
-def _stage_prerequisites_for_part(*, part: Part, stage: str) -> list[str]:
-    required_stages = set(part.required_stages or [])
-
-    if stage == "heat_treatment":
-        return ["fitting"] if "fitting" in required_stages else []
-    if stage == "galvanic":
-        if "heat_treatment" in required_stages:
-            return ["heat_treatment"]
-        return ["fitting"] if "fitting" in required_stages else []
-    if stage == "grinding":
-        if "galvanic" in required_stages:
-            return ["galvanic"]
-        if "heat_treatment" in required_stages:
-            return ["heat_treatment"]
-        return ["fitting"] if "fitting" in required_stages else []
-    return []
+def _movement_qty_from_row(*, qty_received: int | None, qty_sent: int | None, quantity: int | None) -> int:
+    value = qty_received if qty_received is not None else qty_sent if qty_sent is not None else quantity
+    return int(value or 0)
 
 
-def _ensure_stage_movement_allowed(*, part: Part, stage_status: PartStageStatus) -> None:
-    if stage_status.status == "done":
-        raise HTTPException(status_code=409, detail="Этап уже завершён, отправка недоступна")
-
-    prerequisites = _stage_prerequisites_for_part(part=part, stage=stage_status.stage)
-    if not prerequisites:
-        return
-
-    stage_status_map = {s.stage: s.status for s in (part.stage_statuses or [])}
-    blocked = [stage for stage in prerequisites if stage_status_map.get(stage) != "done"]
-    if not blocked:
-        return
-
-    blocked_labels = ", ".join(STAGE_LABELS.get(stage, stage) for stage in blocked)
-    raise HTTPException(
-        status_code=409,
-        detail=f"Нельзя отправить на этап «{STAGE_LABELS.get(stage_status.stage, stage_status.stage)}»: "
-        f"сначала завершите этапы ({blocked_labels}).",
+def _cooperation_received_qty(*, db: Session, part: Part) -> int:
+    qty = (
+        db.query(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        LogisticsEntry.qty_received,
+                        LogisticsEntry.qty_sent,
+                        LogisticsEntry.quantity,
+                        0,
+                    )
+                ),
+                0,
+            )
+        )
+        .filter(
+            LogisticsEntry.org_id == part.org_id,
+            LogisticsEntry.part_id == part.id,
+            LogisticsEntry.stage_id.is_(None),
+            LogisticsEntry.status.in_(RECEIVED_MOVEMENT_STATUSES),
+        )
+        .scalar()
     )
+    return int(qty or 0)
+
+
+def _stage_allocated_qty(
+    *,
+    db: Session,
+    org_id: UUID,
+    part_id: UUID,
+    stage_id: UUID,
+    exclude_movement_id: UUID | None = None,
+) -> int:
+    rows = (
+        db.query(
+            LogisticsEntry.status,
+            LogisticsEntry.sent_at,
+            LogisticsEntry.qty_sent,
+            LogisticsEntry.qty_received,
+            LogisticsEntry.quantity,
+        )
+        .filter(
+            LogisticsEntry.org_id == org_id,
+            LogisticsEntry.part_id == part_id,
+            LogisticsEntry.stage_id == stage_id,
+        )
+        .all()
+    )
+
+    allocated = 0
+    for status, sent_at, qty_sent, qty_received, quantity in rows:
+        normalized = normalize_movement_status(status)
+        if normalized in RECEIVED_MOVEMENT_STATUSES:
+            allocated += _movement_qty_from_row(
+                qty_received=qty_received,
+                qty_sent=qty_sent,
+                quantity=quantity,
+            )
+            continue
+        if normalized in ACTIVE_MOVEMENT_STATUSES and sent_at is not None:
+            allocated += _movement_qty_from_row(
+                qty_received=None,
+                qty_sent=qty_sent,
+                quantity=quantity,
+            )
+    if exclude_movement_id is None:
+        return allocated
+
+    current = (
+        db.query(
+            LogisticsEntry.status,
+            LogisticsEntry.sent_at,
+            LogisticsEntry.qty_sent,
+            LogisticsEntry.qty_received,
+            LogisticsEntry.quantity,
+        )
+        .filter(
+            LogisticsEntry.org_id == org_id,
+            LogisticsEntry.part_id == part_id,
+            LogisticsEntry.stage_id == stage_id,
+            LogisticsEntry.id == exclude_movement_id,
+        )
+        .first()
+    )
+    if not current:
+        return allocated
+
+    status, sent_at, qty_sent, qty_received, quantity = current
+    normalized = normalize_movement_status(status)
+    current_allocated = 0
+    if normalized in RECEIVED_MOVEMENT_STATUSES:
+        current_allocated = _movement_qty_from_row(
+            qty_received=qty_received,
+            qty_sent=qty_sent,
+            quantity=quantity,
+        )
+    elif normalized in ACTIVE_MOVEMENT_STATUSES and sent_at is not None:
+        current_allocated = _movement_qty_from_row(
+            qty_received=None,
+            qty_sent=qty_sent,
+            quantity=quantity,
+        )
+    return max(allocated - current_allocated, 0)
+
+
+def _stage_source_qty(
+    *,
+    db: Session,
+    part: Part,
+    stage_status: PartStageStatus,
+) -> int:
+    prerequisites = stage_prerequisites(part, stage_status.stage)
+    if prerequisites:
+        totals = compute_stage_totals(db, part=part)
+        return min(int((totals.get(stage).good if totals.get(stage) else 0)) for stage in prerequisites)
+
+    if part.is_cooperation and stage_status.stage in {"heat_treatment", "galvanic", "grinding"}:
+        return _cooperation_received_qty(db=db, part=part)
+
+    return int(part.qty_plan or 0)
+
+
+def _ensure_stage_movement_allowed(
+    *,
+    db: Session,
+    part: Part,
+    stage_status: PartStageStatus,
+    requested_qty: int,
+    exclude_movement_id: UUID | None = None,
+) -> None:
+    if requested_qty <= 0:
+        raise HTTPException(status_code=409, detail="Для этапа укажите количество больше 0")
+
+    source_qty = _stage_source_qty(db=db, part=part, stage_status=stage_status)
+    allocated_qty = _stage_allocated_qty(
+        db=db,
+        org_id=part.org_id,
+        part_id=part.id,
+        stage_id=stage_status.id,
+        exclude_movement_id=exclude_movement_id,
+    )
+    remaining_qty = max(source_qty - allocated_qty, 0)
+
+    if requested_qty > remaining_qty:
+        stage_label = STAGE_LABELS.get(stage_status.stage, stage_status.stage)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Недостаточно доступного количества для этапа «{stage_label}»: "
+                f"доступно {remaining_qty} шт, запрошено {requested_qty} шт."
+            ),
+        )
 
 
 def _now_utc() -> datetime:
@@ -296,7 +418,24 @@ def create_movement(
         raise HTTPException(status_code=400, detail="Invalid initial movement status")
 
     if stage_status is not None and status in {"sent", "received"}:
-        _ensure_stage_movement_allowed(part=part, stage_status=stage_status)
+        requested_stage_qty = (
+            data.qty_received
+            if status == "received" and data.qty_received is not None
+            else data.qty_sent
+        )
+        if requested_stage_qty is None and status == "received":
+            requested_stage_qty = data.qty_sent
+        if requested_stage_qty is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Для отправки/приёмки на этап нужно указать количество",
+            )
+        _ensure_stage_movement_allowed(
+            db=db,
+            part=part,
+            stage_status=stage_status,
+            requested_qty=int(requested_stage_qty),
+        )
 
     active_count = _count_active_movements(db, org_id=current_user.org_id, part_id=part.id)
     try:
@@ -409,6 +548,16 @@ def update_movement(
             ensure_stage_link_matches_part(movement_part_id=movement.part_id, stage_part_id=stage_status.part_id)
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
+    else:
+        stage_status = (
+            _get_stage_status_in_org(
+                db,
+                stage_id=movement.stage_id,
+                org_id=current_user.org_id,
+            )
+            if movement.stage_id
+            else None
+        )
 
     new_status = None
     if "status" in payload and payload["status"] is not None:
@@ -469,6 +618,33 @@ def update_movement(
         movement.cancelled_at = timestamp_updates["cancelled_at"]
         if new_status == "received" and payload.get("qty_received") is None and movement.qty_received is None:
             movement.qty_received = movement.qty_sent
+
+    effective_status = normalize_movement_status(new_status or movement.status)
+    if stage_status is not None and (
+        "stage_id" in payload
+        or "qty_sent" in payload
+        or "qty_received" in payload
+        or "status" in payload
+    ) and effective_status in {"sent", "in_transit", "received"}:
+        requested_stage_qty = (
+            movement.qty_received
+            if effective_status == "received" and movement.qty_received is not None
+            else movement.qty_sent
+        )
+        if requested_stage_qty is None and effective_status == "received":
+            requested_stage_qty = movement.qty_sent
+        if requested_stage_qty is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Для отправки/приёмки на этап нужно указать количество",
+            )
+        _ensure_stage_movement_allowed(
+            db=db,
+            part=part,
+            stage_status=stage_status,
+            requested_qty=int(requested_stage_qty),
+            exclude_movement_id=movement.id,
+        )
 
     recompute_part_state(db, part=part)
 
