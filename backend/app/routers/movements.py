@@ -187,36 +187,42 @@ def _to_movement_out_safe(movement: LogisticsEntry) -> MovementOut:
         return MovementOut.model_validate(movement)
     except Exception:
         fallback_ts = movement.updated_at or movement.created_at or _now_utc()
-        return MovementOut(
-            id=movement.id,
-            part_id=movement.part_id,
-            status=normalize_movement_status(movement.status),
-            from_location=movement.from_location,
-            from_holder=movement.from_holder,
-            to_location=movement.to_location,
-            to_holder=movement.to_holder,
-            carrier=movement.carrier,
-            tracking_number=movement.tracking_number,
-            planned_eta=movement.planned_eta,
-            sent_at=movement.sent_at,
-            received_at=movement.received_at,
-            returned_at=movement.returned_at,
-            cancelled_at=movement.cancelled_at,
-            qty_sent=movement.qty_sent,
-            qty_received=movement.qty_received,
-            stage_id=movement.stage_id,
-            last_tracking_status=movement.last_tracking_status,
-            tracking_last_checked_at=movement.tracking_last_checked_at,
-            raw_payload=movement.raw_payload,
-            notes=movement.notes,
-            type=movement.type,
-            description=movement.description,
-            quantity=movement.quantity,
-            date=movement.date,
-            counterparty=movement.counterparty,
-            created_at=movement.created_at or fallback_ts,
-            updated_at=movement.updated_at or fallback_ts,
-        )
+        base_payload = {
+            "id": movement.id,
+            "part_id": movement.part_id,
+            "status": normalize_movement_status(movement.status),
+            "from_location": movement.from_location,
+            "from_holder": movement.from_holder,
+            "to_location": movement.to_location,
+            "to_holder": movement.to_holder,
+            "carrier": movement.carrier,
+            "tracking_number": movement.tracking_number,
+            "planned_eta": movement.planned_eta,
+            "sent_at": movement.sent_at,
+            "received_at": movement.received_at,
+            "returned_at": movement.returned_at,
+            "cancelled_at": movement.cancelled_at,
+            "qty_sent": movement.qty_sent,
+            "qty_received": movement.qty_received,
+            "stage_id": movement.stage_id,
+            "last_tracking_status": movement.last_tracking_status,
+            "tracking_last_checked_at": movement.tracking_last_checked_at,
+            "raw_payload": movement.raw_payload,
+            "notes": movement.notes,
+            "type": movement.type,
+            "description": movement.description,
+            "quantity": movement.quantity,
+            "date": movement.date,
+            "counterparty": movement.counterparty,
+            "created_at": movement.created_at or fallback_ts,
+            "updated_at": movement.updated_at or fallback_ts,
+        }
+        try:
+            return MovementOut(**base_payload)
+        except Exception:
+            # Last-resort fallback for legacy edge-cases on nullable date serialization.
+            base_payload["date"] = None
+            return MovementOut(**base_payload)
 def _get_stage_status_in_org(
     db: Session,
     *,
@@ -354,7 +360,7 @@ def create_movement(
 
     db.commit()
     db.refresh(movement)
-    return MovementOut.model_validate(movement)
+    return _to_movement_out_safe(movement)
 
 
 @router.patch(
@@ -489,7 +495,7 @@ def update_movement(
 
     db.commit()
     db.refresh(movement)
-    return MovementOut.model_validate(movement)
+    return _to_movement_out_safe(movement)
 
 
 @router.get("/parts/{part_id}/movements", response_model=list[MovementOut])
