@@ -4,7 +4,7 @@ import React from "react"
 
 import { useEffect, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Part, ProductionStage } from "@/lib/types"
+import type { Part, PartStatus, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Button } from "@/components/ui/button"
@@ -58,6 +58,14 @@ interface PartDetailsProps {
   onBack: () => void
 }
 
+type OperatorDetailUiState = "waiting" | "in_work" | "done"
+
+const OPERATOR_UI_STATE_BY_PART_STATUS: Record<PartStatus, OperatorDetailUiState> = {
+  not_started: "waiting",
+  in_progress: "in_work",
+  done: "done",
+}
+
 export function PartDetails({ part, onBack }: PartDetailsProps) {
   const { 
     getPartProgress, 
@@ -69,6 +77,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getJourneyForPart,
     getUserById,
     demoDate,
+    currentUser,
     permissions,
     updatePart,
     updatePartDrawing,
@@ -269,6 +278,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
   const partDeadlineDate = new Date(part.deadline)
   const hasPartDeadline = !Number.isNaN(partDeadlineDate.getTime())
+  const isOperatorDetail = currentUser?.role === "operator"
+  const operatorUiState = OPERATOR_UI_STATE_BY_PART_STATUS[part.status]
+  const operatorIsWaiting = operatorUiState === "waiting"
+  const operatorIsDone = operatorUiState === "done"
   const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
   const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
   const internalDeltaDays = hasInternalDeadline
@@ -312,6 +325,26 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const cooperationReceivedQty = cooperationMovements
     .filter((entry) => entry.status === "received" || entry.status === "completed")
     .reduce((sum, entry) => sum + (entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0), 0)
+  const operatorProducedQty = part.is_cooperation ? cooperationReceivedQty : overallQtyDone
+  const operatorProgressPercent = part.qty_plan > 0
+    ? Math.min(100, Math.round((operatorProducedQty / part.qty_plan) * 100))
+    : 0
+  const operatorDaysToDeadline = hasPartDeadline
+    ? Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))
+    : null
+  const operatorStatusLabel = operatorIsWaiting
+    ? "В ожидании"
+    : operatorIsDone
+      ? "Готово"
+      : "В работе"
+  const operatorStatusHint = operatorIsWaiting
+    ? "Ожидает первого факта по смене"
+    : operatorIsDone
+      ? "Все этапы закрыты"
+      : "Есть активное производство"
+  const operatorPlanFactLabel = operatorIsWaiting
+    ? "Ожидание запуска"
+    : `${operatorProducedQty.toLocaleString()} / ${part.qty_plan.toLocaleString()} шт`
   const cooperationHasActiveShipment = cooperationMovements.some(
     (entry) => entry.status === "sent" || entry.status === "in_transit"
   )
@@ -666,7 +699,86 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       )}
       
       {/* Progress Summary */}
-      {!part.is_cooperation ? (
+      {isOperatorDetail ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Card
+              className={cn(
+                "border-l-4",
+                operatorIsWaiting
+                  ? "border-l-blue-400 bg-blue-50/40"
+                  : operatorIsDone
+                    ? "border-l-green-500 bg-green-50/40"
+                    : "border-l-emerald-500 bg-emerald-50/40"
+              )}
+            >
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Статус</div>
+                <div className="mt-1 text-lg font-semibold">{operatorStatusLabel}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{operatorStatusHint}</div>
+              </CardContent>
+            </Card>
+
+            <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Прогресс</div>
+                <div className="mt-1 text-lg font-semibold">
+                  {operatorIsWaiting ? "—" : `${operatorProgressPercent}%`}
+                </div>
+                <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="h-1.5 mt-2" />
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {operatorIsWaiting ? "Нет активного факта" : `${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">План / Факт</div>
+                <div className="mt-1 text-lg font-semibold">{operatorPlanFactLabel}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {operatorIsWaiting ? "Деталь ещё не запущена" : `Осталось: ${Math.max(part.qty_plan - operatorProducedQty, 0).toLocaleString()} шт`}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-xs text-muted-foreground">Дедлайн</div>
+                <div className="mt-1 text-lg font-semibold">
+                  {hasPartDeadline ? partDeadlineDate.toLocaleDateString("ru-RU") : "Не задан"}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {operatorDaysToDeadline === null
+                    ? "Без срока"
+                    : operatorDaysToDeadline >= 0
+                      ? `До дедлайна: ${operatorDaysToDeadline} дн.`
+                      : `Просрочка: ${Math.abs(operatorDaysToDeadline)} дн.`}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-md bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground">Станок</div>
+                  <div className="text-sm font-medium mt-1">{machine?.name || "Не назначен"}</div>
+                </div>
+                <div className="rounded-md bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground">Следующее действие</div>
+                  <div className="text-sm font-medium mt-1">{routeNextStageLabel}</div>
+                </div>
+                <div className="rounded-md bg-muted/40 p-3">
+                  <div className="text-xs text-muted-foreground">Последнее событие</div>
+                  <div className="text-sm font-medium mt-1">{routeStatusDescription}</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : !part.is_cooperation ? (
         <>
           <Card>
             <CardContent className="p-4">
