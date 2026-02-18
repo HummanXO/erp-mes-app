@@ -340,11 +340,44 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const operatorStatusHint = operatorIsWaiting
     ? "Ожидает первого факта по смене"
     : operatorIsDone
-      ? "Все этапы закрыты"
+      ? "Все этапы закрыты и деталь завершена"
       : "Есть активное производство"
   const operatorPlanFactLabel = operatorIsWaiting
     ? "Ожидание запуска"
     : `${operatorProducedQty.toLocaleString()} / ${part.qty_plan.toLocaleString()} шт`
+  const operatorStateCardClass = operatorIsWaiting
+    ? "border-l-blue-400 bg-blue-50/40"
+    : operatorIsDone
+      ? "border-l-green-500 bg-green-50/40"
+      : "border-l-emerald-500 bg-emerald-50/40"
+  const operatorStateChipClass = operatorIsWaiting
+    ? "border-blue-300 bg-blue-50 text-blue-700"
+    : operatorIsDone
+      ? "border-green-300 bg-green-50 text-green-700"
+      : "border-emerald-300 bg-emerald-50 text-emerald-700"
+  const operatorStateBannerClass = operatorIsWaiting
+    ? "border-blue-200 bg-blue-50/50"
+    : operatorIsDone
+      ? "border-green-200 bg-green-50/60"
+      : "border-emerald-200 bg-emerald-50/60"
+  const operatorStateBannerTitle = operatorIsWaiting
+    ? "Оператор: ожидание запуска"
+    : operatorIsDone
+      ? "Оператор: деталь готова"
+      : "Оператор: деталь в работе"
+  const operatorStateBannerDescription = operatorIsWaiting
+    ? "Пока нет зафиксированного факта по смене."
+    : operatorIsDone
+      ? "Производственный цикл завершён, карточка закрыта по статусу."
+      : "Продолжайте фиксировать факты по сменам в текущем маршруте."
+  const operatorExtraInfoLabel = operatorIsDone ? "Итог маршрута" : "Следующее действие"
+  const operatorExtraInfoValue = operatorIsDone ? "Маршрут завершён" : routeNextStageLabel
+  const operatorProgressLabel = operatorIsWaiting ? "—" : `${operatorProgressPercent}%`
+  const operatorProgressHint = operatorIsWaiting
+    ? "Нет активного факта"
+    : operatorIsDone
+      ? "Финальный результат по детали"
+      : `${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`
   const cooperationHasActiveShipment = cooperationMovements.some(
     (entry) => entry.status === "sent" || entry.status === "in_transit"
   )
@@ -701,17 +734,22 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       {/* Progress Summary */}
       {isOperatorDetail ? (
         <div className="space-y-4">
+          <Card className={cn("border", operatorStateBannerClass)}>
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold">{operatorStateBannerTitle}</div>
+                  <div className="text-xs text-muted-foreground mt-1">{operatorStateBannerDescription}</div>
+                </div>
+                <Badge variant="outline" className={cn("font-medium", operatorStateChipClass)}>
+                  {operatorStatusLabel}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card
-              className={cn(
-                "border-l-4",
-                operatorIsWaiting
-                  ? "border-l-blue-400 bg-blue-50/40"
-                  : operatorIsDone
-                    ? "border-l-green-500 bg-green-50/40"
-                    : "border-l-emerald-500 bg-emerald-50/40"
-              )}
-            >
+            <Card className={cn("border-l-4", operatorStateCardClass)}>
               <CardContent className="p-4">
                 <div className="text-xs text-muted-foreground">Статус</div>
                 <div className="mt-1 text-lg font-semibold">{operatorStatusLabel}</div>
@@ -722,13 +760,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
               <CardContent className="p-4">
                 <div className="text-xs text-muted-foreground">Прогресс</div>
-                <div className="mt-1 text-lg font-semibold">
-                  {operatorIsWaiting ? "—" : `${operatorProgressPercent}%`}
-                </div>
+                <div className="mt-1 text-lg font-semibold">{operatorProgressLabel}</div>
                 <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="h-1.5 mt-2" />
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {operatorIsWaiting ? "Нет активного факта" : `${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`}
-                </div>
+                <div className="mt-1 text-xs text-muted-foreground">{operatorProgressHint}</div>
               </CardContent>
             </Card>
 
@@ -767,8 +801,8 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   <div className="text-sm font-medium mt-1">{machine?.name || "Не назначен"}</div>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3">
-                  <div className="text-xs text-muted-foreground">Следующее действие</div>
-                  <div className="text-sm font-medium mt-1">{routeNextStageLabel}</div>
+                  <div className="text-xs text-muted-foreground">{operatorExtraInfoLabel}</div>
+                  <div className="text-sm font-medium mt-1">{operatorExtraInfoValue}</div>
                 </div>
                 <div className="rounded-md bg-muted/40 p-3">
                   <div className="text-xs text-muted-foreground">Последнее событие</div>
