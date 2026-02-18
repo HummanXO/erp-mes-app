@@ -14,6 +14,7 @@ import { SpecListPane } from "@/components/specifications/spec-list-pane"
 import { SpecDetailHeader } from "@/components/specifications/spec-detail-header"
 import { SpecItemsPanel } from "@/components/specifications/spec-items-panel"
 import { SpecAccessPanel } from "@/components/specifications/spec-access-panel"
+import { Separator } from "@/components/ui/separator"
 import { SpecItemDialog } from "@/components/specifications/spec-item-dialog"
 import { HowItWorksSheet } from "@/components/specifications/how-it-works-sheet"
 import type { HowItWorksTopic } from "@/components/specifications/how-it-works-sheet"
@@ -227,15 +228,15 @@ export function SpecificationsView() {
           error={dataError}
         />
 
-        <div className="space-y-4">
-          {!selectedSpecification ? (
-            <Card>
-              <CardContent className="p-8 text-center text-sm text-muted-foreground">
-                Выберите спецификацию в списке или создайте новую
-              </CardContent>
-            </Card>
-          ) : (
-            <>
+        {!selectedSpecification ? (
+          <Card>
+            <CardContent className="p-8 text-center text-sm text-muted-foreground">
+              Выберите спецификацию в списке или создайте новую
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-5 space-y-5">
               <SpecDetailHeader
                 specification={selectedSpecification}
                 itemCount={selectedSpecItems.length}
@@ -245,6 +246,8 @@ export function SpecificationsView() {
                 onAddItem={() => setAddItemOpen(true)}
                 onDelete={() => setDeleteOpen(true)}
               />
+
+              <Separator />
 
               <SpecItemsPanel
                 items={selectedSpecItems}
@@ -256,28 +259,31 @@ export function SpecificationsView() {
               />
 
               {!isOperator && canGrantSpecificationAccess && (
-                <SpecAccessPanel
-                  grants={selectedGrants}
-                  operators={users.filter((user) => user.role === "operator")}
-                  getUserName={(userId) => getUserById(userId)?.initials ?? userId}
-                  canGrantSpecificationAccess={canGrantSpecificationAccess}
-                  onGrant={(userId, permission) => {
-                    if (!selectedSpecification) return
-                    void runAction(async () => {
-                      await grantAccess("specification", selectedSpecification.id, userId, permission)
-                    })
-                  }}
-                  onRevoke={(grantId) => {
-                    void runAction(async () => {
-                      await revokeAccess(grantId)
-                    })
-                  }}
-                  actionBusy={actionBusy}
-                />
+                <>
+                  <Separator />
+                  <SpecAccessPanel
+                    grants={selectedGrants}
+                    operators={users.filter((user) => user.role === "operator")}
+                    getUserName={(userId) => getUserById(userId)?.initials ?? userId}
+                    canGrantSpecificationAccess={canGrantSpecificationAccess}
+                    onGrant={(userId, permission) => {
+                      if (!selectedSpecification) return
+                      void runAction(async () => {
+                        await grantAccess("specification", selectedSpecification.id, userId, permission)
+                      })
+                    }}
+                    onRevoke={(grantId) => {
+                      void runAction(async () => {
+                        await revokeAccess(grantId)
+                      })
+                    }}
+                    actionBusy={actionBusy}
+                  />
+                </>
               )}
-            </>
-          )}
-        </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {selectedSpecification && (
