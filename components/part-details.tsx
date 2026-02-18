@@ -92,6 +92,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [cooperationDueDateError, setCooperationDueDateError] = useState("")
   const [isSavingCooperationQc, setIsSavingCooperationQc] = useState(false)
   const [cooperationQcError, setCooperationQcError] = useState("")
+  const [cooperationQcOptimistic, setCooperationQcOptimistic] = useState<{
+    status: "pending" | "accepted" | "rejected"
+    checkedAt: string | null
+  } | null>(null)
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
   const isCooperationRouteOnly = part.is_cooperation
   const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
@@ -142,6 +146,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     const fromJourney = journeySummary?.eta ? new Date(journeySummary.eta).toISOString().slice(0, 10) : ""
     setCooperationDueDateDraft(fromJourney)
   }, [part.cooperation_due_date, part.id, journeySummary?.eta, isEditingCooperationDueDate])
+
+  useEffect(() => {
+    setCooperationQcOptimistic(null)
+  }, [part.id, part.cooperation_qc_status, part.cooperation_qc_checked_at])
 
   const isProtectedAttachmentUrl = (value: string) => {
     const candidate = value.trim()
@@ -214,7 +222,16 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     return () => {
       isCancelled = true
     }
-  }, [getJourneyForPart, part.id, logistics.length, stageFacts.length])
+  }, [
+    getJourneyForPart,
+    part.id,
+    part.status,
+    part.cooperation_qc_status,
+    part.cooperation_qc_checked_at,
+    part.cooperation_due_date,
+    logistics.length,
+    stageFacts.length,
+  ])
 
   useEffect(() => {
     if (!isCooperationRouteOnly) return
@@ -225,6 +242,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   
   // Calculate stages progress with null safety
   const stageStatuses = part.stage_statuses || []
+  const stageStatusMap = new Map(stageStatuses.map((status) => [status.stage, status.status] as const))
 
   // Work progress (average across production stages). Ready quantity is tracked separately in backend via part.qty_done.
   const overallProgressPercent = progress.percent
@@ -273,41 +291,6 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const routeCurrentHolder = journeySummary?.current_holder || (part.is_cooperation ? part.cooperation_partner || "Партнёр не указан" : "Не задано")
   const routeLastEventDescription = journeySummary?.last_event?.description || "Деталь создана"
   const routeLastEventAt = journeySummary?.last_event?.occurred_at
-  const routeNextStageTitle = part.is_cooperation ? "Плановый следующий шаг" : "Следующий этап"
-  const routeNextStageLabel = journeySummary?.next_required_stage
-    ? STAGE_LABELS[journeySummary.next_required_stage]
-    : part.is_cooperation
-      ? "ОТК после поступления"
-      : "Не требуется"
-  const routeStatusTitle = part.is_cooperation ? "Статус кооперации" : "Последнее событие"
-  const routeStatusDescription = (() => {
-    const lastMovement = journeySummary?.last_movement
-    if (!part.is_cooperation) return routeLastEventDescription
-    if (!lastMovement) return "Кооперация запланирована, отправка ещё не отмечена"
-    const destination = lastMovement.to_holder || lastMovement.to_location
-    if (lastMovement.status === "pending") return "Черновик отправки (ещё не отправлено)"
-    if (lastMovement.status === "sent") return destination ? `Отправлено: ${destination}` : "Отправлено кооператору"
-    if (lastMovement.status === "in_transit") return destination ? `В пути: ${destination}` : "В пути к кооператору"
-    if (lastMovement.status === "received" || lastMovement.status === "completed") {
-      if (routeCurrentLocation === "Кооператор + Цех" && routeCurrentHolder) {
-        return `Частично получено: ${routeCurrentHolder}`
-      }
-      return "Получено от кооператора"
-    }
-    if (lastMovement.status === "returned") return "Возврат от кооператора"
-    if (lastMovement.status === "cancelled") return "Отправка отменена"
-    return routeLastEventDescription
-  })()
-  const routeStatusAt = part.is_cooperation
-    ? (
-        journeySummary?.last_movement?.received_at ||
-        journeySummary?.last_movement?.returned_at ||
-        journeySummary?.last_movement?.cancelled_at ||
-        journeySummary?.last_movement?.sent_at ||
-        journeySummary?.last_movement?.updated_at ||
-        routeLastEventAt
-      )
-    : routeLastEventAt
   const cooperationRouteStages = part.required_stages
     .filter((stage) => stage === "galvanic" || stage === "heat_treatment")
     .map((stage) => STAGE_LABELS[stage])
@@ -324,14 +307,14 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const cooperationExternalStages = part.required_stages.filter(
     (stage) => stage === "heat_treatment" || stage === "galvanic" || stage === "grinding"
   )
-  const stageStatusMap = new Map(stageStatuses.map((status) => [status.stage, status.status] as const))
   const cooperationExternalStagesDone = cooperationExternalStages.every(
     (stage) => stageStatusMap.get(stage) === "done"
   )
   const cooperationFullyReceived = cooperationReceivedQty >= part.qty_plan
-  const cooperationQcStatus = part.cooperation_qc_status || "pending"
-  const cooperationQcCheckedAt = part.cooperation_qc_checked_at
-    ? new Date(part.cooperation_qc_checked_at).toLocaleString("ru-RU")
+  const cooperationQcStatus = cooperationQcOptimistic?.status || part.cooperation_qc_status || "pending"
+  const cooperationQcCheckedAtRaw = cooperationQcOptimistic?.checkedAt ?? part.cooperation_qc_checked_at ?? null
+  const cooperationQcCheckedAt = cooperationQcCheckedAtRaw
+    ? new Date(cooperationQcCheckedAtRaw).toLocaleString("ru-RU")
     : null
   const cooperationQcLabel =
     cooperationQcStatus === "accepted"
@@ -350,6 +333,69 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     cooperationFullyReceived &&
     !cooperationHasActiveShipment &&
     cooperationExternalStagesDone
+  const isCooperationReadyToClose =
+    cooperationQcStatus === "accepted" &&
+    cooperationFullyReceived &&
+    !cooperationHasActiveShipment &&
+    cooperationExternalStagesDone
+  const routeNextStageTitle = part.is_cooperation ? "Следующее действие" : "Следующий этап"
+  const routeNextStageLabel = (() => {
+    if (!part.is_cooperation) {
+      return journeySummary?.next_required_stage
+        ? STAGE_LABELS[journeySummary.next_required_stage]
+        : "Не требуется"
+    }
+    if (isCooperationReadyToClose || (cooperationQcStatus === "accepted" && part.status === "done")) {
+      return "Маршрут завершён"
+    }
+    if (!cooperationFullyReceived) {
+      return "Ожидаем поступление от кооператора"
+    }
+    const pendingExternalStage = cooperationExternalStages.find((stage) => stageStatusMap.get(stage) !== "done")
+    if (pendingExternalStage) {
+      return STAGE_LABELS[pendingExternalStage]
+    }
+    if (cooperationQcStatus === "pending") {
+      return "Входной контроль (ОТК)"
+    }
+    return "Ожидаем закрытие детали"
+  })()
+  const routeStatusTitle = part.is_cooperation ? "Статус кооперации" : "Последнее событие"
+  const routeStatusDescription = (() => {
+    const lastMovement = journeySummary?.last_movement
+    if (!part.is_cooperation) return routeLastEventDescription
+    if (cooperationQcStatus === "accepted") {
+      return isCooperationReadyToClose || part.status === "done"
+        ? "Входной контроль принят, деталь закрыта"
+        : "Входной контроль принят"
+    }
+    if (cooperationQcStatus === "rejected") return "Входной контроль не принят"
+    if (!lastMovement) return "Кооперация запланирована, отправка ещё не отмечена"
+    const destination = lastMovement.to_holder || lastMovement.to_location
+    if (lastMovement.status === "pending") return "Черновик отправки (ещё не отправлено)"
+    if (lastMovement.status === "sent") return destination ? `Отправлено: ${destination}` : "Отправлено кооператору"
+    if (lastMovement.status === "in_transit") return destination ? `В пути: ${destination}` : "В пути к кооператору"
+    if (lastMovement.status === "received" || lastMovement.status === "completed") {
+      if (routeCurrentLocation === "Кооператор + Цех" && routeCurrentHolder) {
+        return `Частично получено: ${routeCurrentHolder}`
+      }
+      return "Получено от кооператора"
+    }
+    if (lastMovement.status === "returned") return "Возврат от кооператора"
+    if (lastMovement.status === "cancelled") return "Отправка отменена"
+    return routeLastEventDescription
+  })()
+  const routeStatusAt = part.is_cooperation
+    ? (
+        (cooperationQcStatus !== "pending" ? cooperationQcCheckedAtRaw : null) ||
+        journeySummary?.last_movement?.received_at ||
+        journeySummary?.last_movement?.returned_at ||
+        journeySummary?.last_movement?.cancelled_at ||
+        journeySummary?.last_movement?.sent_at ||
+        journeySummary?.last_movement?.updated_at ||
+        routeLastEventAt
+      )
+    : routeLastEventAt
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -373,13 +419,22 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     if (!canEditCooperationDueDate) return
     setCooperationQcError("")
     setIsSavingCooperationQc(true)
+    const checkedAt = new Date().toISOString()
+    setCooperationQcOptimistic({ status: nextStatus, checkedAt })
     try {
       await updatePart({
         ...part,
         cooperation_qc_status: nextStatus,
-        cooperation_qc_checked_at: new Date().toISOString(),
+        cooperation_qc_checked_at: checkedAt,
       })
+      try {
+        const journey = await getJourneyForPart(part.id)
+        setJourneySummary(journey)
+      } catch {
+        // Do not block successful QC update on journey refetch failure.
+      }
     } catch (error) {
+      setCooperationQcOptimistic(null)
       const message = error instanceof Error ? error.message : "Не удалось сохранить входной контроль"
       setCooperationQcError(message)
     } finally {
@@ -796,11 +851,24 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                       <div className="mt-1 text-xs text-muted-foreground">
                         {cooperationQcCheckedAt ? `Проверено: ${cooperationQcCheckedAt}` : "Проверка пока не отмечена"}
                       </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {cooperationQcStatus === "accepted"
+                          ? isCooperationReadyToClose || part.status === "done"
+                            ? "ОТК принят. Деталь закрыта."
+                            : "ОТК принят. Ожидается финализация карточки."
+                          : cooperationQcStatus === "rejected"
+                            ? "ОТК не принят. Деталь остаётся в работе."
+                            : "После полного поступления нажмите «Принято» или «Не принято»."}
+                      </div>
                       {canEditCooperationDueDate && (
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Button
                             type="button"
-                            className="h-8"
+                            variant={cooperationQcStatus === "accepted" ? "default" : "outline"}
+                            className={cn(
+                              "h-8",
+                              cooperationQcStatus === "accepted" && "border-green-600 bg-green-600 text-white hover:bg-green-600"
+                            )}
                             onClick={() => void handleSetCooperationQc("accepted")}
                             disabled={isSavingCooperationQc || !canRunCooperationQcDecision}
                           >
@@ -809,7 +877,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                           <Button
                             type="button"
                             variant="destructive"
-                            className="h-8"
+                            className={cn(
+                              "h-8",
+                              cooperationQcStatus === "rejected" && "ring-2 ring-destructive/30"
+                            )}
                             onClick={() => void handleSetCooperationQc("rejected")}
                             disabled={isSavingCooperationQc || !canRunCooperationQcDecision}
                           >

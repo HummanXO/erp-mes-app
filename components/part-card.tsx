@@ -68,7 +68,9 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
       : null
   const cooperationQcLabel =
     part.cooperation_qc_status === "accepted"
-      ? "Входной контроль: принято"
+      ? part.status === "done"
+        ? "ОТК: принято, деталь закрыта"
+        : "Входной контроль: принято"
       : part.cooperation_qc_status === "rejected"
         ? "Входной контроль: не принято"
         : "Входной контроль: не проведён"
