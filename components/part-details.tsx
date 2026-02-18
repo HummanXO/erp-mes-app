@@ -26,7 +26,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { 
+import {
   ArrowLeft, 
   TrendingUp, 
   TrendingDown, 
@@ -42,7 +42,10 @@ import {
   Package,
   Upload,
   Link,
-  Loader2
+  Loader2,
+  ListChecks,
+  History,
+  CircleDot,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { StageFactForm } from "./stage-fact-form"
@@ -75,6 +78,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getStageFactsForPart,
     getLogisticsForPart,
     getJourneyForPart,
+    getTasksForPart,
     getUserById,
     demoDate,
     currentUser,
@@ -342,37 +346,6 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     : operatorIsDone
       ? "Все этапы закрыты и деталь завершена"
       : "Есть активное производство"
-  const operatorPlanFactLabel = operatorIsWaiting
-    ? "Ожидание запуска"
-    : `${operatorProducedQty.toLocaleString()} / ${part.qty_plan.toLocaleString()} шт`
-  const operatorStateCardClass = operatorIsWaiting
-    ? "border-l-blue-400 bg-blue-50/40"
-    : operatorIsDone
-      ? "border-l-green-500 bg-green-50/40"
-      : "border-l-emerald-500 bg-emerald-50/40"
-  const operatorStateChipClass = operatorIsWaiting
-    ? "border-blue-300 bg-blue-50 text-blue-700"
-    : operatorIsDone
-      ? "border-green-300 bg-green-50 text-green-700"
-      : "border-emerald-300 bg-emerald-50 text-emerald-700"
-  const operatorStateBannerClass = operatorIsWaiting
-    ? "border-blue-200 bg-blue-50/50"
-    : operatorIsDone
-      ? "border-green-200 bg-green-50/60"
-      : "border-emerald-200 bg-emerald-50/60"
-  const operatorStateBannerTitle = operatorIsWaiting
-    ? "Оператор: ожидание запуска"
-    : operatorIsDone
-      ? "Оператор: деталь готова"
-      : "Оператор: деталь в работе"
-  const operatorStateBannerDescription = operatorIsWaiting
-    ? "Пока нет зафиксированного факта по смене."
-    : operatorIsDone
-      ? "Производственный цикл завершён, карточка закрыта по статусу."
-      : "Продолжайте фиксировать факты по сменам в текущем маршруте."
-  const operatorExtraInfoLabel = operatorIsDone ? "Итог маршрута" : "Следующее действие"
-  const operatorExtraInfoValue = operatorIsDone ? "Маршрут завершён" : routeNextStageLabel
-  const operatorProgressLabel = operatorIsWaiting ? "—" : `${operatorProgressPercent}%`
   const operatorProgressHint = operatorIsWaiting
     ? "Нет активного факта"
     : operatorIsDone
@@ -473,6 +446,21 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         routeLastEventAt
       )
     : routeLastEventAt
+  const partTasks = getTasksForPart(part.id)
+  const activePartTasks = [...partTasks]
+    .filter((task) => task.status !== "done")
+    .sort((a, b) => a.due_date.localeCompare(b.due_date))
+  const recentShiftFacts = sortedFacts.slice(0, 4)
+  const operatorInputDisabled = operatorIsWaiting || operatorIsDone
+  const operatorInputDisabledReason = operatorIsWaiting
+    ? "Ввод данных станет доступен после перехода детали в работу."
+    : operatorIsDone
+      ? "Деталь завершена. Ввод факта закрыт."
+      : null
+  const operatorCurrentShift: "day" | "night" = (() => {
+    const hour = new Date().getHours()
+    return hour >= 9 && hour < 21 ? "day" : "night"
+  })()
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -733,81 +721,83 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       
       {/* Progress Summary */}
       {isOperatorDetail ? (
-        <div className="space-y-4">
-          <Card className={cn("border", operatorStateBannerClass)}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Card className={cn(
+            "border",
+            operatorIsWaiting && "border-blue-200 bg-blue-50/50",
+            operatorIsDone && "border-green-200 bg-green-50/50",
+            !operatorIsWaiting && !operatorIsDone && "border-emerald-200 bg-emerald-50/40"
+          )}>
             <CardContent className="p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold">{operatorStateBannerTitle}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{operatorStateBannerDescription}</div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <CircleDot className={cn(
+                    "h-4 w-4",
+                    operatorIsWaiting && "text-blue-500",
+                    operatorIsDone && "text-green-600",
+                    !operatorIsWaiting && !operatorIsDone && "text-emerald-600"
+                  )} />
+                  <span className="text-sm">Статус</span>
                 </div>
-                <Badge variant="outline" className={cn("font-medium", operatorStateChipClass)}>
-                  {operatorStatusLabel}
-                </Badge>
+                <div className={cn(
+                  "h-2.5 w-2.5 rounded-full",
+                  operatorIsWaiting && "bg-blue-500",
+                  operatorIsDone && "bg-green-600",
+                  !operatorIsWaiting && !operatorIsDone && "bg-emerald-500"
+                )} />
+              </div>
+              <div className="mt-3 text-3xl font-semibold leading-none">{operatorStatusLabel}</div>
+              <div className="mt-2 text-xs text-muted-foreground">{operatorStatusHint}</div>
+            </CardContent>
+          </Card>
+
+          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">Прогресс</div>
+                <div className="text-xl font-semibold">{operatorIsWaiting ? "--%" : `${operatorProgressPercent}%`}</div>
+              </div>
+              <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="mt-4 h-2" />
+              <div className="mt-2 text-sm text-muted-foreground">{operatorProgressHint}</div>
+            </CardContent>
+          </Card>
+
+          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
+            <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">План / Факт</div>
+              <div className="mt-3 text-4xl font-semibold leading-none">
+                {operatorIsWaiting ? 0 : operatorProducedQty.toLocaleString()}
+                <span className="text-2xl text-muted-foreground font-medium"> / {part.qty_plan.toLocaleString()} шт.</span>
+              </div>
+              <div className={cn(
+                "mt-2 text-sm font-medium",
+                operatorIsWaiting && "text-muted-foreground",
+                operatorIsDone && "text-green-700",
+                !operatorIsWaiting && !operatorIsDone && "text-amber-600"
+              )}>
+                {operatorIsWaiting
+                  ? "Ожидание запуска"
+                  : operatorIsDone
+                    ? "Маршрут завершён"
+                    : `Осталось ${Math.max(part.qty_plan - operatorProducedQty, 0).toLocaleString()} шт`}
               </div>
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className={cn("border-l-4", operatorStateCardClass)}>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Статус</div>
-                <div className="mt-1 text-lg font-semibold">{operatorStatusLabel}</div>
-                <div className="mt-1 text-xs text-muted-foreground">{operatorStatusHint}</div>
-              </CardContent>
-            </Card>
-
-            <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Прогресс</div>
-                <div className="mt-1 text-lg font-semibold">{operatorProgressLabel}</div>
-                <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="h-1.5 mt-2" />
-                <div className="mt-1 text-xs text-muted-foreground">{operatorProgressHint}</div>
-              </CardContent>
-            </Card>
-
-            <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">План / Факт</div>
-                <div className="mt-1 text-lg font-semibold">{operatorPlanFactLabel}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {operatorIsWaiting ? "Деталь ещё не запущена" : `Осталось: ${Math.max(part.qty_plan - operatorProducedQty, 0).toLocaleString()} шт`}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-4">
-                <div className="text-xs text-muted-foreground">Дедлайн</div>
-                <div className="mt-1 text-lg font-semibold">
-                  {hasPartDeadline ? partDeadlineDate.toLocaleDateString("ru-RU") : "Не задан"}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {operatorDaysToDeadline === null
-                    ? "Без срока"
-                    : operatorDaysToDeadline >= 0
-                      ? `До дедлайна: ${operatorDaysToDeadline} дн.`
-                      : `Просрочка: ${Math.abs(operatorDaysToDeadline)} дн.`}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
           <Card>
             <CardContent className="p-4">
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="rounded-md bg-muted/40 p-3">
-                  <div className="text-xs text-muted-foreground">Станок</div>
-                  <div className="text-sm font-medium mt-1">{machine?.name || "Не назначен"}</div>
-                </div>
-                <div className="rounded-md bg-muted/40 p-3">
-                  <div className="text-xs text-muted-foreground">{operatorExtraInfoLabel}</div>
-                  <div className="text-sm font-medium mt-1">{operatorExtraInfoValue}</div>
-                </div>
-                <div className="rounded-md bg-muted/40 p-3">
-                  <div className="text-xs text-muted-foreground">Последнее событие</div>
-                  <div className="text-sm font-medium mt-1">{routeStatusDescription}</div>
-                </div>
+              <div className="text-sm text-muted-foreground">Дедлайн смены</div>
+              <div className="mt-3 text-4xl font-mono font-semibold leading-none">
+                {operatorDaysToDeadline === null
+                  ? "--:--"
+                  : operatorDaysToDeadline >= 0
+                    ? `${String(Math.max(operatorDaysToDeadline, 0)).padStart(2, "0")}:00`
+                    : "00:00"}
+              </div>
+              <div className="mt-2 text-sm text-muted-foreground">
+                {hasPartDeadline
+                  ? `Дедлайн: ${partDeadlineDate.toLocaleDateString("ru-RU")}`
+                  : "Окончание смены не задано"}
               </div>
             </CardContent>
           </Card>
@@ -954,6 +944,213 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         </div>
         
         <TabsContent value="overview" className="space-y-4">
+          {isOperatorDetail ? (
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+              <Card className="xl:col-span-8 overflow-hidden">
+                <CardHeader className="border-b bg-muted/20 pb-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <CardTitle className="flex items-center gap-2 text-2xl font-bold">
+                      <Package className="h-5 w-5 text-primary" />
+                      {operatorInputDisabled ? "Ввод данных (Отключено)" : "Ввод данных"}
+                    </CardTitle>
+                    <div className="inline-flex items-center rounded-lg bg-muted p-1">
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded-md px-3 py-1.5 text-sm font-semibold",
+                          operatorCurrentShift === "day"
+                            ? "bg-background text-primary shadow-sm"
+                            : "text-muted-foreground"
+                        )}
+                        disabled
+                      >
+                        Смена 1 (Д)
+                      </button>
+                      <button
+                        type="button"
+                        className={cn(
+                          "rounded-md px-3 py-1.5 text-sm font-semibold",
+                          operatorCurrentShift === "night"
+                            ? "bg-background text-primary shadow-sm"
+                            : "text-muted-foreground"
+                        )}
+                        disabled
+                      >
+                        Смена 2 (Н)
+                      </button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className={cn(operatorInputDisabled && "opacity-60 grayscale pointer-events-none select-none")}>
+                      {operatorInputDisabled ? (
+                        <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+                          <div className="space-y-1">
+                            <Label>Оператор</Label>
+                            <Input value={currentUser?.initials || "—"} disabled />
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label>Станок</Label>
+                              <Input value={machine?.name || "Не выбран"} disabled />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Код детали</Label>
+                              <Input value={part.code} disabled />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label>Годные (шт)</Label>
+                              <Input value="0" disabled />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Брак (шт)</Label>
+                              <Input value="0" disabled />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Причина брака</Label>
+                            <Input value="-- Не выбрано --" disabled />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Примечание</Label>
+                            <Input value="Нет активной задачи..." disabled />
+                          </div>
+                          <Button disabled className="h-11 w-full">
+                            Сохранить данные
+                          </Button>
+                          {operatorInputDisabledReason && (
+                            <div className="text-xs text-muted-foreground">{operatorInputDisabledReason}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <StageFactForm part={part} />
+                      )}
+                    </div>
+
+                    <div className={cn("rounded-xl border", operatorInputDisabled && "opacity-70 grayscale")}>
+                      <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-2">
+                        <div className="font-medium">
+                          Чертёж: {drawingUrlValue ? part.code : "--"}
+                        </div>
+                        {drawingUrlValue && (
+                          <Button variant="ghost" size="sm" onClick={() => void handleOpenDrawing()}>
+                            На весь экран
+                          </Button>
+                        )}
+                      </div>
+                      <div className="min-h-[420px] bg-muted/30 p-4">
+                        {drawingUrlValue && isImageDrawing && !drawingError ? (
+                          <div className="h-full w-full rounded-md border bg-background p-3">
+                            <img
+                              src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
+                              alt={`Чертёж ${part.code}`}
+                              className="h-full max-h-[380px] w-full object-contain"
+                              onError={() => setDrawingError(true)}
+                            />
+                          </div>
+                        ) : drawingUrlValue && isPdfDrawing ? (
+                          <div className="flex h-full min-h-[380px] items-center justify-center rounded-md border bg-background">
+                            <div className="text-center text-muted-foreground">
+                              <FileText className="mx-auto mb-2 h-10 w-10" />
+                              <p>PDF-чертёж</p>
+                              <p className="text-xs mt-1">Откройте «На весь экран»</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex h-full min-h-[380px] items-center justify-center rounded-md border bg-background">
+                            <div className="text-center text-muted-foreground">
+                              <FileImage className="mx-auto mb-2 h-12 w-12 opacity-50" />
+                              <p>Чертёж не загружен</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="space-y-4 xl:col-span-4">
+                <Card>
+                  <CardHeader className="border-b bg-muted/20 py-3">
+                    <CardTitle className="flex items-center justify-between text-lg">
+                      <span className="flex items-center gap-2">
+                        <ListChecks className="h-5 w-5 text-primary" />
+                        Задачи на смену
+                      </span>
+                      <Badge variant="secondary">{activePartTasks.length}</Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    {activePartTasks.length === 0 ? (
+                      <div className="px-4 py-6 text-sm text-muted-foreground">Нет активных задач</div>
+                    ) : (
+                      <div className="divide-y">
+                        {activePartTasks.slice(0, 4).map((task) => (
+                          <div key={task.id} className="px-4 py-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                {task.status === "in_progress" ? "В процессе" : task.status === "accepted" ? "Текущее" : "Ожидание"}
+                              </div>
+                              <div className="text-xs text-muted-foreground">{new Date(task.due_date).toLocaleDateString("ru-RU")}</div>
+                            </div>
+                            <div className="mt-1 text-xl font-semibold">{task.title}</div>
+                            <div className="mt-1 text-sm text-muted-foreground">{task.description || "Без описания"}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="border-b bg-muted/20 py-3">
+                    <CardTitle className="flex items-center justify-between text-lg">
+                      <span className="flex items-center gap-2">
+                        <History className="h-5 w-5 text-primary" />
+                        История смен
+                      </span>
+                      <span className="text-sm font-medium text-primary">{recentShiftFacts.length > 0 ? "См. все" : ""}</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3 p-4">
+                    {recentShiftFacts.length === 0 ? (
+                      <div className="text-sm text-muted-foreground">Записей пока нет</div>
+                    ) : (
+                      recentShiftFacts.map((fact) => (
+                        <div key={fact.id} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="font-medium">
+                              {new Date(fact.date).toLocaleDateString("ru-RU")}, {fact.shift_type === "day" ? "Смена 1" : fact.shift_type === "night" ? "Смена 2" : "Без смены"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{STAGE_LABELS[fact.stage]}</div>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                            <div>
+                              <div className="text-muted-foreground">Годные</div>
+                              <div className="font-semibold text-green-600">{fact.qty_good.toLocaleString()} шт</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-muted-foreground">Брак</div>
+                              <div className="font-semibold text-destructive">{fact.qty_scrap.toLocaleString()} шт</div>
+                            </div>
+                          </div>
+                          <Progress
+                            className="mt-2 h-2"
+                            value={fact.qty_expected && fact.qty_expected > 0 ? Math.min(100, Math.round((fact.qty_good / fact.qty_expected) * 100)) : 100}
+                          />
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          ) : (
+          <>
           {/* Description */}
           {part.description && (
             <Card>
@@ -1213,6 +1410,8 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 )}
               </CardContent>
             </Card>
+          )}
+          </>
           )}
         </TabsContent>
         
