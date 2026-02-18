@@ -58,30 +58,89 @@ def _movement_qty_from_row(*, qty_received: int | None, qty_sent: int | None, qu
     return int(value or 0)
 
 
-def _cooperation_received_qty(*, db: Session, part: Part) -> int:
-    qty = (
-        db.query(
-            func.coalesce(
-                func.sum(
-                    func.coalesce(
-                        LogisticsEntry.qty_received,
-                        LogisticsEntry.qty_sent,
-                        LogisticsEntry.quantity,
-                        0,
-                    )
-                ),
-                0,
-            )
+def _cooperation_received_qty(
+    *,
+    db: Session,
+    part: Part,
+    exclude_movement_id: UUID | None = None,
+) -> int:
+    query = db.query(
+        func.coalesce(
+            func.sum(
+                func.coalesce(
+                    LogisticsEntry.qty_received,
+                    LogisticsEntry.qty_sent,
+                    LogisticsEntry.quantity,
+                    0,
+                )
+            ),
+            0,
         )
-        .filter(
-            LogisticsEntry.org_id == part.org_id,
-            LogisticsEntry.part_id == part.id,
-            LogisticsEntry.stage_id.is_(None),
-            LogisticsEntry.status.in_(RECEIVED_MOVEMENT_STATUSES),
-        )
-        .scalar()
+    ).filter(
+        LogisticsEntry.org_id == part.org_id,
+        LogisticsEntry.part_id == part.id,
+        LogisticsEntry.stage_id.is_(None),
+        LogisticsEntry.status.in_(RECEIVED_MOVEMENT_STATUSES),
     )
+    if exclude_movement_id is not None:
+        query = query.filter(LogisticsEntry.id != exclude_movement_id)
+    qty = query.scalar()
     return int(qty or 0)
+
+
+def _is_cooperation_inbound(
+    *,
+    part: Part,
+    stage_id: UUID | None,
+    movement_type: str | None,
+    to_location: str | None,
+    to_holder: str | None,
+) -> bool:
+    if not part.is_cooperation:
+        return False
+    if stage_id is not None:
+        return False
+
+    normalized_type = (movement_type or "").strip().lower()
+    if normalized_type == "coop_in":
+        return True
+
+    target = (to_holder or to_location or "").strip().lower()
+    return target in {"производство", "цех", "production", "shop"}
+
+
+def _ensure_cooperation_receive_limit(
+    *,
+    db: Session,
+    part: Part,
+    incoming_qty: int | None,
+    exclude_movement_id: UUID | None = None,
+) -> None:
+    if incoming_qty is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Для поступления от кооператора укажите количество",
+        )
+    if incoming_qty <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Количество поступления должно быть больше 0",
+        )
+
+    already_received = _cooperation_received_qty(
+        db=db,
+        part=part,
+        exclude_movement_id=exclude_movement_id,
+    )
+    remaining = max(int(part.qty_plan or 0) - already_received, 0)
+    if incoming_qty > remaining:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Нельзя принять больше плана: "
+                f"остаток к поступлению {remaining} шт, попытка принять {incoming_qty} шт."
+            ),
+        )
 
 
 def _stage_allocated_qty(
@@ -296,6 +355,25 @@ def _apply_cooperation_location_fallback(
     return resolved_location, resolved_holder
 
 
+def _apply_cooperation_partial_location(
+    *,
+    part: Part,
+    current_location: str | None,
+    current_holder: str | None,
+    received_qty: int,
+) -> tuple[str | None, str | None]:
+    if not part.is_cooperation:
+        return current_location, current_holder
+
+    qty_plan = int(part.qty_plan or 0)
+    if qty_plan <= 0:
+        return current_location, current_holder
+
+    if 0 < received_qty < qty_plan:
+        return "Кооператор + Цех", f"В цехе {received_qty} из {qty_plan} шт"
+    return current_location, current_holder
+
+
 def _resolve_eta(part: Part, active_movement: LogisticsEntry | None) -> datetime | None:
     if active_movement and active_movement.planned_eta:
         return active_movement.planned_eta
@@ -448,6 +526,24 @@ def create_movement(
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
 
+    resolved_qty_received = (
+        data.qty_received
+        if data.qty_received is not None
+        else (data.qty_sent if status == "received" else None)
+    )
+    if status in RECEIVED_MOVEMENT_STATUSES and _is_cooperation_inbound(
+        part=part,
+        stage_id=data.stage_id,
+        movement_type=data.type,
+        to_location=data.to_location,
+        to_holder=data.to_holder,
+    ):
+        _ensure_cooperation_receive_limit(
+            db=db,
+            part=part,
+            incoming_qty=int(resolved_qty_received) if resolved_qty_received is not None else None,
+        )
+
     movement = LogisticsEntry(
         org_id=current_user.org_id,
         part_id=part.id,
@@ -462,7 +558,7 @@ def create_movement(
         tracking_number=data.tracking_number,
         planned_eta=data.planned_eta,
         qty_sent=data.qty_sent,
-        qty_received=data.qty_received if data.qty_received is not None else (data.qty_sent if status == "received" else None),
+        qty_received=resolved_qty_received,
         stage_id=data.stage_id,
         notes=data.notes,
         # Deprecated fields kept populated for backward compatibility.
@@ -646,6 +742,36 @@ def update_movement(
             exclude_movement_id=movement.id,
         )
 
+    if (
+        effective_status in RECEIVED_MOVEMENT_STATUSES
+        and _is_cooperation_inbound(
+            part=part,
+            stage_id=movement.stage_id,
+            movement_type=movement.type,
+            to_location=movement.to_location,
+            to_holder=movement.to_holder,
+        )
+        and any(
+            field in payload
+            for field in (
+                "status",
+                "qty_sent",
+                "qty_received",
+                "stage_id",
+                "to_location",
+                "to_holder",
+                "type",
+            )
+        )
+    ):
+        incoming_qty = movement.qty_received if movement.qty_received is not None else movement.qty_sent
+        _ensure_cooperation_receive_limit(
+            db=db,
+            part=part,
+            incoming_qty=int(incoming_qty) if incoming_qty is not None else None,
+            exclude_movement_id=movement.id,
+        )
+
     recompute_part_state(db, part=part)
 
     audit = AuditEvent(
@@ -753,7 +879,18 @@ def get_part_journey(
         (m for m in movements if _movement_affects_location(m)),
         None,
     )
+    cooperation_received_qty = (
+        _cooperation_received_qty(db=db, part=part)
+        if part.is_cooperation
+        else 0
+    )
     current_location, current_holder = _derive_current_location_and_holder(active_movement or location_movement)
+    current_location, current_holder = _apply_cooperation_partial_location(
+        part=part,
+        current_location=current_location,
+        current_holder=current_holder,
+        received_qty=cooperation_received_qty,
+    )
     current_location, current_holder = _apply_cooperation_location_fallback(
         part=part,
         current_location=current_location,

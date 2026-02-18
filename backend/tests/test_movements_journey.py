@@ -5,6 +5,7 @@ from datetime import date
 
 from app.routers.movements import (
     _apply_cooperation_location_fallback,
+    _apply_cooperation_partial_location,
     _movement_affects_location,
     _resolve_eta,
 )
@@ -34,6 +35,30 @@ def test_cooperation_fallback_location_and_holder_without_movements() -> None:
     )
     assert current_location == "У кооператора"
     assert current_holder == "ПК Реном"
+
+
+def test_cooperation_partial_location_for_mixed_holder_state() -> None:
+    part = SimpleNamespace(is_cooperation=True, qty_plan=18196)
+    current_location, current_holder = _apply_cooperation_partial_location(
+        part=part,
+        current_location="Цех",
+        current_holder="Производство",
+        received_qty=5000,
+    )
+    assert current_location == "Кооператор + Цех"
+    assert current_holder == "В цехе 5000 из 18196 шт"
+
+
+def test_cooperation_partial_location_does_not_override_when_fully_received() -> None:
+    part = SimpleNamespace(is_cooperation=True, qty_plan=18196)
+    current_location, current_holder = _apply_cooperation_partial_location(
+        part=part,
+        current_location="Цех",
+        current_holder="Производство",
+        received_qty=18196,
+    )
+    assert current_location == "Цех"
+    assert current_holder == "Производство"
 
 
 def test_cooperation_eta_fallback_from_part_due_date() -> None:

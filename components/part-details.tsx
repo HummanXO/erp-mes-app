@@ -288,7 +288,12 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     if (lastMovement.status === "pending") return "Черновик отправки (ещё не отправлено)"
     if (lastMovement.status === "sent") return destination ? `Отправлено: ${destination}` : "Отправлено кооператору"
     if (lastMovement.status === "in_transit") return destination ? `В пути: ${destination}` : "В пути к кооператору"
-    if (lastMovement.status === "received" || lastMovement.status === "completed") return "Получено от кооператора"
+    if (lastMovement.status === "received" || lastMovement.status === "completed") {
+      if (routeCurrentLocation === "Кооператор + Цех" && routeCurrentHolder) {
+        return `Частично получено: ${routeCurrentHolder}`
+      }
+      return "Получено от кооператора"
+    }
     if (lastMovement.status === "returned") return "Возврат от кооператора"
     if (lastMovement.status === "cancelled") return "Отправка отменена"
     return routeLastEventDescription

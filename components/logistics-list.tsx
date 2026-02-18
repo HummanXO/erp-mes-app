@@ -4,6 +4,7 @@ import React from "react"
 
 import { useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
+import { ApiClientError } from "@/lib/api-client"
 import type { LogisticsEntry, MovementStatus, Part, ProductionStage } from "@/lib/types"
 import { STAGE_LABELS } from "@/lib/types"
 import { Button } from "@/components/ui/button"
@@ -424,6 +425,9 @@ export function LogisticsList({ part }: LogisticsListProps) {
   const [receiveQty, setReceiveQty] = useState("")
   const [editingEtaMovementId, setEditingEtaMovementId] = useState<string | null>(null)
   const [actionError, setActionError] = useState("")
+  const [isSubmittingSend, setIsSubmittingSend] = useState(false)
+  const [isSubmittingReceive, setIsSubmittingReceive] = useState(false)
+  const [isSavingEta, setIsSavingEta] = useState(false)
 
   const [etaDrafts, setEtaDrafts] = useState<Record<string, string>>({})
 
@@ -437,11 +441,24 @@ export function LogisticsList({ part }: LogisticsListProps) {
     return "Не удалось выполнить действие. Обновите страницу и повторите."
   }
 
+  const isLegacyReceivedCreateFallbackError = (error: unknown): boolean => {
+    if (!(error instanceof ApiClientError)) return false
+    if (![400, 409, 422].includes(error.statusCode)) return false
+    const message = `${error.error?.message || ""}`.toLowerCase()
+    return (
+      message.includes("invalid initial movement status") ||
+      message.includes("initial movement status") ||
+      message.includes("invalid movement status transition")
+    )
+  }
+
   const handleEtaChange = (entryId: string, value: string) => {
     setEtaDrafts((prev) => ({ ...prev, [entryId]: value }))
   }
 
   const handleSaveEta = async (entry: LogisticsEntry) => {
+    if (isSavingEta) return
+    setIsSavingEta(true)
     try {
       const draft = getEtaDraft(entry)
       await updateLogisticsEntry({
@@ -452,6 +469,8 @@ export function LogisticsList({ part }: LogisticsListProps) {
       setActionError("")
     } catch (error) {
       setActionError(toErrorMessage(error))
+    } finally {
+      setIsSavingEta(false)
     }
   }
 
@@ -495,6 +514,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
   const handleSendToStage = async () => {
     if (!sendStageId) return
+    if (isSubmittingSend) return
     const isCooperationSend = sendStageId === COOP_FLOW_ID
     const card = isCooperationSend
       ? undefined
@@ -527,6 +547,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
       return
     }
 
+    setIsSubmittingSend(true)
     try {
       const toLocation = isCooperationSend ? "Кооперация" : STAGE_LABELS[card!.stage]
       const description = isCooperationSend
@@ -562,6 +583,8 @@ export function LogisticsList({ part }: LogisticsListProps) {
       setActionError("")
     } catch (error) {
       setActionError(toErrorMessage(error))
+    } finally {
+      setIsSubmittingSend(false)
     }
   }
 
@@ -574,6 +597,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
 
   const handleConfirmReceive = async () => {
     if (!receivingMovementId) return
+    if (isSubmittingReceive) return
 
     if (receivingMovementId === COOP_FLOW_ID) {
       const parsedQty = receiveQty ? Number.parseInt(receiveQty, 10) : undefined
@@ -600,6 +624,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
         ? new Date(`${dueDateInput}T00:00:00`).toISOString()
         : undefined
 
+      setIsSubmittingReceive(true)
       try {
         try {
           await createLogisticsEntry({
@@ -621,7 +646,10 @@ export function LogisticsList({ part }: LogisticsListProps) {
             notes: undefined,
             date: new Date().toISOString().split("T")[0],
           })
-        } catch {
+        } catch (error) {
+          if (!isLegacyReceivedCreateFallbackError(error)) {
+            throw error
+          }
           // Compatibility fallback for backends that do not allow initial status="received".
           const created = await createLogisticsEntry({
             part_id: part.id,
@@ -653,6 +681,8 @@ export function LogisticsList({ part }: LogisticsListProps) {
         setActionError("")
       } catch (error) {
         setActionError(toErrorMessage(error))
+      } finally {
+        setIsSubmittingReceive(false)
       }
       return
     }
@@ -674,6 +704,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
       return
     }
 
+    setIsSubmittingReceive(true)
     try {
       await updateLogisticsEntry({
         ...movement,
@@ -686,10 +717,13 @@ export function LogisticsList({ part }: LogisticsListProps) {
       setActionError("")
     } catch (error) {
       setActionError(toErrorMessage(error))
+    } finally {
+      setIsSubmittingReceive(false)
     }
   }
 
   const handleReceiveFromHistory = async (entry: LogisticsEntry) => {
+    if (isSubmittingReceive) return
     const parsedQty = receiveQty ? Number.parseInt(receiveQty, 10) : undefined
     if (parsedQty !== undefined && (!Number.isFinite(parsedQty) || parsedQty < 0)) {
       setActionError("Укажите корректное количество приёмки")
@@ -704,6 +738,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
       return
     }
 
+    setIsSubmittingReceive(true)
     try {
       await updateLogisticsEntry({
         ...entry,
@@ -715,6 +750,8 @@ export function LogisticsList({ part }: LogisticsListProps) {
       setActionError("")
     } catch (error) {
       setActionError(toErrorMessage(error))
+    } finally {
+      setIsSubmittingReceive(false)
     }
   }
 
@@ -846,6 +883,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                       type="button"
                       className="h-8"
                       onClick={openInitialCooperationReceiveForm}
+                      disabled={isSubmittingReceive}
                     >
                       {isInitialCooperationAwaitingInbound ? "Принять поступление" : "Добавить поступление"}
                     </Button>
@@ -857,6 +895,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         type="button"
                         className="h-8"
                         onClick={() => handleStartReceive(cooperationFlow.activeMovement!)}
+                        disabled={isSubmittingReceive}
                       >
                         Принять
                       </Button>
@@ -907,6 +946,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         type="button"
                         className="h-9"
                         onClick={() => void handleSaveEta(cooperationFlow.activeMovement!)}
+                        disabled={isSavingEta}
                       >
                         Сохранить срок
                       </Button>
@@ -998,7 +1038,12 @@ export function LogisticsList({ part }: LogisticsListProps) {
                     <Button type="button" variant="outline" className="h-9" onClick={() => setSendStageId(null)}>
                       Отмена
                     </Button>
-                    <Button type="button" className="h-9" onClick={() => void handleSendToStage()}>
+                    <Button
+                      type="button"
+                      className="h-9"
+                      onClick={() => void handleSendToStage()}
+                      disabled={isSubmittingSend}
+                    >
                       Отправить
                     </Button>
                   </div>
@@ -1023,7 +1068,12 @@ export function LogisticsList({ part }: LogisticsListProps) {
                           className="h-9"
                         />
                       </div>
-                      <Button type="button" className="h-9" onClick={() => void handleConfirmReceive()}>
+                      <Button
+                        type="button"
+                        className="h-9"
+                        onClick={() => void handleConfirmReceive()}
+                        disabled={isSubmittingReceive}
+                      >
                         Подтвердить приёмку
                       </Button>
                       <Button
@@ -1061,7 +1111,12 @@ export function LogisticsList({ part }: LogisticsListProps) {
                           className="h-9"
                         />
                       </div>
-                      <Button type="button" className="h-9" onClick={() => void handleConfirmReceive()}>
+                      <Button
+                        type="button"
+                        className="h-9"
+                        onClick={() => void handleConfirmReceive()}
+                        disabled={isSubmittingReceive}
+                      >
                         Подтвердить приёмку
                       </Button>
                       <Button
@@ -1176,7 +1231,12 @@ export function LogisticsList({ part }: LogisticsListProps) {
                       )}
 
                       {activeMovement && receivingMovementId !== activeMovement.id && (
-                        <Button type="button" className="h-8" onClick={() => handleStartReceive(activeMovement)}>
+                        <Button
+                          type="button"
+                          className="h-8"
+                          onClick={() => handleStartReceive(activeMovement)}
+                          disabled={isSubmittingReceive}
+                        >
                           Принять
                         </Button>
                       )}
@@ -1222,6 +1282,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                             type="button"
                             className="h-9"
                             onClick={() => void handleSaveEta(activeMovement)}
+                            disabled={isSavingEta}
                           >
                             Сохранить срок
                           </Button>
@@ -1313,7 +1374,12 @@ export function LogisticsList({ part }: LogisticsListProps) {
                         <Button type="button" variant="outline" className="h-9" onClick={() => setSendStageId(null)}>
                           Отмена
                         </Button>
-                        <Button type="button" className="h-9" onClick={() => void handleSendToStage()}>
+                        <Button
+                          type="button"
+                          className="h-9"
+                          onClick={() => void handleSendToStage()}
+                          disabled={isSubmittingSend}
+                        >
                           Отправить
                         </Button>
                       </div>
@@ -1334,7 +1400,12 @@ export function LogisticsList({ part }: LogisticsListProps) {
                             className="h-9"
                           />
                         </div>
-                        <Button type="button" className="h-9" onClick={() => void handleConfirmReceive()}>
+                        <Button
+                          type="button"
+                          className="h-9"
+                          onClick={() => void handleConfirmReceive()}
+                          disabled={isSubmittingReceive}
+                        >
                           Подтвердить приёмку
                         </Button>
                         <Button
@@ -1439,6 +1510,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                               setReceiveQty(String(entry.qty_sent ?? ""))
                               setEditingEtaMovementId(null)
                             }}
+                            disabled={isSubmittingReceive}
                           >
                             Принять
                           </Button>
@@ -1464,6 +1536,7 @@ export function LogisticsList({ part }: LogisticsListProps) {
                             type="button"
                             className="h-8"
                             onClick={() => void handleReceiveFromHistory(entry)}
+                            disabled={isSubmittingReceive}
                           >
                             Подтвердить
                           </Button>
