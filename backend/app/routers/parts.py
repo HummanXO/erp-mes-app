@@ -475,18 +475,14 @@ def create_part(
                 status_code=400,
                 detail=f"Недопустимые этапы для цеховой детали: {', '.join(sorted(invalid_stages))}",
             )
-        if data.machine_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Для цеховой детали нужно выбрать станок",
-            )
-        machine = db.query(Machine).filter(
-            Machine.id == data.machine_id,
-            Machine.org_id == current_user.org_id,
-            Machine.is_active.is_(True),
-        ).first()
-        if not machine:
-            raise HTTPException(status_code=404, detail="Machine not found")
+        if data.machine_id is not None:
+            machine = db.query(Machine).filter(
+                Machine.id == data.machine_id,
+                Machine.org_id == current_user.org_id,
+                Machine.is_active.is_(True),
+            ).first()
+            if not machine:
+                raise HTTPException(status_code=404, detail="Machine not found")
 
     ordered_required_stages = _sort_stages_by_flow(requested_stages)
 

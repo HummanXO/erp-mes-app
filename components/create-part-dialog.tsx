@@ -290,10 +290,6 @@ export function CreatePartDialog({
       setFormError("Заполните обязательные поля")
       return
     }
-    if (!isCooperation && !machineId) {
-      setFormError("Для цеховой детали нужно выбрать станок")
-      return
-    }
     if (isCooperation && !cooperationPartner.trim()) {
       setFormError("Для кооперации укажите партнёра-кооператора")
       return
@@ -334,7 +330,7 @@ export function CreatePartDialog({
         drawing_url: drawingAttachment?.url || undefined,
         required_stages: requiredStages,
         stage_statuses: stageStatuses,
-        machine_id: !isCooperation ? machineId : undefined,
+        machine_id: !isCooperation ? (machineId || undefined) : undefined,
         customer: customer.trim() || undefined,
         source_specification_id: sourceSpecificationId,
       })
@@ -801,20 +797,24 @@ export function CreatePartDialog({
             </Alert>
           )}
           
-          {/* Machine selection - required for own production */}
+          {/* Machine selection - optional for own production */}
           {!isCooperation && (
             <div className="space-y-2">
-              <Label htmlFor={machineIdField}>Станок для обработки *</Label>
-              <Select value={machineId} onValueChange={setMachineId}>
+              <Label htmlFor={machineIdField}>Станок для обработки (опционально)</Label>
+              <Select
+                value={machineId || "__none__"}
+                onValueChange={(value) => setMachineId(value === "__none__" ? "" : value)}
+              >
                 <SelectTrigger
                   id={machineIdField}
                   className="h-11"
-                  aria-invalid={!!formError && !isCooperation && !machineId}
+                  aria-invalid={false}
                   aria-describedby={formError ? formErrorId : undefined}
                 >
-                  <SelectValue placeholder="Выберите станок" />
+                  <SelectValue placeholder="Можно выбрать позже" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__none__">Без станка (назначу позже)</SelectItem>
                   {machiningMachines.map(m => (
                     <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
                   ))}
@@ -939,8 +939,7 @@ export function CreatePartDialog({
                 isDrawingUploading ||
                 !code ||
                 !name ||
-                !qtyPlan ||
-                (!isCooperation && !machineId)
+                !qtyPlan
               }
             >
               {isSubmitting ? (
