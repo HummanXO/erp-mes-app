@@ -186,6 +186,12 @@ def create_stage_fact(
     if not can_access_part(db, part, current_user):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    if not part.is_cooperation and not part.machine_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Для цеховой детали сначала назначьте станок в карточке детали",
+        )
+
     if current_user.role == "operator":
         if data.stage != "machining":
             raise HTTPException(status_code=403, detail="Оператор может вносить факт только по механообработке")
@@ -443,6 +449,12 @@ def update_stage_fact(
     )
     if not can_access_part(db, part, current_user):
         raise HTTPException(status_code=403, detail="Access denied")
+
+    if not part.is_cooperation and not part.machine_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Для цеховой детали сначала назначьте станок в карточке детали",
+        )
 
     if current_user.role == "operator":
         if fact.stage != "machining":

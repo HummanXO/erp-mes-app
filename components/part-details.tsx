@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,6 +63,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getPartProgress, 
     getPartForecast, 
     getMachineById,
+    machines,
     getStageFactsForPart,
     getLogisticsForPart,
     getJourneyForPart,
@@ -92,6 +94,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [cooperationDueDateError, setCooperationDueDateError] = useState("")
   const [isSavingCooperationQc, setIsSavingCooperationQc] = useState(false)
   const [cooperationQcError, setCooperationQcError] = useState("")
+  const [machineDraftId, setMachineDraftId] = useState("")
+  const [isSavingMachine, setIsSavingMachine] = useState(false)
+  const [machineAssignError, setMachineAssignError] = useState("")
   const [cooperationQcOptimistic, setCooperationQcOptimistic] = useState<{
     status: "pending" | "accepted" | "rejected"
     checkedAt: string | null
@@ -135,6 +140,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   useEffect(() => {
     setDrawingError(false)
   }, [drawingUrl])
+
+  useEffect(() => {
+    setMachineDraftId(part.machine_id || "")
+    setMachineAssignError("")
+  }, [part.id, part.machine_id])
 
   useEffect(() => {
     if (isEditingCooperationDueDate) return
@@ -204,6 +214,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   }, [drawingUrlValue, isImageDrawing])
   
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
+  const machiningMachines = machines.filter((m) => m.department === "machining")
   const progress = getPartProgress(part.id)
   const forecast = getPartForecast(part.id)
   const stageFacts = getStageFactsForPart(part.id)
@@ -541,6 +552,23 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     }
   }
 
+  const handleSaveMachineAssignment = async () => {
+    if (part.is_cooperation || !permissions.canEditParts) return
+    setMachineAssignError("")
+    setIsSavingMachine(true)
+    try {
+      await updatePart({
+        ...part,
+        machine_id: machineDraftId || undefined,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось сохранить станок"
+      setMachineAssignError(message)
+    } finally {
+      setIsSavingMachine(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -576,6 +604,47 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       </div>
       {actionError && (
         <div className="text-sm text-destructive" role="status" aria-live="polite">{actionError}</div>
+      )}
+
+      {!part.is_cooperation && permissions.canEditParts && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
+              <div className="space-y-2">
+                <Label>Станок для детали</Label>
+                <Select
+                  value={machineDraftId || "__none__"}
+                  onValueChange={(value) => setMachineDraftId(value === "__none__" ? "" : value)}
+                >
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Можно выбрать позже" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Без станка (назначу позже)</SelectItem>
+                    {machiningMachines.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="text-xs text-muted-foreground">
+                  Пока станок не назначен, ввод фактов недоступен.
+                </div>
+                {machineAssignError && (
+                  <div className="text-xs text-destructive">{machineAssignError}</div>
+                )}
+              </div>
+              <Button
+                type="button"
+                className="h-10"
+                variant="outline"
+                onClick={() => void handleSaveMachineAssignment()}
+                disabled={isSavingMachine || machineDraftId === (part.machine_id || "")}
+              >
+                {isSavingMachine ? "Сохраняем..." : "Сохранить станок"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
       
       {/* Cooperation info */}

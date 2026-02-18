@@ -178,6 +178,7 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const assignedMachine = assignedMachineId
     ? machiningMachines.find((machine) => machine.id === assignedMachineId)
     : undefined
+  const requiresAssignedMachine = !part.is_cooperation && !assignedMachineId
   
   // Get norm for current machine/part/stage
   const currentMachineId = stage === "machining" ? assignedMachineId : undefined
@@ -244,6 +245,11 @@ export function StageFactForm({ part }: StageFactFormProps) {
   const handleSubmit = async () => {
     setSubmitError("")
     setSavedHint("")
+
+    if (requiresAssignedMachine) {
+      setSubmitError("Сначала назначьте станок в карточке детали, затем вносите факт.")
+      return
+    }
 
     const normalizedOperatorId = isOperator
       ? (currentUser?.id || "")
@@ -670,13 +676,13 @@ export function StageFactForm({ part }: StageFactFormProps) {
           </div>
         )}
 
-        {stage === "machining" && !currentMachineId && (
+        {requiresAssignedMachine && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
             Для этой детали не назначен станок. Ввод факта недоступен, пока станок не будет указан в карточке детали.
           </div>
         )}
         
-        <Button onClick={() => openFactEditor()} className="w-full h-11" disabled={stage === "machining" && !currentMachineId}>
+        <Button onClick={() => openFactEditor()} className="w-full h-11" disabled={requiresAssignedMachine}>
           <Plus className="h-4 w-4 mr-2" />
           {primaryActionLabel}
         </Button>
