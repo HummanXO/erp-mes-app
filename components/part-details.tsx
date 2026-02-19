@@ -4,7 +4,7 @@ import React from "react"
 
 import { useEffect, useRef, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { Part, PartStatus, ProductionStage } from "@/lib/types"
+import type { DeviationReason, Part, PartStatus, ProductionStage, ShiftType } from "@/lib/types"
 import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS } from "@/lib/types"
 import { STAGE_ICONS } from "@/lib/stage-icons"
 import { Button } from "@/components/ui/button"
@@ -46,6 +46,8 @@ import {
   ListChecks,
   History,
   CircleDot,
+  PlayCircle,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { StageFactForm } from "./stage-fact-form"
@@ -74,11 +76,16 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     getPartProgress, 
     getPartForecast, 
     getMachineById,
+    getMachineNorm,
     machines,
     getStageFactsForPart,
     getLogisticsForPart,
     getJourneyForPart,
     getTasksForPart,
+    createStageFact,
+    updateStageFact,
+    startTask,
+    isTaskAssignedToUser,
     getUserById,
     demoDate,
     currentUser,
@@ -114,6 +121,16 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     status: "pending" | "accepted" | "rejected"
     checkedAt: string | null
   } | null>(null)
+  const [operatorQtyGood, setOperatorQtyGood] = useState("0")
+  const [operatorQtyScrap, setOperatorQtyScrap] = useState("0")
+  const [operatorDeviationReason, setOperatorDeviationReason] = useState<DeviationReason>(null)
+  const [operatorComment, setOperatorComment] = useState("")
+  const [operatorFactError, setOperatorFactError] = useState("")
+  const [operatorFactHint, setOperatorFactHint] = useState("")
+  const [isSavingOperatorFact, setIsSavingOperatorFact] = useState(false)
+  const [operatorStartError, setOperatorStartError] = useState("")
+  const [isStartingOperatorTask, setIsStartingOperatorTask] = useState(false)
+  const [operatorNow, setOperatorNow] = useState(() => new Date())
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
   const isCooperationRouteOnly = part.is_cooperation
   const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
@@ -173,6 +190,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   useEffect(() => {
     setCooperationQcOptimistic(null)
   }, [part.id, part.cooperation_qc_status, part.cooperation_qc_checked_at])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setOperatorNow(new Date())
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const isProtectedAttachmentUrl = (value: string) => {
     const candidate = value.trim()
@@ -446,8 +470,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         routeLastEventAt
       )
     : routeLastEventAt
+  const machineNorm = part.machine_id ? getMachineNorm(part.machine_id, part.id, "machining") : undefined
+  const operatorNormQty = machineNorm?.qty_per_shift ?? 0
   const partTasks = getTasksForPart(part.id)
-  const activePartTasks = [...partTasks]
+  const operatorTaskPool = currentUser ? partTasks.filter((task) => isTaskAssignedToUser(task, currentUser)) : partTasks
+  const activePartTasks = [...operatorTaskPool]
     .filter((task) => task.status !== "done")
     .sort((a, b) => a.due_date.localeCompare(b.due_date))
   const recentShiftFacts = sortedFacts.slice(0, 4)
@@ -457,10 +484,40 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     : operatorIsDone
       ? "Деталь завершена. Ввод факта закрыт."
       : null
-  const operatorCurrentShift: "day" | "night" = (() => {
-    const hour = new Date().getHours()
+  const operatorCurrentShift: ShiftType = (() => {
+    const hour = operatorNow.getHours()
     return hour >= 9 && hour < 21 ? "day" : "night"
   })()
+  const operatorShiftStart = new Date(operatorNow)
+  const operatorShiftEnd = new Date(operatorNow)
+  if (operatorCurrentShift === "day") {
+    operatorShiftStart.setHours(9, 0, 0, 0)
+    operatorShiftEnd.setHours(21, 0, 0, 0)
+  } else if (operatorNow.getHours() < 9) {
+    operatorShiftStart.setDate(operatorShiftStart.getDate() - 1)
+    operatorShiftStart.setHours(21, 0, 0, 0)
+    operatorShiftEnd.setHours(9, 0, 0, 0)
+  } else {
+    operatorShiftStart.setHours(21, 0, 0, 0)
+    operatorShiftEnd.setDate(operatorShiftEnd.getDate() + 1)
+    operatorShiftEnd.setHours(9, 0, 0, 0)
+  }
+  const operatorShiftRemainingMs = Math.max(0, operatorShiftEnd.getTime() - operatorNow.getTime())
+  const operatorShiftHours = Math.floor(operatorShiftRemainingMs / 3_600_000)
+  const operatorShiftMinutes = Math.floor((operatorShiftRemainingMs % 3_600_000) / 60_000)
+  const operatorShiftSeconds = Math.floor((operatorShiftRemainingMs % 60_000) / 1_000)
+  const operatorShiftCountdown = `${String(operatorShiftHours).padStart(2, "0")}:${String(operatorShiftMinutes).padStart(2, "0")}:${String(operatorShiftSeconds).padStart(2, "0")}`
+  const operatorShiftRangeLabel = operatorCurrentShift === "day" ? "09:00 - 21:00" : "21:00 - 09:00"
+  const operatorCurrentFact = stageFacts.find(
+    (fact) =>
+      fact.date === demoDate &&
+      fact.stage === "machining" &&
+      fact.shift_type === operatorCurrentShift
+  )
+  const startableTask =
+    operatorTaskPool.find((task) => task.status === "accepted") ||
+    operatorTaskPool.find((task) => task.status === "open")
+  const canShowStartButton = operatorIsWaiting
 
   const handleSaveCooperationDueDate = async () => {
     if (!canEditCooperationDueDate) return
@@ -606,6 +663,106 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     }
   }
 
+  useEffect(() => {
+    if (!isOperatorDetail) return
+    if (operatorCurrentFact) {
+      setOperatorQtyGood(String(operatorCurrentFact.qty_good ?? 0))
+      setOperatorQtyScrap(String(operatorCurrentFact.qty_scrap ?? 0))
+      setOperatorDeviationReason(operatorCurrentFact.deviation_reason ?? null)
+      setOperatorComment(operatorCurrentFact.comment || "")
+    } else {
+      setOperatorQtyGood("0")
+      setOperatorQtyScrap("0")
+      setOperatorDeviationReason(null)
+      setOperatorComment("")
+    }
+    setOperatorFactError("")
+    setOperatorFactHint("")
+  }, [isOperatorDetail, operatorCurrentFact?.id, demoDate, operatorCurrentShift])
+
+  const handleOperatorStart = async () => {
+    if (!startableTask) {
+      setOperatorStartError("Нет задачи для запуска. Выберите или создайте задачу справа.")
+      return
+    }
+    setOperatorStartError("")
+    setIsStartingOperatorTask(true)
+    try {
+      await startTask(startableTask.id)
+    } catch (error) {
+      setOperatorStartError(error instanceof Error ? error.message : "Не удалось запустить задачу")
+    } finally {
+      setIsStartingOperatorTask(false)
+    }
+  }
+
+  const handleOperatorFactSave = async () => {
+    if (!currentUser?.id) {
+      setOperatorFactError("Оператор не определён")
+      return
+    }
+    if (!part.machine_id) {
+      setOperatorFactError("Станок не назначен в карточке детали")
+      return
+    }
+    if (operatorInputDisabled) {
+      setOperatorFactError("Ввод данных недоступен в текущем статусе")
+      return
+    }
+    const qtyGoodNumber = Number.parseInt(operatorQtyGood, 10)
+    const qtyScrapNumber = Number.parseInt(operatorQtyScrap, 10) || 0
+    if (!Number.isFinite(qtyGoodNumber) || qtyGoodNumber < 0) {
+      setOperatorFactError("Укажите корректное количество годных")
+      return
+    }
+    if (!Number.isFinite(qtyScrapNumber) || qtyScrapNumber < 0) {
+      setOperatorFactError("Укажите корректное количество брака")
+      return
+    }
+    if (qtyGoodNumber === 0 && qtyScrapNumber === 0) {
+      setOperatorFactError("Укажите количество годных или брака")
+      return
+    }
+
+    setOperatorFactError("")
+    setOperatorFactHint("")
+    setIsSavingOperatorFact(true)
+    try {
+      if (operatorCurrentFact) {
+        await updateStageFact(operatorCurrentFact.id, {
+          operator_id: currentUser.id,
+          machine_id: part.machine_id,
+          qty_good: qtyGoodNumber,
+          qty_scrap: qtyScrapNumber,
+          qty_expected: operatorNormQty || 0,
+          comment: operatorComment,
+          deviation_reason: operatorDeviationReason,
+          attachments: operatorCurrentFact.attachments || [],
+        })
+      } else {
+        await createStageFact({
+          date: demoDate,
+          shift_type: operatorCurrentShift,
+          part_id: part.id,
+          stage: "machining",
+          operator_id: currentUser.id,
+          machine_id: part.machine_id,
+          qty_good: qtyGoodNumber,
+          qty_scrap: qtyScrapNumber,
+          qty_expected: operatorNormQty || 0,
+          comment: operatorComment,
+          deviation_reason: operatorDeviationReason,
+          attachments: [],
+        })
+      }
+      setOperatorFactHint("Данные по смене сохранены")
+    } catch (error) {
+      setOperatorFactError(error instanceof Error ? error.message : "Не удалось сохранить данные")
+    } finally {
+      setIsSavingOperatorFact(false)
+    }
+  }
+
   const handleSaveMachineAssignment = async () => {
     if (part.is_cooperation || !permissions.canEditParts) return
     setMachineAssignError("")
@@ -621,6 +778,337 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     } finally {
       setIsSavingMachine(false)
     }
+  }
+
+  if (isOperatorDetail) {
+    const operatorStatusTitle = operatorIsWaiting ? "ОЖИДАНИЕ" : operatorIsDone ? "ГОТОВО" : "АКТИВЕН"
+    const operatorStatusSubtext = operatorIsWaiting
+      ? "Ожидание запуска"
+      : operatorIsDone
+        ? "Цикл завершён"
+        : "Время работы текущей смены"
+    const operatorStatusAccent = operatorIsWaiting
+      ? "text-blue-600"
+      : operatorIsDone
+        ? "text-green-600"
+        : "text-emerald-600"
+    const operatorDetailDeadlineLabel = hasPartDeadline
+      ? partDeadlineDate.toLocaleDateString("ru-RU")
+      : "Не задан"
+    const operatorDetailDeadlineTone =
+      operatorDaysToDeadline === null
+        ? "text-muted-foreground"
+        : operatorDaysToDeadline < 0
+          ? "text-destructive"
+          : operatorDaysToDeadline <= 2
+            ? "text-amber-600"
+            : "text-emerald-600"
+    const operatorPlanNormHint = operatorNormQty > 0
+      ? `Норма: ${operatorNormQty.toLocaleString()} шт/смена`
+      : "Норма не задана"
+    const progressCardPercent = operatorIsWaiting ? "--%" : `${operatorProgressPercent}%`
+
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Назад"
+            className="h-11 w-11"
+            onClick={onBack}
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-xl font-bold font-mono">{part.code}</h1>
+            <div className="text-sm text-muted-foreground">
+              {part.name}
+              {machine && ` | ${machine.name}`}
+              {part.customer && ` | ${part.customer}`}
+            </div>
+          </div>
+        </div>
+        {actionError && (
+          <div className="text-sm text-destructive" role="status" aria-live="polite">{actionError}</div>
+        )}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Card className={cn(
+            operatorIsWaiting && "border-blue-200 bg-blue-50/50",
+            operatorIsDone && "border-green-200 bg-green-50/50",
+            !operatorIsWaiting && !operatorIsDone && "border-emerald-200 bg-emerald-50/40"
+          )}>
+            <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">Статус</div>
+              <div className={cn("mt-3 text-4xl font-semibold leading-none", operatorStatusAccent)}>{operatorStatusTitle}</div>
+              <div className="mt-2 text-sm text-muted-foreground">{operatorStatusSubtext}</div>
+            </CardContent>
+          </Card>
+          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-muted-foreground">Прогресс</div>
+                <div className="text-xl font-semibold">{progressCardPercent}</div>
+              </div>
+              <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="mt-4 h-2" />
+              <div className="mt-2 text-sm text-muted-foreground">
+                {operatorIsWaiting ? "Нет активной задачи" : `${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
+            <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">План / Норма</div>
+              <div className="mt-3 text-4xl font-semibold leading-none">
+                {operatorIsWaiting ? "0" : operatorProducedQty.toLocaleString()}
+                <span className="text-2xl text-muted-foreground font-medium"> / {operatorNormQty.toLocaleString()} шт.</span>
+              </div>
+              <div className="mt-2 text-sm text-muted-foreground">{operatorPlanNormHint}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-sm text-muted-foreground">Дедлайн смены</div>
+              <div className="mt-3 text-4xl font-mono font-semibold leading-none">{operatorShiftCountdown}</div>
+              <div className="mt-2 text-sm text-muted-foreground">Смена {operatorShiftRangeLabel}</div>
+              <div className={cn("mt-2 text-sm font-semibold", operatorDetailDeadlineTone)}>
+                Дедлайн детали: {operatorDetailDeadlineLabel}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+          <Card className="xl:col-span-8 overflow-hidden">
+            <CardHeader className="border-b bg-muted/20 pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle className="text-2xl font-bold">
+                  {operatorInputDisabled ? "Ввод данных (Отключено)" : "Ввод данных"}
+                </CardTitle>
+                <div className="inline-flex items-center rounded-lg bg-muted p-1">
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-semibold",
+                      operatorCurrentShift === "day" ? "bg-background text-primary shadow-sm" : "text-muted-foreground"
+                    )}
+                  >
+                    Смена 1 (Д)
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-semibold",
+                      operatorCurrentShift === "night" ? "bg-background text-primary shadow-sm" : "text-muted-foreground"
+                    )}
+                  >
+                    Смена 2 (Н)
+                  </button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className={cn("space-y-3", operatorInputDisabled && "opacity-60 grayscale pointer-events-none select-none")}>
+                  <div className="space-y-1">
+                    <Label>Оператор</Label>
+                    <Input value={currentUser?.initials || "—"} readOnly />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>Станок</Label>
+                      <Input value={machine?.name || "Не выбран"} readOnly />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Код детали</Label>
+                      <Input value={part.code} readOnly />
+                    </div>
+                  </div>
+                  {canShowStartButton && (
+                    <Button
+                      type="button"
+                      className="h-12 w-full text-lg font-semibold"
+                      onClick={() => void handleOperatorStart()}
+                      disabled={isStartingOperatorTask}
+                    >
+                      <PlayCircle className="mr-2 h-5 w-5" />
+                      {isStartingOperatorTask ? "Запуск..." : "НАЧАТЬ РАБОТУ"}
+                    </Button>
+                  )}
+                  {operatorStartError && (
+                    <div className="text-xs text-destructive">{operatorStartError}</div>
+                  )}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>Годные (шт)</Label>
+                      <Input
+                        type="number"
+                        value={operatorQtyGood}
+                        onChange={(event) => setOperatorQtyGood(event.target.value)}
+                        disabled={operatorInputDisabled}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Брак (шт)</Label>
+                      <Input
+                        type="number"
+                        value={operatorQtyScrap}
+                        onChange={(event) => setOperatorQtyScrap(event.target.value)}
+                        disabled={operatorInputDisabled}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Причина брака</Label>
+                    <Select
+                      value={operatorDeviationReason || "none"}
+                      onValueChange={(value) => setOperatorDeviationReason(value === "none" ? null : value as DeviationReason)}
+                      disabled={operatorInputDisabled}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="-- Не выбрано --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">-- Не выбрано --</SelectItem>
+                        {Object.entries(DEVIATION_REASON_LABELS).map(([key, label]) => (
+                          <SelectItem key={key} value={key}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Примечание</Label>
+                    <Input
+                      value={operatorComment}
+                      onChange={(event) => setOperatorComment(event.target.value)}
+                      disabled={operatorInputDisabled}
+                      placeholder="Доп. информация..."
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    className="h-11 w-full text-lg font-semibold"
+                    onClick={() => void handleOperatorFactSave()}
+                    disabled={operatorInputDisabled || isSavingOperatorFact}
+                  >
+                    {isSavingOperatorFact ? "Сохраняем..." : "СОХРАНИТЬ ДАННЫЕ"}
+                  </Button>
+                  {operatorFactError && (
+                    <div className="text-xs text-destructive">{operatorFactError}</div>
+                  )}
+                  {operatorFactHint && (
+                    <div className="text-xs text-emerald-700">{operatorFactHint}</div>
+                  )}
+                  {operatorInputDisabledReason && (
+                    <div className="text-xs text-muted-foreground">{operatorInputDisabledReason}</div>
+                  )}
+                </div>
+                <div className="rounded-xl border overflow-hidden">
+                  <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-2">
+                    <div className="font-semibold">Чертеж: {drawingUrlValue ? part.code : "--"}</div>
+                    {drawingUrlValue ? (
+                      <Button variant="ghost" size="sm" onClick={() => void handleOpenDrawing()}>
+                        На весь экран
+                      </Button>
+                    ) : null}
+                  </div>
+                  <div className="min-h-[480px] bg-muted/30 p-4">
+                    {drawingUrlValue && isImageDrawing && !drawingError ? (
+                      <div className="h-full w-full rounded-md border bg-background p-2">
+                        <img
+                          src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
+                          alt={`Чертёж ${part.code}`}
+                          className="h-full max-h-[430px] w-full object-contain"
+                          onError={() => setDrawingError(true)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex h-full min-h-[430px] items-center justify-center rounded-md border bg-background">
+                        <div className="text-center text-muted-foreground">
+                          <AlertCircle className="mx-auto mb-2 h-12 w-12 opacity-50" />
+                          <p>{drawingUrlValue ? "Не удалось открыть чертеж" : "Выберите задачу и загрузите чертеж"}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-4 xl:col-span-4">
+            <Card>
+              <CardHeader className="border-b bg-muted/20 py-3">
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <span>ЗАДАЧИ НА СМЕНУ</span>
+                  <Badge variant="secondary">{activePartTasks.length}</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {activePartTasks.length === 0 ? (
+                  <div className="px-4 py-6 text-sm text-muted-foreground">Нет активных задач</div>
+                ) : (
+                  <div className="divide-y">
+                    {activePartTasks.slice(0, 4).map((task) => (
+                      <div key={task.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {task.status === "in_progress" ? "В процессе" : task.status === "accepted" ? "Текущее" : "Ожидание"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">{new Date(task.due_date).toLocaleDateString("ru-RU")}</div>
+                        </div>
+                        <div className="mt-1 text-xl font-semibold">{task.title}</div>
+                        <div className="mt-1 text-sm text-muted-foreground">{task.description || "Без описания"}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="border-b bg-muted/20 py-3">
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <span>ИСТОРИЯ СМЕН</span>
+                  <span className="text-sm font-medium text-primary">См. все</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 p-4">
+                {recentShiftFacts.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">Записей пока нет</div>
+                ) : (
+                  recentShiftFacts.map((fact) => (
+                    <div key={fact.id} className="rounded-lg border p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">
+                          {new Date(fact.date).toLocaleDateString("ru-RU")}, {fact.shift_type === "day" ? "Смена 1" : fact.shift_type === "night" ? "Смена 2" : "Без смены"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{STAGE_LABELS[fact.stage]}</div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                        <div>
+                          <div className="text-muted-foreground">Годные</div>
+                          <div className="font-semibold text-green-600">{fact.qty_good.toLocaleString()} шт</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-muted-foreground">Брак</div>
+                          <div className="font-semibold text-destructive">{fact.qty_scrap.toLocaleString()} шт</div>
+                        </div>
+                      </div>
+                      <Progress
+                        className="mt-2 h-2"
+                        value={fact.qty_expected && fact.qty_expected > 0 ? Math.min(100, Math.round((fact.qty_good / fact.qty_expected) * 100)) : 100}
+                      />
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
