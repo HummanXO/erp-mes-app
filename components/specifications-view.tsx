@@ -114,13 +114,13 @@ export function SpecificationsView() {
   )
   const isOperator = currentUser?.role === "operator"
   const selectedSpecItemsForView = useMemo(() => {
-    if (!isOperator) return selectedSpecItems
+    if (permissions.canViewCooperation) return selectedSpecItems
     return selectedSpecItems.filter((item) => {
       if (!item.part_id) return false
       const part = getPartById(item.part_id)
       return Boolean(part && !part.is_cooperation)
     })
-  }, [getPartById, isOperator, selectedSpecItems])
+  }, [getPartById, permissions.canViewCooperation, selectedSpecItems])
 
   const selectedGrants = useMemo(
     () => (selectedSpecification ? getAccessGrantsForSpecification(selectedSpecification.id) : []),
