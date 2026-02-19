@@ -56,6 +56,7 @@ import { LogisticsList } from "./logistics-list"
 import { FactJournal } from "./fact-journal"
 import { StageProgressSummary } from "./stage-progress-summary"
 import { AuditLogView } from "./audit-log-view"
+import { PartDetailsMaster } from "./part-details-master"
 import { apiClient } from "@/lib/api-client"
 
 interface PartDetailsProps {
@@ -1245,6 +1246,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         </div>
       </div>
     )
+  }
+
+  if (currentUser && currentUser.role !== "operator") {
+    return <PartDetailsMaster part={part} onBack={onBack} />
   }
 
   return (
