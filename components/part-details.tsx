@@ -781,20 +781,18 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   }
 
   if (isOperatorDetail) {
-    const operatorStatusTitle = operatorIsWaiting ? "ОЖИДАНИЕ" : operatorIsDone ? "ГОТОВО" : "АКТИВЕН"
-    const operatorStatusSubtext = operatorIsWaiting
-      ? "Ожидание запуска"
-      : operatorIsDone
-        ? "Цикл завершён"
-        : "Время работы текущей смены"
-    const operatorStatusAccent = operatorIsWaiting
+    const operatorStatusTitle = operatorIsWaiting ? "В ожидании" : operatorIsDone ? "Готово" : "В работе"
+    const operatorStatusTone = operatorIsWaiting
       ? "text-blue-600"
       : operatorIsDone
-        ? "text-green-600"
+        ? "text-emerald-600"
         : "text-emerald-600"
-    const operatorDetailDeadlineLabel = hasPartDeadline
-      ? partDeadlineDate.toLocaleDateString("ru-RU")
-      : "Не задан"
+    const operatorStatusBadgeTone = operatorIsWaiting
+      ? "bg-blue-500 ring-blue-50"
+      : operatorIsDone
+        ? "bg-emerald-600 ring-emerald-50"
+        : "bg-emerald-500 ring-emerald-50"
+    const operatorDetailDeadlineLabel = hasPartDeadline ? partDeadlineDate.toLocaleDateString("ru-RU") : "Не задан"
     const operatorDetailDeadlineTone =
       operatorDaysToDeadline === null
         ? "text-muted-foreground"
@@ -803,25 +801,37 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
           : operatorDaysToDeadline <= 2
             ? "text-amber-600"
             : "text-emerald-600"
-    const operatorPlanNormHint = operatorNormQty > 0
-      ? `Норма: ${operatorNormQty.toLocaleString()} шт/смена`
-      : "Норма не задана"
     const progressCardPercent = operatorIsWaiting ? "--%" : `${operatorProgressPercent}%`
+    const operatorElapsedMs = Math.max(0, operatorNow.getTime() - operatorShiftStart.getTime())
+    const operatorElapsedHours = Math.floor(operatorElapsedMs / 3_600_000)
+    const operatorElapsedMinutes = Math.floor((operatorElapsedMs % 3_600_000) / 60_000)
+    const operatorElapsedSeconds = Math.floor((operatorElapsedMs % 60_000) / 1_000)
+    const operatorElapsedLabel = `${String(operatorElapsedHours).padStart(2, "0")}:${String(operatorElapsedMinutes).padStart(2, "0")}:${String(operatorElapsedSeconds).padStart(2, "0")}`
+    const operatorShiftEndLabel = operatorCurrentShift === "day" ? "Окончание смены в 21:00" : "Окончание смены в 09:00"
+    const planDeviationPercent = part.qty_plan > 0
+      ? Math.round((operatorProducedQty / part.qty_plan) * 100) - 100
+      : 0
+    const planDeviationLabel = operatorIsWaiting
+      ? "Ожидание запуска"
+      : planDeviationPercent >= 0
+        ? `+${planDeviationPercent}% от графика`
+        : `${planDeviationPercent}% от графика`
+    const drawingPreviewTitle = drawingUrlValue ? part.code : "--"
 
     return (
-      <div className="space-y-4">
-        <div className="flex items-center gap-4">
+      <div className="space-y-5 bg-[#f3f4f6] p-1">
+        <div className="flex items-center gap-3 rounded-xl border border-[#e5e7eb] bg-white px-3 py-2">
           <Button
             variant="ghost"
             size="icon"
             aria-label="Назад"
-            className="h-11 w-11"
+            className="h-10 w-10 rounded-lg"
             onClick={onBack}
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold font-mono">{part.code}</h1>
+            <h1 className="font-mono text-xl font-bold tracking-tight">{part.code}</h1>
             <div className="text-sm text-muted-foreground">
               {part.name}
               {machine && ` | ${machine.name}`}
@@ -829,69 +839,110 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
             </div>
           </div>
         </div>
+
         {actionError && (
-          <div className="text-sm text-destructive" role="status" aria-live="polite">{actionError}</div>
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-destructive" role="status" aria-live="polite">
+            {actionError}
+          </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className={cn(
-            operatorIsWaiting && "border-blue-200 bg-blue-50/50",
-            operatorIsDone && "border-green-200 bg-green-50/50",
-            !operatorIsWaiting && !operatorIsDone && "border-emerald-200 bg-emerald-50/40"
-          )}>
-            <CardContent className="p-4">
-              <div className="text-sm text-muted-foreground">Статус</div>
-              <div className={cn("mt-3 text-4xl font-semibold leading-none", operatorStatusAccent)}>{operatorStatusTitle}</div>
-              <div className="mt-2 text-sm text-muted-foreground">{operatorStatusSubtext}</div>
-            </CardContent>
-          </Card>
-          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">Прогресс</div>
-                <div className="text-xl font-semibold">{progressCardPercent}</div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600">
+                  <CircleDot className="h-4 w-4" />
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">Статус</span>
               </div>
-              <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="mt-4 h-2" />
-              <div className="mt-2 text-sm text-muted-foreground">
-                {operatorIsWaiting ? "Нет активной задачи" : `${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`}
+              <span className={cn("h-2.5 w-2.5 rounded-full ring-4", operatorStatusBadgeTone)} />
+            </div>
+            <div className={cn("mt-4 text-4xl font-bold leading-none", operatorStatusTone)}>
+              {operatorStatusTitle}
+            </div>
+            <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
+              <Clock className="h-3.5 w-3.5" />
+              {operatorIsWaiting ? "Ожидание запуска" : `Время работы: ${operatorElapsedLabel}`}
+            </div>
+          </div>
+
+          <div className={cn("rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm", operatorIsWaiting && "opacity-70")}>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-blue-50 p-1.5 text-blue-600">
+                  <TrendingUp className="h-4 w-4" />
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">Прогресс</span>
               </div>
-            </CardContent>
-          </Card>
-          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
-            <CardContent className="p-4">
-              <div className="text-sm text-muted-foreground">План / Норма</div>
-              <div className="mt-3 text-4xl font-semibold leading-none">
-                {operatorIsWaiting ? "0" : operatorProducedQty.toLocaleString()}
-                <span className="text-2xl text-muted-foreground font-medium"> / {operatorNormQty.toLocaleString()} шт.</span>
+              <span className="text-2xl font-bold text-blue-600">{progressCardPercent}</span>
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
+              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${operatorIsWaiting ? 0 : operatorProgressPercent}%` }} />
+            </div>
+            <div className="mt-2 text-xs text-muted-foreground">
+              {operatorIsWaiting
+                ? "Нет активной задачи"
+                : `Выполнено ${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`}
+            </div>
+          </div>
+
+          <div className={cn("rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm", operatorIsWaiting && "opacity-70")}>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-amber-50 p-1.5 text-amber-600">
+                  <ListChecks className="h-4 w-4" />
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">План / Факт</span>
               </div>
-              <div className="mt-2 text-sm text-muted-foreground">{operatorPlanNormHint}</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-sm text-muted-foreground">Дедлайн смены</div>
-              <div className="mt-3 text-4xl font-mono font-semibold leading-none">{operatorShiftCountdown}</div>
-              <div className="mt-2 text-sm text-muted-foreground">Смена {operatorShiftRangeLabel}</div>
-              <div className={cn("mt-2 text-sm font-semibold", operatorDetailDeadlineTone)}>
-                Дедлайн детали: {operatorDetailDeadlineLabel}
+            </div>
+            <div className="mt-4 flex items-baseline gap-1">
+              <span className="text-4xl font-bold leading-none">{operatorIsWaiting ? 0 : operatorProducedQty.toLocaleString()}</span>
+              <span className="text-xl text-muted-foreground">/ {part.qty_plan.toLocaleString()} шт.</span>
+            </div>
+            <div className={cn(
+              "mt-2 text-xs font-semibold",
+              operatorIsWaiting ? "text-muted-foreground" : planDeviationPercent < 0 ? "text-amber-600" : "text-emerald-600"
+            )}>
+              {planDeviationLabel}
+              {operatorNormQty > 0 && !operatorIsWaiting ? ` · Норма ${operatorNormQty.toLocaleString()} / смена` : ""}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="rounded-lg bg-violet-50 p-1.5 text-violet-600">
+                  <Clock className="h-4 w-4" />
+                </div>
+                <span className="text-sm font-medium text-muted-foreground">Дедлайн смены</span>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="mt-4 font-mono text-4xl font-bold leading-none">{operatorShiftCountdown}</div>
+            <div className="mt-2 text-xs text-muted-foreground">{operatorShiftEndLabel}</div>
+            <div className={cn("mt-1 text-xs font-semibold", operatorDetailDeadlineTone)}>
+              Дедлайн детали: {operatorDetailDeadlineLabel}
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-          <Card className="xl:col-span-8 overflow-hidden">
-            <CardHeader className="border-b bg-muted/20 pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-2xl font-bold">
-                  {operatorInputDisabled ? "Ввод данных (Отключено)" : "Ввод данных"}
-                </CardTitle>
-                <div className="inline-flex items-center rounded-lg bg-muted p-1">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+          <section className="xl:col-span-8">
+            <div className="overflow-hidden rounded-xl border border-[#dfe3e8] bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] bg-gray-50/70 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  <h2 className="text-3xl font-bold tracking-tight">
+                    {operatorInputDisabled ? "Ввод данных (Отключено)" : "Ввод данных"}
+                  </h2>
+                </div>
+                <div className="inline-flex rounded-lg bg-gray-200 p-1">
                   <button
                     type="button"
                     className={cn(
-                      "rounded-md px-3 py-1.5 text-sm font-semibold",
-                      operatorCurrentShift === "day" ? "bg-background text-primary shadow-sm" : "text-muted-foreground"
+                      "rounded-md px-4 py-1.5 text-xs font-bold",
+                      operatorCurrentShift === "day" ? "bg-white text-primary shadow-sm ring-1 ring-black/5" : "text-muted-foreground"
                     )}
                   >
                     Смена 1 (Д)
@@ -899,213 +950,268 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   <button
                     type="button"
                     className={cn(
-                      "rounded-md px-3 py-1.5 text-sm font-semibold",
-                      operatorCurrentShift === "night" ? "bg-background text-primary shadow-sm" : "text-muted-foreground"
+                      "rounded-md px-4 py-1.5 text-xs font-bold",
+                      operatorCurrentShift === "night" ? "bg-white text-primary shadow-sm ring-1 ring-black/5" : "text-muted-foreground"
                     )}
                   >
                     Смена 2 (Н)
                   </button>
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="p-4">
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className={cn("space-y-3", operatorInputDisabled && "opacity-60 grayscale pointer-events-none select-none")}>
-                  <div className="space-y-1">
-                    <Label>Оператор</Label>
-                    <Input value={currentUser?.initials || "—"} readOnly />
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label>Станок</Label>
-                      <Input value={machine?.name || "Не выбран"} readOnly />
+
+              <div className="p-5">
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  <div className={cn("space-y-4", operatorInputDisabled && "pointer-events-none select-none opacity-60 grayscale")}>
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Оператор</Label>
+                      <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                          {currentUser?.initials?.slice(0, 2) || "ОП"}
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-foreground">{currentUser?.name || currentUser?.initials || "Оператор"}</div>
+                          <div className="text-xs text-muted-foreground">ID: {currentUser?.id?.slice(0, 8) || "не задан"}</div>
+                        </div>
+                        <CheckCircle className="h-5 w-5 text-emerald-500" />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <Label>Код детали</Label>
-                      <Input value={part.code} readOnly />
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Станок</Label>
+                        <Input value={machine?.name || "Не выбран"} readOnly className="h-11 bg-white" />
+                      </div>
+                      <div>
+                        <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Код детали</Label>
+                        <Input value={part.code} readOnly className="h-11 bg-gray-50 font-mono" />
+                      </div>
                     </div>
-                  </div>
-                  {canShowStartButton && (
+
+                    {canShowStartButton && (
+                      <Button
+                        type="button"
+                        className="h-14 w-full rounded-xl bg-primary text-base font-bold uppercase tracking-wide hover:bg-primary/90"
+                        onClick={() => void handleOperatorStart()}
+                        disabled={isStartingOperatorTask}
+                      >
+                        <PlayCircle className="mr-2 h-5 w-5" />
+                        {isStartingOperatorTask ? "Запуск..." : "Начать работу"}
+                      </Button>
+                    )}
+                    {operatorStartError && <div className="text-xs text-destructive">{operatorStartError}</div>}
+
+                    <div className="grid grid-cols-1 gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 sm:grid-cols-2">
+                      <div>
+                        <Label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-emerald-600">Годные (шт)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={operatorQtyGood}
+                          onChange={(event) => setOperatorQtyGood(event.target.value)}
+                          disabled={operatorInputDisabled}
+                          className="h-11 text-center text-2xl font-bold"
+                        />
+                      </div>
+                      <div>
+                        <Label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-red-600">Брак (шт)</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={operatorQtyScrap}
+                          onChange={(event) => setOperatorQtyScrap(event.target.value)}
+                          disabled={operatorInputDisabled}
+                          className="h-11 text-center text-2xl font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Причина брака</Label>
+                      <Select
+                        value={operatorDeviationReason || "none"}
+                        onValueChange={(value) => setOperatorDeviationReason(value === "none" ? null : value as DeviationReason)}
+                        disabled={operatorInputDisabled}
+                      >
+                        <SelectTrigger className="h-11">
+                          <SelectValue placeholder="-- Не выбрано --" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">-- Не выбрано --</SelectItem>
+                          {Object.entries(DEVIATION_REASON_LABELS).map(([key, label]) => (
+                            <SelectItem key={key} value={key}>{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Примечание</Label>
+                      <textarea
+                        value={operatorComment}
+                        onChange={(event) => setOperatorComment(event.target.value)}
+                        disabled={operatorInputDisabled}
+                        placeholder="Доп. информация..."
+                        rows={2}
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-foreground outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                    </div>
+
                     <Button
                       type="button"
-                      className="h-12 w-full text-lg font-semibold"
-                      onClick={() => void handleOperatorStart()}
-                      disabled={isStartingOperatorTask}
+                      className="h-14 w-full rounded-xl bg-primary text-base font-bold uppercase tracking-wide hover:bg-primary/90"
+                      onClick={() => void handleOperatorFactSave()}
+                      disabled={operatorInputDisabled || isSavingOperatorFact}
                     >
-                      <PlayCircle className="mr-2 h-5 w-5" />
-                      {isStartingOperatorTask ? "Запуск..." : "НАЧАТЬ РАБОТУ"}
+                      {isSavingOperatorFact ? "Сохраняем..." : "Сохранить данные"}
                     </Button>
-                  )}
-                  {operatorStartError && (
-                    <div className="text-xs text-destructive">{operatorStartError}</div>
-                  )}
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label>Годные (шт)</Label>
-                      <Input
-                        type="number"
-                        value={operatorQtyGood}
-                        onChange={(event) => setOperatorQtyGood(event.target.value)}
-                        disabled={operatorInputDisabled}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Брак (шт)</Label>
-                      <Input
-                        type="number"
-                        value={operatorQtyScrap}
-                        onChange={(event) => setOperatorQtyScrap(event.target.value)}
-                        disabled={operatorInputDisabled}
-                      />
-                    </div>
+
+                    {operatorFactError && (
+                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-destructive">{operatorFactError}</div>
+                    )}
+                    {operatorFactHint && (
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{operatorFactHint}</div>
+                    )}
+                    {operatorInputDisabledReason && (
+                      <div className="text-xs text-muted-foreground">{operatorInputDisabledReason}</div>
+                    )}
                   </div>
-                  <div className="space-y-1">
-                    <Label>Причина брака</Label>
-                    <Select
-                      value={operatorDeviationReason || "none"}
-                      onValueChange={(value) => setOperatorDeviationReason(value === "none" ? null : value as DeviationReason)}
-                      disabled={operatorInputDisabled}
+
+                  <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[#dfe3e8] bg-white">
+                    <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-gray-50 px-4 py-2.5">
+                      <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
+                        <FileImage className="h-4 w-4 text-primary" />
+                        Чертеж: {drawingPreviewTitle}
+                      </h3>
+                      {drawingUrlValue ? (
+                        <Button variant="ghost" size="sm" className="text-xs text-primary hover:text-primary" onClick={() => void handleOpenDrawing()}>
+                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                          На весь экран
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div
+                      className="relative flex min-h-[480px] flex-1 items-center justify-center bg-white p-4"
+                      style={{
+                        backgroundImage:
+                          "linear-gradient(#e5e7eb 1px, transparent 1px), linear-gradient(90deg, #e5e7eb 1px, transparent 1px)",
+                        backgroundSize: "20px 20px",
+                      }}
                     >
-                      <SelectTrigger>
-                        <SelectValue placeholder="-- Не выбрано --" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">-- Не выбрано --</SelectItem>
-                        {Object.entries(DEVIATION_REASON_LABELS).map(([key, label]) => (
-                          <SelectItem key={key} value={key}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Примечание</Label>
-                    <Input
-                      value={operatorComment}
-                      onChange={(event) => setOperatorComment(event.target.value)}
-                      disabled={operatorInputDisabled}
-                      placeholder="Доп. информация..."
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    className="h-11 w-full text-lg font-semibold"
-                    onClick={() => void handleOperatorFactSave()}
-                    disabled={operatorInputDisabled || isSavingOperatorFact}
-                  >
-                    {isSavingOperatorFact ? "Сохраняем..." : "СОХРАНИТЬ ДАННЫЕ"}
-                  </Button>
-                  {operatorFactError && (
-                    <div className="text-xs text-destructive">{operatorFactError}</div>
-                  )}
-                  {operatorFactHint && (
-                    <div className="text-xs text-emerald-700">{operatorFactHint}</div>
-                  )}
-                  {operatorInputDisabledReason && (
-                    <div className="text-xs text-muted-foreground">{operatorInputDisabledReason}</div>
-                  )}
-                </div>
-                <div className="rounded-xl border overflow-hidden">
-                  <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-2">
-                    <div className="font-semibold">Чертеж: {drawingUrlValue ? part.code : "--"}</div>
-                    {drawingUrlValue ? (
-                      <Button variant="ghost" size="sm" onClick={() => void handleOpenDrawing()}>
-                        На весь экран
-                      </Button>
-                    ) : null}
-                  </div>
-                  <div className="min-h-[480px] bg-muted/30 p-4">
-                    {drawingUrlValue && isImageDrawing && !drawingError ? (
-                      <div className="h-full w-full rounded-md border bg-background p-2">
+                      {drawingUrlValue && isImageDrawing && !drawingError ? (
                         <img
                           src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
                           alt={`Чертёж ${part.code}`}
-                          className="h-full max-h-[430px] w-full object-contain"
+                          className="h-full max-h-[430px] w-full object-contain drop-shadow-sm"
                           onError={() => setDrawingError(true)}
                         />
-                      </div>
-                    ) : (
-                      <div className="flex h-full min-h-[430px] items-center justify-center rounded-md border bg-background">
-                        <div className="text-center text-muted-foreground">
-                          <AlertCircle className="mx-auto mb-2 h-12 w-12 opacity-50" />
-                          <p>{drawingUrlValue ? "Не удалось открыть чертеж" : "Выберите задачу и загрузите чертеж"}</p>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-gray-300 bg-white/80 px-6 py-8 text-center text-muted-foreground backdrop-blur-sm">
+                          <AlertCircle className="mx-auto mb-2 h-10 w-10 opacity-60" />
+                          <p className="text-sm">
+                            {drawingUrlValue
+                              ? "Не удалось открыть чертеж"
+                              : "Чертеж не загружен"}
+                          </p>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
 
-          <div className="space-y-4 xl:col-span-4">
-            <Card>
-              <CardHeader className="border-b bg-muted/20 py-3">
-                <CardTitle className="flex items-center justify-between text-lg">
-                  <span>ЗАДАЧИ НА СМЕНУ</span>
-                  <Badge variant="secondary">{activePartTasks.length}</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
+          <aside className="space-y-6 xl:col-span-4">
+            <div className="overflow-hidden rounded-xl border border-[#dfe3e8] bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-gray-50/60 px-4 py-3">
+                <h2 className="text-sm font-bold uppercase tracking-wide">Задачи на смену</h2>
+                <Badge className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary hover:bg-primary/10">
+                  {activePartTasks.length}
+                </Badge>
+              </div>
+              <div className="divide-y divide-gray-100">
                 {activePartTasks.length === 0 ? (
                   <div className="px-4 py-6 text-sm text-muted-foreground">Нет активных задач</div>
                 ) : (
-                  <div className="divide-y">
-                    {activePartTasks.slice(0, 4).map((task) => (
-                      <div key={task.id} className="px-4 py-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            {task.status === "in_progress" ? "В процессе" : task.status === "accepted" ? "Текущее" : "Ожидание"}
+                  activePartTasks.slice(0, 4).map((task) => {
+                    const isCurrent = task.status === "in_progress"
+                    const isPriority = task.status === "accepted"
+                    return (
+                      <div
+                        key={task.id}
+                        className={cn(
+                          "px-4 py-3",
+                          isCurrent && "border-l-4 border-blue-500",
+                          isPriority && !isCurrent && "border-l-4 border-amber-500 bg-amber-50/30",
+                          !isCurrent && !isPriority && "border-l-4 border-gray-300 opacity-80"
+                        )}
+                      >
+                        <div className="mb-1 flex items-start justify-between gap-2">
+                          <div className={cn(
+                            "text-xs font-bold uppercase",
+                            isCurrent ? "text-blue-600" : isPriority ? "text-amber-600" : "text-muted-foreground"
+                          )}>
+                            {isCurrent ? "В процессе" : isPriority ? "Высокий приоритет" : "Ожидание"}
                           </div>
                           <div className="text-xs text-muted-foreground">{new Date(task.due_date).toLocaleDateString("ru-RU")}</div>
                         </div>
-                        <div className="mt-1 text-xl font-semibold">{task.title}</div>
+                        <div className="text-2xl font-semibold leading-tight">{task.title}</div>
                         <div className="mt-1 text-sm text-muted-foreground">{task.description || "Без описания"}</div>
                       </div>
-                    ))}
-                  </div>
+                    )
+                  })
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
 
-            <Card>
-              <CardHeader className="border-b bg-muted/20 py-3">
-                <CardTitle className="flex items-center justify-between text-lg">
-                  <span>ИСТОРИЯ СМЕН</span>
-                  <span className="text-sm font-medium text-primary">См. все</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 p-4">
+            <div className="overflow-hidden rounded-xl border border-[#dfe3e8] bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-gray-50/60 px-4 py-3">
+                <h2 className="text-sm font-bold uppercase tracking-wide">История смен</h2>
+                <span className="text-xs font-medium text-primary">См. все</span>
+              </div>
+              <div className="max-h-[430px] divide-y divide-gray-100 overflow-y-auto">
                 {recentShiftFacts.length === 0 ? (
-                  <div className="text-sm text-muted-foreground">Записей пока нет</div>
+                  <div className="px-4 py-6 text-sm text-muted-foreground">Записей пока нет</div>
                 ) : (
-                  recentShiftFacts.map((fact) => (
-                    <div key={fact.id} className="rounded-lg border p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="font-medium">
-                          {new Date(fact.date).toLocaleDateString("ru-RU")}, {fact.shift_type === "day" ? "Смена 1" : fact.shift_type === "night" ? "Смена 2" : "Без смены"}
+                  recentShiftFacts.map((fact) => {
+                    const factEfficiency = fact.qty_expected && fact.qty_expected > 0
+                      ? Math.min(100, Math.round((fact.qty_good / fact.qty_expected) * 100))
+                      : 100
+                    const factRangeLabel = fact.shift_type === "day" ? "09:00 - 21:00" : "21:00 - 09:00"
+                    return (
+                      <div key={fact.id} className="px-4 py-3">
+                        <div className="mb-2 flex items-center justify-between">
+                          <div className="text-xl font-semibold">
+                            {new Date(fact.date).toLocaleDateString("ru-RU")}, {fact.shift_type === "day" ? "Смена 1" : "Смена 2"}
+                          </div>
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {factRangeLabel}
+                          </span>
                         </div>
-                        <div className="text-xs text-muted-foreground">{STAGE_LABELS[fact.stage]}</div>
+                        <div className="mb-1 grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-xs text-muted-foreground">Годные</div>
+                            <div className="text-2xl font-bold text-emerald-600">{fact.qty_good.toLocaleString()} шт</div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs text-muted-foreground">Брак</div>
+                            <div className="text-2xl font-bold text-red-600">{fact.qty_scrap.toLocaleString()} шт</div>
+                          </div>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                          <div
+                            className={cn("h-full rounded-full", factEfficiency >= 95 ? "bg-emerald-500" : factEfficiency >= 85 ? "bg-amber-500" : "bg-red-500")}
+                            style={{ width: `${factEfficiency}%` }}
+                          />
+                        </div>
+                        <div className="mt-1 text-[11px] text-muted-foreground">Эффективность: {factEfficiency}%</div>
                       </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <div className="text-muted-foreground">Годные</div>
-                          <div className="font-semibold text-green-600">{fact.qty_good.toLocaleString()} шт</div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-muted-foreground">Брак</div>
-                          <div className="font-semibold text-destructive">{fact.qty_scrap.toLocaleString()} шт</div>
-                        </div>
-                      </div>
-                      <Progress
-                        className="mt-2 h-2"
-                        value={fact.qty_expected && fact.qty_expected > 0 ? Math.min(100, Math.round((fact.qty_good / fact.qty_expected) * 100)) : 100}
-                      />
-                    </div>
-                  ))
+                    )
+                  })
                 )}
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
     )
