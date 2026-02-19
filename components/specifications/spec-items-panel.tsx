@@ -33,12 +33,15 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
   const linkedParts = useMemo(() => {
     const result: Part[] = []
     for (const item of items) {
+      if (!permissions.canViewCooperation && item.item_type === "coop") {
+        continue
+      }
       if (!item.part_id) continue
       const part = getPartById(item.part_id)
       if (part) result.push(part)
     }
     return result
-  }, [getPartById, items])
+  }, [getPartById, items, permissions.canViewCooperation])
 
   if (items.length === 0) {
     return (

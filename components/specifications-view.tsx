@@ -116,6 +116,7 @@ export function SpecificationsView() {
   const selectedSpecItemsForView = useMemo(() => {
     if (permissions.canViewCooperation) return selectedSpecItems
     return selectedSpecItems.filter((item) => {
+      if (item.item_type === "coop") return false
       if (!item.part_id) return false
       const part = getPartById(item.part_id)
       return Boolean(part && !part.is_cooperation)
