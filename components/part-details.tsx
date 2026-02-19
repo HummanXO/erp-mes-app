@@ -808,18 +808,21 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     const operatorElapsedSeconds = Math.floor((operatorElapsedMs % 60_000) / 1_000)
     const operatorElapsedLabel = `${String(operatorElapsedHours).padStart(2, "0")}:${String(operatorElapsedMinutes).padStart(2, "0")}:${String(operatorElapsedSeconds).padStart(2, "0")}`
     const operatorShiftEndLabel = operatorCurrentShift === "day" ? "Окончание смены в 21:00" : "Окончание смены в 09:00"
-    const planDeviationPercent = part.qty_plan > 0
-      ? Math.round((operatorProducedQty / part.qty_plan) * 100) - 100
-      : 0
+    const planNormQty = operatorNormQty > 0 ? operatorNormQty : null
+    const planDeviationPercent = planNormQty
+      ? Math.round((operatorProducedQty / planNormQty) * 100) - 100
+      : null
     const planDeviationLabel = operatorIsWaiting
       ? "Ожидание запуска"
-      : planDeviationPercent >= 0
-        ? `+${planDeviationPercent}% от графика`
-        : `${planDeviationPercent}% от графика`
+      : planDeviationPercent === null
+        ? "Норма не задана (задаёт мастер/нач. цеха)"
+        : planDeviationPercent >= 0
+          ? `+${planDeviationPercent}% от нормы`
+          : `${planDeviationPercent}% от нормы`
     const drawingPreviewTitle = drawingUrlValue ? part.code : "--"
 
     return (
-      <div className="space-y-5 bg-[#f3f4f6] p-1">
+      <div className="space-y-5 rounded-xl bg-white p-1">
         <div className="flex items-center gap-3 rounded-xl border border-[#e5e7eb] bg-white px-3 py-2">
           <Button
             variant="ghost"
@@ -892,19 +895,23 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 <div className="rounded-lg bg-amber-50 p-1.5 text-amber-600">
                   <ListChecks className="h-4 w-4" />
                 </div>
-                <span className="text-sm font-medium text-muted-foreground">План / Факт</span>
+                <span className="text-sm font-medium text-muted-foreground">План (норма) / Факт</span>
               </div>
             </div>
             <div className="mt-4 flex items-baseline gap-1">
               <span className="text-4xl font-bold leading-none">{operatorIsWaiting ? 0 : operatorProducedQty.toLocaleString()}</span>
-              <span className="text-xl text-muted-foreground">/ {part.qty_plan.toLocaleString()} шт.</span>
+              <span className="text-xl text-muted-foreground">/ {planNormQty?.toLocaleString() || "—"} шт.</span>
             </div>
             <div className={cn(
               "mt-2 text-xs font-semibold",
-              operatorIsWaiting ? "text-muted-foreground" : planDeviationPercent < 0 ? "text-amber-600" : "text-emerald-600"
+              operatorIsWaiting || planDeviationPercent === null
+                ? "text-muted-foreground"
+                : planDeviationPercent < 0
+                  ? "text-amber-600"
+                  : "text-emerald-600"
             )}>
               {planDeviationLabel}
-              {operatorNormQty > 0 && !operatorIsWaiting ? ` · Норма ${operatorNormQty.toLocaleString()} / смена` : ""}
+              {operatorNormQty > 0 && !operatorIsWaiting ? ` · Пусконаладочная норма ${operatorNormQty.toLocaleString()} / смена` : ""}
             </div>
           </div>
 
@@ -914,7 +921,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 <div className="rounded-lg bg-violet-50 p-1.5 text-violet-600">
                   <Clock className="h-4 w-4" />
                 </div>
-                <span className="text-sm font-medium text-muted-foreground">Дедлайн смены</span>
+                <span className="text-sm font-medium text-muted-foreground">До конца смены</span>
               </div>
             </div>
             <div className="mt-4 font-mono text-4xl font-bold leading-none">{operatorShiftCountdown}</div>
@@ -979,7 +986,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div>
                         <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Станок</Label>
-                        <Input value={machine?.name || "Не выбран"} readOnly className="h-11 bg-white" />
+                        <Input value={machine?.name || "Не выбран"} readOnly className="h-11 bg-gray-100" />
                       </div>
                       <div>
                         <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Код детали</Label>
@@ -1009,7 +1016,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                           value={operatorQtyGood}
                           onChange={(event) => setOperatorQtyGood(event.target.value)}
                           disabled={operatorInputDisabled}
-                          className="h-11 text-center text-2xl font-bold"
+                          className="h-11 bg-white text-center text-2xl font-bold"
                         />
                       </div>
                       <div>
@@ -1020,7 +1027,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                           value={operatorQtyScrap}
                           onChange={(event) => setOperatorQtyScrap(event.target.value)}
                           disabled={operatorInputDisabled}
-                          className="h-11 text-center text-2xl font-bold"
+                          className="h-11 bg-white text-center text-2xl font-bold"
                         />
                       </div>
                     </div>
@@ -1032,7 +1039,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         onValueChange={(value) => setOperatorDeviationReason(value === "none" ? null : value as DeviationReason)}
                         disabled={operatorInputDisabled}
                       >
-                        <SelectTrigger className="h-11">
+                        <SelectTrigger className="h-11 w-full bg-white">
                           <SelectValue placeholder="-- Не выбрано --" />
                         </SelectTrigger>
                         <SelectContent>
