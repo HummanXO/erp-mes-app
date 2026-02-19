@@ -770,7 +770,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       0
     )
     const qtyScrap = Math.max(factsScrap, backendStatusScrap)
-    const qtyDone = part.qty_done
+    const backendStageQtyDone = activeStages.reduce(
+      (max, stageStatus) =>
+        Math.max(max, typeof stageStatus.qty_good === "number" ? stageStatus.qty_good : 0),
+      0
+    )
+    const factsStageTotals = new Map<ProductionStage, number>()
+    for (const fact of facts) {
+      if (!PROGRESS_STAGES.includes(fact.stage)) continue
+      factsStageTotals.set(fact.stage, (factsStageTotals.get(fact.stage) || 0) + fact.qty_good)
+    }
+    const factsQtyDone = Math.max(0, ...Array.from(factsStageTotals.values()))
+    const qtyDone = Math.max(part.qty_done, backendStageQtyDone, factsQtyDone)
     const overallPercent = part.qty_plan > 0
       ? Math.min(100, Math.max(0, Math.round((qtyDone / part.qty_plan) * 100)))
       : 0

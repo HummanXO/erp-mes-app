@@ -128,6 +128,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const [operatorFactError, setOperatorFactError] = useState("")
   const [operatorFactHint, setOperatorFactHint] = useState("")
   const [isSavingOperatorFact, setIsSavingOperatorFact] = useState(false)
+  const [operatorEditMode, setOperatorEditMode] = useState(true)
   const [operatorStartError, setOperatorStartError] = useState("")
   const [isStartingOperatorTask, setIsStartingOperatorTask] = useState(false)
   const [operatorNow, setOperatorNow] = useState(() => new Date())
@@ -478,12 +479,6 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     .filter((task) => task.status !== "done")
     .sort((a, b) => a.due_date.localeCompare(b.due_date))
   const recentShiftFacts = sortedFacts.slice(0, 4)
-  const operatorInputDisabled = operatorIsWaiting || operatorIsDone
-  const operatorInputDisabledReason = operatorIsWaiting
-    ? "Ввод данных станет доступен после перехода детали в работу."
-    : operatorIsDone
-      ? "Деталь завершена. Ввод факта закрыт."
-      : null
   const operatorCurrentShift: ShiftType = (() => {
     const hour = operatorNow.getHours()
     return hour >= 9 && hour < 21 ? "day" : "night"
@@ -514,6 +509,15 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       fact.stage === "machining" &&
       fact.shift_type === operatorCurrentShift
   )
+  const operatorInputDisabled = operatorIsWaiting || operatorIsDone
+  const operatorFormLockedByState = operatorInputDisabled
+  const operatorFormReadOnly = operatorFormLockedByState || (Boolean(operatorCurrentFact) && !operatorEditMode)
+  const canEditExistingFact = Boolean(operatorCurrentFact) && !operatorFormLockedByState
+  const operatorInputDisabledReason = operatorIsWaiting
+    ? "Ввод данных станет доступен после перехода детали в работу."
+    : operatorIsDone
+      ? "Деталь завершена. Ввод факта закрыт."
+      : null
   const startableTask =
     operatorTaskPool.find((task) => task.status === "accepted") ||
     operatorTaskPool.find((task) => task.status === "open")
@@ -670,11 +674,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       setOperatorQtyScrap(String(operatorCurrentFact.qty_scrap ?? 0))
       setOperatorDeviationReason(operatorCurrentFact.deviation_reason ?? null)
       setOperatorComment(operatorCurrentFact.comment || "")
+      setOperatorEditMode(false)
     } else {
       setOperatorQtyGood("0")
       setOperatorQtyScrap("0")
       setOperatorDeviationReason(null)
       setOperatorComment("")
+      setOperatorEditMode(true)
     }
     setOperatorFactError("")
     setOperatorFactHint("")
@@ -705,7 +711,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       setOperatorFactError("Станок не назначен в карточке детали")
       return
     }
-    if (operatorInputDisabled) {
+    if (operatorFormLockedByState) {
       setOperatorFactError("Ввод данных недоступен в текущем статусе")
       return
     }
@@ -756,6 +762,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         })
       }
       setOperatorFactHint("Данные по смене сохранены")
+      setOperatorEditMode(false)
     } catch (error) {
       setOperatorFactError(error instanceof Error ? error.message : "Не удалось сохранить данные")
     } finally {
@@ -815,7 +822,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     const planDeviationLabel = operatorIsWaiting
       ? "Ожидание запуска"
       : planDeviationPercent === null
-        ? "Норма не задана (задаёт мастер/нач. цеха)"
+        ? "Норма не задана"
         : planDeviationPercent >= 0
           ? `+${planDeviationPercent}% от нормы`
           : `${planDeviationPercent}% от нормы`
@@ -968,7 +975,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
 
               <div className="p-5">
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  <div className={cn("space-y-4", operatorInputDisabled && "pointer-events-none select-none opacity-60 grayscale")}>
+                  <div className="space-y-4">
                     <div>
                       <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Оператор</Label>
                       <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
@@ -1015,8 +1022,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                           min={0}
                           value={operatorQtyGood}
                           onChange={(event) => setOperatorQtyGood(event.target.value)}
-                          disabled={operatorInputDisabled}
-                          className="h-11 bg-white text-center text-2xl font-bold"
+                          disabled={operatorFormReadOnly}
+                          className={cn(
+                            "h-11 bg-white text-center text-2xl font-bold",
+                            operatorFormReadOnly && "border-zinc-300 bg-zinc-200 text-zinc-900"
+                          )}
                         />
                       </div>
                       <div>
@@ -1026,8 +1036,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                           min={0}
                           value={operatorQtyScrap}
                           onChange={(event) => setOperatorQtyScrap(event.target.value)}
-                          disabled={operatorInputDisabled}
-                          className="h-11 bg-white text-center text-2xl font-bold"
+                          disabled={operatorFormReadOnly}
+                          className={cn(
+                            "h-11 bg-white text-center text-2xl font-bold",
+                            operatorFormReadOnly && "border-zinc-300 bg-zinc-200 text-zinc-900"
+                          )}
                         />
                       </div>
                     </div>
@@ -1037,7 +1050,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                       <Select
                         value={operatorDeviationReason || "none"}
                         onValueChange={(value) => setOperatorDeviationReason(value === "none" ? null : value as DeviationReason)}
-                        disabled={operatorInputDisabled}
+                        disabled={operatorFormReadOnly}
                       >
                         <SelectTrigger className="h-11 w-full bg-white">
                           <SelectValue placeholder="-- Не выбрано --" />
@@ -1056,21 +1069,31 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                       <textarea
                         value={operatorComment}
                         onChange={(event) => setOperatorComment(event.target.value)}
-                        disabled={operatorInputDisabled}
+                        disabled={operatorFormReadOnly}
                         placeholder="Доп. информация..."
                         rows={2}
                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-foreground outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                       />
                     </div>
 
-                    <Button
-                      type="button"
-                      className="h-14 w-full rounded-xl bg-primary text-base font-bold uppercase tracking-wide hover:bg-primary/90"
-                      onClick={() => void handleOperatorFactSave()}
-                      disabled={operatorInputDisabled || isSavingOperatorFact}
-                    >
-                      {isSavingOperatorFact ? "Сохраняем..." : "Сохранить данные"}
-                    </Button>
+                    {canEditExistingFact && !operatorEditMode ? (
+                      <Button
+                        type="button"
+                        className="h-14 w-full rounded-xl bg-zinc-900 text-base font-bold uppercase tracking-wide hover:bg-zinc-800"
+                        onClick={() => setOperatorEditMode(true)}
+                      >
+                        Редактировать
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        className="h-14 w-full rounded-xl bg-primary text-base font-bold uppercase tracking-wide hover:bg-primary/90"
+                        onClick={() => void handleOperatorFactSave()}
+                        disabled={operatorFormLockedByState || isSavingOperatorFact}
+                      >
+                        {isSavingOperatorFact ? "Сохраняем..." : operatorCurrentFact ? "Сохранить изменения" : "Сохранить данные"}
+                      </Button>
+                    )}
 
                     {operatorFactError && (
                       <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-destructive">{operatorFactError}</div>
