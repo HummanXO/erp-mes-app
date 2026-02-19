@@ -79,6 +79,7 @@ type FlowCard = FlowStage & {
   doneQty: number
   percent: number
   availableQty: number
+  inWorkQty: number
   inTransitQty: number
   nextStage: FlowStageKey | "fg" | null
 }
@@ -264,6 +265,42 @@ function flowShipButtonLabel(stage: FlowStageKey, target: FlowStageKey | "fg" | 
   return `Отправить на ${STAGE_LABELS[target]}`
 }
 
+function movementEffectiveQty(entry: LogisticsEntry): number {
+  const status = movementStatus(entry)
+  const sentQty = entry.qty_sent ?? entry.quantity ?? 0
+  if (RECEIVED_SHIPMENT_STATUSES.has(status)) {
+    return entry.qty_received ?? sentQty
+  }
+  return sentQty
+}
+
+function stageKeyFromLocation(value?: string | null): FlowStageKey | "fg" | null {
+  const raw = String(value || "").trim().toLowerCase()
+  if (!raw) return null
+  if (raw.includes("мех")) return "machining"
+  if (raw.includes("слес")) return "fitting"
+  if (raw.includes("термо")) return "heat_treatment"
+  if (raw.includes("гальв")) return "galvanic"
+  if (raw.includes("склад гп")) return "fg"
+  return null
+}
+
+function parseTransferredOut(notes?: string | null): number {
+  if (!notes) return 0
+  const match = notes.match(/(?:^|;)\s*xfer_out=(\d+)/i)
+  if (!match) return 0
+  const parsed = Number.parseInt(match[1], 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function mergeTransferredOut(notes: string | undefined, increment: number): string {
+  const base = notes || ""
+  const current = parseTransferredOut(base)
+  const next = Math.max(0, current + increment)
+  const cleaned = base.replace(/(?:^|;)\s*xfer_out=\d+/gi, "").trim().replace(/^;|;$/g, "").trim()
+  return cleaned ? `${cleaned}; xfer_out=${next}` : `xfer_out=${next}`
+}
+
 export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
   const {
     currentUser,
@@ -307,10 +344,44 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
   const sortedLogistics = useMemo(() => sortByEventDate(logistics), [logistics])
 
+  const stageOutgoingByLogistics = useMemo(() => {
+    const map = new Map<FlowStageKey, number>()
+    for (const entry of sortedLogistics) {
+      const status = movementStatus(entry)
+      if (status === "cancelled" || status === "returned") continue
+      const sourceStage = stageKeyFromLocation(entry.from_location) ?? stageKeyFromLocation(entry.from_holder)
+      if (!sourceStage || sourceStage === "fg") continue
+      const qty = movementEffectiveQty(entry)
+      if (qty <= 0) continue
+      map.set(sourceStage, (map.get(sourceStage) || 0) + qty)
+    }
+    return map
+  }, [sortedLogistics])
+
   const stageStatusByStage = useMemo(
     () => new Map((part.stage_statuses || []).map((status) => [status.stage, status] as const)),
     [part.stage_statuses]
   )
+
+  const stageTransferredOutByStage = useMemo(() => {
+    const map = new Map<FlowStageKey, number>()
+    for (const stageStatus of part.stage_statuses || []) {
+      if (!FLOW_STAGE_BY_KEY.has(stageStatus.stage as FlowStageKey)) continue
+      const stageKey = stageStatus.stage as FlowStageKey
+      map.set(stageKey, parseTransferredOut(stageStatus.notes))
+    }
+    return map
+  }, [part.stage_statuses])
+
+  const stageOutgoingQtyByStage = useMemo(() => {
+    const map = new Map<FlowStageKey, number>()
+    for (const stage of FLOW_STAGES) {
+      const byLogistics = stageOutgoingByLogistics.get(stage.key) || 0
+      const byNotes = stageTransferredOutByStage.get(stage.key) || 0
+      map.set(stage.key, Math.max(byLogistics, byNotes))
+    }
+    return map
+  }, [stageOutgoingByLogistics, stageTransferredOutByStage])
 
   const stageByStatusId = useMemo(() => {
     const map = new Map<string, ProductionStage>()
@@ -368,11 +439,9 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
       const doneQty = stageQtyByStage.get(flowStage.key) || 0
       const currentStageIndex = activeChain.indexOf(flowStage.key)
       const previousStage = currentStageIndex > 0 ? activeChain[currentStageIndex - 1] : null
-      const previousDone = previousStage ? stageQtyByStage.get(previousStage) || 0 : 0
-      const availableQty =
-        flowStage.key === "machining"
-          ? doneQty
-          : Math.max(previousDone - doneQty, 0)
+      const previousOutgoingQty = previousStage ? stageOutgoingQtyByStage.get(previousStage) || 0 : 0
+      const currentOutgoingQty = stageOutgoingQtyByStage.get(flowStage.key) || 0
+      const availableQty = Math.max(doneQty - currentOutgoingQty, 0)
 
       const stageId = stageStatus?.id ? String(stageStatus.id) : ""
       const inTransitQty = sortedLogistics
@@ -380,7 +449,14 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
           if (!stageId) return false
           return String(entry.stage_id || "") === stageId && ACTIVE_SHIPMENT_STATUSES.has(movementStatus(entry))
         })
-        .reduce((sum, entry) => sum + (entry.qty_sent ?? entry.quantity ?? 0), 0)
+        .reduce((sum, entry) => sum + movementEffectiveQty(entry), 0)
+
+      const inWorkQty =
+        flowStage.external
+          ? inTransitQty
+          : flowStage.key === "machining"
+            ? 0
+            : Math.max(previousOutgoingQty - doneQty, 0)
 
       const nextStage: FlowStageKey | "fg" | null =
         currentStageIndex < 0
@@ -404,12 +480,13 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
         percent:
           part.qty_plan > 0 ? Math.max(0, Math.min(100, Math.round((doneQty / part.qty_plan) * 100))) : 0,
         availableQty,
+        inWorkQty,
         inTransitQty,
         nextStage,
       })
       return cards
     }, [])
-  }, [activeChain, part.qty_plan, sortedLogistics, stageQtyByStage, stageStatusByStage])
+  }, [activeChain, part.qty_plan, sortedLogistics, stageOutgoingQtyByStage, stageQtyByStage, stageStatusByStage])
 
   const flowCardByStage = useMemo(() => {
     return new Map(flowCards.map((flowCard) => [flowCard.key, flowCard]))
@@ -424,7 +501,11 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
   const machiningMachines = machines.filter((machineCandidate) => machineCandidate.department === "machining")
   const machineNorm = part.machine_id ? getMachineNorm(part.machine_id, part.id, "machining") : undefined
 
-  const finalQty = progress.qtyDone
+  const finalQty = useMemo(() => {
+    const lastStage = activeChain[activeChain.length - 1]
+    if (!lastStage) return 0
+    return stageOutgoingQtyByStage.get(lastStage) || 0
+  }, [activeChain, stageOutgoingQtyByStage])
   const finalPercent = part.qty_plan > 0 ? Math.max(0, Math.min(100, Math.round((finalQty / part.qty_plan) * 100))) : 0
 
   const wipQty = useMemo(() => {
@@ -678,10 +759,34 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
     setIsSubmittingTransfer(true)
     setTransferError("")
     try {
-      updatePartStageStatus(part.id, transferStage, "done", currentUser?.id)
-      if (nextStage) {
-        updatePartStageStatus(part.id, nextStage, "in_progress", currentUser?.id)
-      }
+      const updatedStageStatuses = (part.stage_statuses || []).map((status) => {
+        if (status.stage === transferStage) {
+          return {
+            ...status,
+            status: status.status === "pending" ? "in_progress" : status.status,
+            operator_id: currentUser?.id || status.operator_id,
+            started_at: status.started_at || new Date().toISOString(),
+            notes: mergeTransferredOut(status.notes, qty),
+          }
+        }
+
+        if (nextStage && status.stage === nextStage) {
+          return {
+            ...status,
+            status: status.status === "pending" ? "in_progress" : status.status,
+            operator_id: currentUser?.id || status.operator_id,
+            started_at: status.started_at || new Date().toISOString(),
+          }
+        }
+
+        return status
+      })
+
+      await updatePart({
+        ...part,
+        stage_statuses: updatedStageStatuses,
+      })
+
       setTransferStage(null)
       setTransferQty("")
       setTransferComment("")
@@ -762,7 +867,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
         date: localIsoDate(),
       })
 
-      updatePartStageStatus(part.id, sendStage, "done", currentUser?.id)
+      updatePartStageStatus(part.id, sendStage, "in_progress", currentUser?.id)
       if (destinationStage !== "fg") {
         updatePartStageStatus(part.id, destinationStage, "in_progress", currentUser?.id)
       }
@@ -1245,7 +1350,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                   permissions.canEditFacts &&
                   !!nextStage
                 const shippingButtonLabel = flowShipButtonLabel(flowCard.key, nextStage)
-                const inWork = flowCard.external ? flowCard.inTransitQty : 0
+                const inWork = flowCard.inWorkQty
                 const showInWork = flowCard.key !== "machining"
 
                 return (
