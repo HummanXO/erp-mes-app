@@ -32,6 +32,7 @@ export function SpecificationsView() {
     revokeAccess,
     getSpecificationsForCurrentUser,
     getSpecItemsBySpecification,
+    getPartById,
     getAccessGrantsForSpecification,
     getUserById,
   } = useApp()
@@ -111,6 +112,15 @@ export function SpecificationsView() {
     () => (selectedSpecification ? getSpecItemsBySpecification(selectedSpecification.id) : []),
     [selectedSpecification, getSpecItemsBySpecification]
   )
+  const isOperator = currentUser?.role === "operator"
+  const selectedSpecItemsForView = useMemo(() => {
+    if (!isOperator) return selectedSpecItems
+    return selectedSpecItems.filter((item) => {
+      if (!item.part_id) return false
+      const part = getPartById(item.part_id)
+      return Boolean(part && !part.is_cooperation)
+    })
+  }, [getPartById, isOperator, selectedSpecItems])
 
   const selectedGrants = useMemo(
     () => (selectedSpecification ? getAccessGrantsForSpecification(selectedSpecification.id) : []),
@@ -119,7 +129,6 @@ export function SpecificationsView() {
 
   const canManageSpecifications = permissions.canManageSpecifications
   const canGrantSpecificationAccess = permissions.canGrantSpecificationAccess
-  const isOperator = currentUser?.role === "operator"
 
   const openPartDetails = (partId: string) => {
     sessionStorage.setItem("pc.navigate.partId", partId)
@@ -238,7 +247,7 @@ export function SpecificationsView() {
             <>
               <SpecDetailHeader
                 specification={selectedSpecification}
-                itemCount={selectedSpecItems.length}
+                itemCount={selectedSpecItemsForView.length}
                 canManageSpecifications={canManageSpecifications}
                 actionBusy={actionBusy}
                 onTogglePublished={handleTogglePublished}
@@ -247,7 +256,7 @@ export function SpecificationsView() {
               />
 
               <SpecItemsPanel
-                items={selectedSpecItems}
+                items={selectedSpecItemsForView}
                 canManageSpecifications={canManageSpecifications}
                 showFilters={!isOperator}
                 onAddItem={() => setAddItemOpen(true)}
