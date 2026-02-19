@@ -18,8 +18,6 @@ import type {
 } from "@/lib/types"
 import { SHIFT_LABELS, STAGE_LABELS, TASK_STATUS_LABELS } from "@/lib/types"
 import { cn } from "@/lib/utils"
-import { AuditLogView } from "@/components/audit-log-view"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -120,6 +118,8 @@ const FLOW_STAGES: FlowStage[] = [
     optional: true,
   },
 ]
+
+const FLOW_STAGE_BY_KEY = new Map(FLOW_STAGES.map((stage) => [stage.key, stage] as const))
 
 function movementStatus(entry: LogisticsEntry): MovementStatus {
   return (entry.status || "pending") as MovementStatus
@@ -274,6 +274,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
     getPartForecast,
     getMachineById,
     getMachineNorm,
+    setMachineNorm,
     getStageFactsForPart,
     getLogisticsForPart,
     getTasksForPart,
@@ -323,13 +324,14 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
   const stageQtyByStage = useMemo(() => {
     const map = new Map<ProductionStage, number>()
-    for (const stageStatus of part.stage_statuses || []) {
-      if (typeof stageStatus.qty_good === "number") {
-        map.set(stageStatus.stage, stageStatus.qty_good)
-      }
-    }
     for (const fact of stageFacts) {
       map.set(fact.stage, (map.get(fact.stage) || 0) + fact.qty_good)
+    }
+    // Fallback for legacy records where qty is persisted on stage statuses without facts.
+    for (const stageStatus of part.stage_statuses || []) {
+      if (!map.has(stageStatus.stage) && typeof stageStatus.qty_good === "number" && stageStatus.qty_good > 0) {
+        map.set(stageStatus.stage, stageStatus.qty_good)
+      }
     }
     return map
   }, [part.stage_statuses, stageFacts])
@@ -359,14 +361,18 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
   }, [usedStages])
 
   const flowCards = useMemo<FlowCard[]>(() => {
-    return FLOW_STAGES.map((flowStage) => {
+    return activeChain.reduce<FlowCard[]>((cards, stageKey) => {
+      const flowStage = FLOW_STAGE_BY_KEY.get(stageKey)
+      if (!flowStage) return cards
       const stageStatus = stageStatusByStage.get(flowStage.key)
-      const isUsed = flowStage.optional ? usedStages.has(flowStage.key) : true
       const doneQty = stageQtyByStage.get(flowStage.key) || 0
       const currentStageIndex = activeChain.indexOf(flowStage.key)
       const previousStage = currentStageIndex > 0 ? activeChain[currentStageIndex - 1] : null
-      const previousDone = previousStage ? stageQtyByStage.get(previousStage) || 0 : part.qty_plan
-      const availableQty = isUsed ? Math.max(previousDone - doneQty, 0) : 0
+      const previousDone = previousStage ? stageQtyByStage.get(previousStage) || 0 : 0
+      const availableQty =
+        flowStage.key === "machining"
+          ? doneQty
+          : Math.max(previousDone - doneQty, 0)
 
       const stageId = stageStatus?.id ? String(stageStatus.id) : ""
       const inTransitQty = sortedLogistics
@@ -376,34 +382,34 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
         })
         .reduce((sum, entry) => sum + (entry.qty_sent ?? entry.quantity ?? 0), 0)
 
-      const nextStage =
+      const nextStage: FlowStageKey | "fg" | null =
         currentStageIndex < 0
           ? null
           : currentStageIndex < activeChain.length - 1
             ? activeChain[currentStageIndex + 1]
             : "fg"
 
-      const state: FlowStageState = !isUsed
-        ? "unused"
-        : stageStatus?.status === "done"
+      const state: FlowStageState =
+        stageStatus?.status === "done"
           ? "done"
           : stageStatus?.status === "in_progress"
             ? "in_progress"
             : "pending"
 
-      return {
+      cards.push({
         ...flowStage,
         state,
-        isUsed,
+        isUsed: true,
         doneQty,
         percent:
           part.qty_plan > 0 ? Math.max(0, Math.min(100, Math.round((doneQty / part.qty_plan) * 100))) : 0,
         availableQty,
         inTransitQty,
         nextStage,
-      }
-    })
-  }, [activeChain, part.qty_plan, sortedLogistics, stageQtyByStage, stageStatusByStage, usedStages])
+      })
+      return cards
+    }, [])
+  }, [activeChain, part.qty_plan, sortedLogistics, stageQtyByStage, stageStatusByStage])
 
   const flowCardByStage = useMemo(() => {
     return new Map(flowCards.map((flowCard) => [flowCard.key, flowCard]))
@@ -592,6 +598,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false)
   const [machineDraftId, setMachineDraftId] = useState(part.machine_id || NO_MACHINE_VALUE)
+  const [machineNormDraft, setMachineNormDraft] = useState(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
   const [machineError, setMachineError] = useState("")
   const [isSavingMachine, setIsSavingMachine] = useState(false)
 
@@ -608,8 +615,9 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
   useEffect(() => {
     setMachineDraftId(part.machine_id || NO_MACHINE_VALUE)
+    setMachineNormDraft(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
     setMachineError("")
-  }, [part.id, part.machine_id])
+  }, [machineNorm?.qty_per_shift, part.id, part.machine_id])
 
   useEffect(() => {
     setTaskDueDate(part.deadline || localIsoDate())
@@ -1049,10 +1057,31 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
     setMachineError("")
     setIsSavingMachine(true)
     try {
+      const nextMachineId = machineDraftId === NO_MACHINE_VALUE ? undefined : machineDraftId
+      const normRaw = machineNormDraft.trim()
+      const parsedNorm = normRaw ? Number.parseInt(normRaw, 10) : null
+      const parsedNormIsValid = parsedNorm !== null && Number.isFinite(parsedNorm) && parsedNorm > 0
+      if (normRaw && !parsedNormIsValid) {
+        setMachineError("Норма должна быть числом больше 0")
+        return
+      }
+
       await updatePart({
         ...part,
-        machine_id: machineDraftId === NO_MACHINE_VALUE ? undefined : machineDraftId,
+        machine_id: nextMachineId,
       })
+
+      if (nextMachineId && parsedNormIsValid) {
+        await setMachineNorm({
+          machine_id: nextMachineId,
+          part_id: part.id,
+          stage: "machining",
+          qty_per_shift: parsedNorm,
+          is_configured: true,
+          configured_by_id: currentUser?.id,
+        })
+      }
+
       setIsEquipmentModalOpen(false)
     } catch (error) {
       const message = error instanceof Error ? error.message : "Не удалось сохранить оборудование"
@@ -1175,65 +1204,56 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
             <div className="mb-6 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-4">
               <span className="mr-1 text-sm text-slate-400">Маршрут:</span>
-              {FLOW_STAGES.map((stage, index) => {
-                const isUsed = !stage.optional || usedStages.has(stage.key)
+              {activeChain.map((stageKey) => {
+                const stage = FLOW_STAGE_BY_KEY.get(stageKey)
+                if (!stage) return null
                 return (
                   <React.Fragment key={`chip_${stage.key}`}>
                     <span
                       className={cn(
                         "rounded px-2.5 py-1 text-xs font-medium",
-                        stage.external && isUsed && "border border-dashed border-amber-300 bg-amber-50 text-amber-600",
-                        !stage.external && isUsed && "bg-slate-100 text-slate-600",
-                        !isUsed && "border border-dashed border-slate-300 bg-slate-100 text-slate-400"
+                        stage.external
+                          ? "border border-dashed border-amber-300 bg-amber-50 text-amber-600"
+                          : "bg-slate-100 text-slate-600"
                       )}
                     >
                       {stage.shortLabel}
                       {stage.external ? " (внешн.)" : ""}
-                      {stage.optional && !isUsed ? " (не используется)" : ""}
                     </span>
                     <ArrowRight className="h-3 w-3 flex-shrink-0 text-slate-300" />
-                    {index === FLOW_STAGES.length - 1 ? (
-                      <span className="rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">Склад ГП</span>
-                    ) : null}
                   </React.Fragment>
                 )
               })}
+              <span className="rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">Склад ГП</span>
             </div>
 
             <div className="-mx-1 flex items-start gap-3 overflow-x-auto px-1 pb-2">
               {flowCards.map((flowCard, index) => {
-                const isUnused = flowCard.state === "unused"
                 const nextStage = flowCard.nextStage
                 const nextStageIsExternal =
                   !!nextStage && nextStage !== "fg" ? Boolean(flowCardByStage.get(nextStage)?.external) : false
-                const requiresShippingAction = !isUnused && (flowCard.external || nextStageIsExternal)
+                const requiresShippingAction = flowCard.external || nextStageIsExternal
                 const canInternalTransfer =
                   !requiresShippingAction &&
                   !flowCard.external &&
-                  !isUnused &&
                   flowCard.state !== "done" &&
                   flowCard.availableQty > 0 &&
                   permissions.canEditFacts
                 const canShip =
                   requiresShippingAction &&
-                  !isUnused &&
                   flowCard.availableQty > 0 &&
                   permissions.canEditFacts &&
                   !!nextStage
                 const shippingButtonLabel = flowShipButtonLabel(flowCard.key, nextStage)
-                const inWork = flowCard.external
-                  ? flowCard.inTransitQty
-                  : flowCard.state === "in_progress"
-                    ? flowCard.availableQty
-                    : 0
+                const inWork = flowCard.external ? flowCard.inTransitQty : 0
+                const showInWork = flowCard.key !== "machining"
 
                 return (
                   <React.Fragment key={flowCard.key}>
                     <div
                       className={cn(
                         "relative min-w-[220px] max-w-[240px] flex-shrink-0 rounded-xl border bg-white p-4",
-                        flowCard.external ? "border-amber-300 border-dashed" : "border-slate-200",
-                        isUnused && "bg-slate-100 opacity-70"
+                        flowCard.external ? "border-amber-300 border-dashed" : "border-slate-200"
                       )}
                     >
                       <div className="mb-3 flex items-center justify-between">
@@ -1252,37 +1272,25 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                       </div>
 
                       <div className="mb-3 space-y-1.5">
+                        {showInWork ? (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">В работе:</span>
+                            <span className={cn("font-semibold", flowCard.external ? "text-amber-600" : "text-slate-800")}>
+                              {inWork.toLocaleString()}
+                            </span>
+                          </div>
+                        ) : null}
                         <div className="flex justify-between text-sm">
-                          <span className="text-slate-500">В работе:</span>
-                          <span className={cn("font-semibold", flowCard.external ? "text-amber-600" : "text-slate-800")}>
-                            {inWork.toLocaleString()}
+                          <span className="text-slate-500">Доступно:</span>
+                          <span
+                            className={cn(
+                              "rounded px-2 py-0.5 font-semibold",
+                              flowCard.availableQty > 0 ? "bg-teal-50 text-teal-600" : "bg-slate-50 text-slate-400"
+                            )}
+                          >
+                            {flowCard.availableQty.toLocaleString()}
                           </span>
                         </div>
-                        {!flowCard.external ? (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Доступно:</span>
-                            <span
-                              className={cn(
-                                "rounded px-2 py-0.5 font-semibold",
-                                flowCard.availableQty > 0 ? "bg-teal-50 text-teal-600" : "bg-slate-50 text-slate-400"
-                              )}
-                            >
-                              {flowCard.availableQty.toLocaleString()}
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Доступно:</span>
-                            <span
-                              className={cn(
-                                "rounded px-2 py-0.5 font-semibold",
-                                flowCard.availableQty > 0 ? "bg-teal-50 text-teal-600" : "bg-slate-50 text-slate-400"
-                              )}
-                            >
-                              {flowCard.availableQty.toLocaleString()}
-                            </span>
-                          </div>
-                        )}
                       </div>
 
                       <div className="mb-4">
@@ -1296,11 +1304,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                       </div>
 
                       <div className="space-y-2 border-t border-slate-100 pt-3">
-                        {isUnused ? (
-                          <Badge variant="outline" className="h-8 w-full justify-center text-xs text-slate-500">
-                            Не используется в маршруте
-                          </Badge>
-                        ) : requiresShippingAction ? (
+                        {requiresShippingAction ? (
                           <>
                             <div className="flex items-center gap-1.5 text-xs text-slate-400">
                               <ArrowRight className="h-3 w-3" />
@@ -1550,16 +1554,6 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </div>
           </section>
 
-          {permissions.canViewAudit ? (
-            <Card className="border-slate-200 shadow-sm">
-              <CardHeader className="border-b border-slate-200 py-3">
-                <CardTitle className="text-sm">Журнал аудита (расширенно)</CardTitle>
-              </CardHeader>
-              <CardContent className="p-4">
-                <AuditLogView partId={part.id} compact={false} />
-              </CardContent>
-            </Card>
-          ) : null}
         </div>
 
         <aside className="col-span-12 space-y-6 xl:col-span-3">
@@ -1682,6 +1676,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                   type="button"
                   onClick={() => {
                     setMachineDraftId(part.machine_id || NO_MACHINE_VALUE)
+                    setMachineNormDraft(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
                     setMachineError("")
                     setIsEquipmentModalOpen(true)
                   }}
@@ -2254,7 +2249,18 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
           <div className="space-y-3">
             <div className="space-y-1">
               <Label>Станок</Label>
-              <Select value={machineDraftId} onValueChange={setMachineDraftId}>
+              <Select
+                value={machineDraftId}
+                onValueChange={(value) => {
+                  setMachineDraftId(value)
+                  if (value === NO_MACHINE_VALUE) {
+                    setMachineNormDraft("")
+                    return
+                  }
+                  const normForMachine = getMachineNorm(value, part.id, "machining")
+                  setMachineNormDraft(normForMachine?.qty_per_shift ? String(normForMachine.qty_per_shift) : "")
+                }}
+              >
                 <SelectTrigger className="h-9">
                   <SelectValue placeholder="Можно выбрать позже" />
                 </SelectTrigger>
@@ -2271,7 +2277,14 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
             <div className="space-y-1">
               <Label>Норма выработки</Label>
-              <Input value={machineNorm?.qty_per_shift?.toLocaleString() || "--"} disabled className="h-9" />
+              <Input
+                type="number"
+                className="h-9"
+                value={machineNormDraft}
+                onChange={(event) => setMachineNormDraft(event.target.value)}
+                placeholder={machineDraftId === NO_MACHINE_VALUE ? "Сначала выберите станок" : "Например 120"}
+                disabled={machineDraftId === NO_MACHINE_VALUE}
+              />
             </div>
 
             {machineError ? <div className="text-sm text-destructive">{machineError}</div> : null}
