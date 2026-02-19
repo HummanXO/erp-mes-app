@@ -439,8 +439,19 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
       const doneQty = stageQtyByStage.get(flowStage.key) || 0
       const currentStageIndex = activeChain.indexOf(flowStage.key)
       const previousStage = currentStageIndex > 0 ? activeChain[currentStageIndex - 1] : null
-      const previousOutgoingQty = previousStage ? stageOutgoingQtyByStage.get(previousStage) || 0 : 0
-      const currentOutgoingQty = stageOutgoingQtyByStage.get(flowStage.key) || 0
+      const previousDoneQty = previousStage ? stageQtyByStage.get(previousStage) || 0 : 0
+      const previousStatus = previousStage ? stageStatusByStage.get(previousStage) : undefined
+      const previousRecordedOutgoing = previousStage ? stageOutgoingQtyByStage.get(previousStage) || 0 : 0
+      const previousOutgoingQty = previousStage
+        ? previousRecordedOutgoing > 0
+          ? previousRecordedOutgoing
+          : previousStatus?.status === "done"
+            ? previousDoneQty
+            : 0
+        : 0
+      const recordedOutgoingQty = stageOutgoingQtyByStage.get(flowStage.key) || 0
+      const currentOutgoingQty =
+        recordedOutgoingQty > 0 ? recordedOutgoingQty : stageStatus?.status === "done" ? doneQty : 0
       const availableQty = Math.max(doneQty - currentOutgoingQty, 0)
 
       const stageId = stageStatus?.id ? String(stageStatus.id) : ""
