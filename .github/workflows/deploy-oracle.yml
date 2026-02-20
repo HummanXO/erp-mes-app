@@ -20,7 +20,7 @@ jobs:
         env:
           POSTGRES_DB: erp_mes
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: [REDACTED]
+          POSTGRES_PASSWORD: postgres
         ports:
           - 5432:5432
         options: >-
@@ -54,8 +54,8 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           CELERY_BROKER_URL: redis://localhost:6379/1
           CELERY_RESULT_BACKEND: redis://localhost:6379/2
-          SECRET_KEY: [REDACTED]
-          JWT_SECRET_KEY: [REDACTED]
+          SECRET_KEY: test-secret
+          JWT_SECRET_KEY: test-jwt-secret
         run: |
           # CI DB is empty; initialize historical base schema first to match
           # production lineage (create_all-era DBs), then run Alembic bootstrap + upgrades.
@@ -70,8 +70,8 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           CELERY_BROKER_URL: redis://localhost:6379/1
           CELERY_RESULT_BACKEND: redis://localhost:6379/2
-          SECRET_KEY: [REDACTED]
-          JWT_SECRET_KEY: [REDACTED]
+          SECRET_KEY: test-secret
+          JWT_SECRET_KEY: test-jwt-secret
         run: pytest
 
   deploy:

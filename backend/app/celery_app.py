@@ -30,7 +30,7 @@ celery_app.conf.update(
 def send_telegram_message(chat_id: str, message: str) -> tuple[bool, str | None]:
     """Send message via Telegram Bot API."""
     if not settings.TELEGRAM_BOT_TOKEN:
-        [REDACTED]
+        return False, "TELEGRAM_BOT_TOKEN not configured"
     
     url = f"https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage"
     

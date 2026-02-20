@@ -106,9 +106,9 @@ async def telegram_webhook(
         
         # Optional: Validate webhook secret
         if settings.TELEGRAM_WEBHOOK_SECRET:
-            [REDACTED]
+            expected_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
             if expected_token != settings.TELEGRAM_WEBHOOK_SECRET:
-                [REDACTED]
+                logger.warning("❌ Invalid webhook secret token")
                 return {"ok": False, "error": "Invalid secret"}
         
         # Extract message

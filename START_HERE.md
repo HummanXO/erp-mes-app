@@ -29,14 +29,21 @@ Visit: http://localhost:3000
 Real production setup with database!
 
 ```bash
-# 1. Start services
+# 1. Prepare environment files
+cp .env.example .env
+cp backend/.env.example backend/.env
+
+# 2. Fill required secrets in .env and backend/.env
+# SECRET_KEY, JWT_SECRET_KEY, POSTGRES_PASSWORD
+
+# 3. Start services
 docker-compose up -d
 
-# 2. Setup database
+# 4. Setup database
 docker-compose exec backend alembic upgrade head
 docker-compose exec backend python seed_data.py
 
-# 3. Access
+# 5. Access
 ```
 
 - **Frontend**: http://localhost:3000
@@ -57,13 +64,20 @@ docker-compose exec backend python seed_data.py
 
 ## 🔧 Configuration
 
-Create `.env` file:
+Create env files from templates:
 
 ```bash
-# Use API mode (backend)
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+cp .env.example .env
+cp backend/.env.example backend/.env
 
-# OR localStorage mode (no backend)
+# Edit required secrets
+# .env: POSTGRES_PASSWORD, SECRET_KEY, JWT_SECRET_KEY
+# backend/.env: SECRET_KEY, JWT_SECRET_KEY
+
+# Use API mode (backend)
+NEXT_PUBLIC_API_BASE_URL=/api/v1
+
+# OR demo mode (no backend)
 # NEXT_PUBLIC_API_BASE_URL=
 ```
 

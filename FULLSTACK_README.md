@@ -211,13 +211,20 @@ See individual README files:
 
 ## Environment Variables
 
+Initialize from templates:
+
+```bash
+cp .env.example .env
+cp backend/.env.example backend/.env
+```
+
 ### Backend (.env)
 
 ```bash
 DATABASE_URL=postgresql://user:pass@localhost:5432/erp_mes
 REDIS_URL=redis://localhost:6379/0
-JWT_SECRET_KEY=[REDACTED]
-TELEGRAM_BOT_TOKEN=[REDACTED]# Optional
+JWT_SECRET_KEY=your-secret-key
+TELEGRAM_BOT_TOKEN=your-bot-token  # Optional
 ```
 
 ### Frontend (.env.local)

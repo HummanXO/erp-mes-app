@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "ERP_MES_Production"
     ENV: str = "development"
     DEBUG: bool = True
-    SECRET_KEY: [REDACTED]
+    SECRET_KEY: str
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
     
     # Database
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
     
     # JWT
-    JWT_SECRET_KEY: [REDACTED]
+    JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -69,9 +69,9 @@ class Settings(BaseSettings):
     ALLOWED_EXTENSIONS: str = "jpg,jpeg,png,pdf,doc,docx,xls,xlsx"
     
     # Telegram (requirement B)
-    TELEGRAM_BOT_TOKEN: [REDACTED]
+    TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_BOT_USERNAME: str | None = None
-    TELEGRAM_WEBHOOK_SECRET: [REDACTED]
+    TELEGRAM_WEBHOOK_SECRET: str | None = None
     API_BASE_URL: str = "http://localhost:8000"
     
     # Shift Times
