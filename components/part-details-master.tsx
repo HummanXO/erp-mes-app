@@ -2024,7 +2024,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
               />
             ) : drawingUrlValue && isPdfDrawing ? (
               <iframe
-                src={resolvedDrawingUrl}
+                src={resolvedDrawingUrl || drawingUrlValue || undefined}
                 title={`Чертёж ${part.code}`}
                 className="h-[75vh] w-full rounded border border-slate-200 bg-white"
               />

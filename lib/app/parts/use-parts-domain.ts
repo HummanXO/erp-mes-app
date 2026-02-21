@@ -156,7 +156,7 @@ export function usePartsDomain({
     }
   }, [visibleParts, stageFacts])
 
-  const getPartForecast = useCallback((partId: string) => {
+  const getPartForecast = useCallback((partId: string): ReturnType<typeof dataProvider.getPartForecast> => {
     const part = visibleParts.find((p) => p.id === partId)
     const machine = part?.machine_id ? machines.find((m) => m.id === part.machine_id) : undefined
 

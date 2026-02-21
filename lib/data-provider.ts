@@ -1749,6 +1749,8 @@ export function getPartForecast(partId: string, demoDate: string): {
 } {
   const part = getPartById(partId)
   const machine = part?.machine_id ? getMachineById(part.machine_id) : undefined
+  const machiningNorm = part?.machine_id ? getMachineNorm(part.machine_id, partId, "machining") : undefined
+  const hasNorm = Boolean(machiningNorm?.is_configured && machiningNorm.qty_per_shift > 0)
   
   if (!part) {
     return {

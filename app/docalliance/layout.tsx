@@ -8,9 +8,6 @@ import { DashboardShell } from "@/components/dashboard"
 import type { View } from "@/components/dashboard"
 import { getDocAlliancePathForView, getDocAllianceViewFromPath } from "@/lib/docalliance-paths"
 
-export const dynamic = "force-dynamic"
-export const revalidate = 0
-
 function DocAllianceShell({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
