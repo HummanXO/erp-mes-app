@@ -26,6 +26,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   ArrowLeft, 
   TrendingUp, 
@@ -56,11 +57,9 @@ import { LogisticsList } from "./logistics-list"
 import { FactJournal } from "./fact-journal"
 import { StageProgressSummary } from "./stage-progress-summary"
 import { AuditLogView } from "./audit-log-view"
-import { PartDetailsMaster } from "./part-details-master"
-import { PartDetailsCooperation } from "./part-details-cooperation"
 import { apiClient } from "@/lib/api-client"
 
-interface PartDetailsProps {
+interface PartDetailsCooperationProps {
   part: Part
   onBack: () => void
   initialTab?: string
@@ -78,7 +77,7 @@ const OPERATOR_UI_STATE_BY_PART_STATUS: Record<PartStatus, OperatorDetailUiState
   done: "done",
 }
 
-export function PartDetails({
+export function PartDetailsCooperation({
   part,
   onBack,
   initialTab,
@@ -86,7 +85,7 @@ export function PartDetails({
   selectedTaskId,
   onTaskSelect,
   onTaskBack,
-}: PartDetailsProps) {
+}: PartDetailsCooperationProps) {
   const { 
     getPartProgress, 
     getPartForecast, 
@@ -116,6 +115,7 @@ export function PartDetails({
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState("")
   const [drawingError, setDrawingError] = useState(false)
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false)
   const [drawingBlobUrl, setDrawingBlobUrl] = useState<string | null>(null)
   const [isLoadingDrawingBlob, setIsLoadingDrawingBlob] = useState(false)
   const [drawingActionError, setDrawingActionError] = useState("")
@@ -640,25 +640,10 @@ export function PartDetails({
     }
   }
 
-  const handleOpenDrawing = async () => {
+  const handleOpenDrawing = () => {
     if (!drawingUrlValue) return
-    const value = drawingUrlValue
-    if (value.startsWith("data:") || value.startsWith("blob:")) {
-      window.open(value, "_blank", "noopener,noreferrer")
-      return
-    }
-    if (!isProtectedAttachmentUrl(value)) {
-      window.open(value, "_blank", "noopener,noreferrer")
-      return
-    }
-    try {
-      const blob = await apiClient.fetchBlob(value)
-      const blobUrl = URL.createObjectURL(blob)
-      window.open(blobUrl, "_blank", "noopener,noreferrer")
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000)
-    } catch {
-      setDrawingActionError("Не удалось открыть файл")
-    }
+    setDrawingActionError("")
+    setIsDrawingModalOpen(true)
   }
 
   const handleDeleteDrawing = async () => {
@@ -1271,23 +1256,6 @@ export function PartDetails({
         </div>
       </div>
     )
-  }
-
-  if (currentUser && currentUser.role !== "operator") {
-    if (part.is_cooperation) {
-      return (
-        <PartDetailsCooperation
-          part={part}
-          onBack={onBack}
-          initialTab={initialTab}
-          onTabChange={onTabChange}
-          selectedTaskId={selectedTaskId}
-          onTaskSelect={onTaskSelect}
-          onTaskBack={onTaskBack}
-        />
-      )
-    }
-    return <PartDetailsMaster part={part} onBack={onBack} />
   }
 
   return (
@@ -2252,9 +2220,9 @@ export function PartDetails({
                     )}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <Button variant="outline" className="w-full bg-transparent" onClick={() => void handleOpenDrawing()}>
+                    <Button variant="outline" className="w-full bg-transparent" onClick={handleOpenDrawing}>
                       <ExternalLink className="h-4 w-4 mr-2" />
-                      Открыть в новой вкладке
+                      На весь экран
                     </Button>
                     {permissions.canEditFacts && (
                       <AlertDialog>
@@ -2364,6 +2332,42 @@ export function PartDetails({
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={isDrawingModalOpen} onOpenChange={setIsDrawingModalOpen}>
+        <DialogContent className="h-[95vh] max-h-[95vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden p-0 sm:h-[94vh] sm:w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]">
+          <DialogHeader className="border-b border-border px-4 py-3 sm:px-5 sm:py-4">
+            <DialogTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
+              <FileImage className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+              <span className="truncate">Чертеж: {part.code}</span>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Полноэкранный просмотр чертежа</DialogDescription>
+          </DialogHeader>
+          <div className="h-[calc(95vh-4.5rem)] overflow-auto bg-muted/30 p-2 sm:p-4">
+            <div className="flex h-full items-center justify-center">
+              {isLoadingDrawingBlob ? (
+                <span className="text-sm text-muted-foreground">Загрузка...</span>
+              ) : drawingUrlValue && isImageDrawing && !drawingError ? (
+                <img
+                  src={drawingImageSrc || "/placeholder.svg"}
+                  alt={`Чертёж ${part.code}`}
+                  className="max-h-full w-full rounded bg-white object-contain"
+                  onError={() => setDrawingError(true)}
+                />
+              ) : drawingUrlValue && isPdfDrawing ? (
+                <iframe
+                  src={drawingUrlValue}
+                  title={`Чертёж ${part.code}`}
+                  className="h-full min-h-[60vh] w-full rounded border border-slate-200 bg-white"
+                />
+              ) : (
+                <div className="text-center text-muted-foreground">
+                  <p className="text-sm">Не удалось открыть чертеж</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

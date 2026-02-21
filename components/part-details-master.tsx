@@ -1324,41 +1324,20 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
   const sendDestination = sendStage ? flowCardByStage.get(sendStage)?.nextStage ?? null : null
   const isSendToWarehouse = sendDestination === "fg"
-  const isCooperationPart = part.is_cooperation
-  const rootSpacingClass = isCooperationPart ? "space-y-4" : "space-y-6"
-  const topShellClass = isCooperationPart
-    ? "flex items-center gap-4"
-    : "flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
-  const contentGridClass = isCooperationPart ? "grid grid-cols-1 gap-4 xl:grid-cols-12" : "grid grid-cols-12 gap-6"
-  const mainColumnClass = isCooperationPart
-    ? "order-2 space-y-4 xl:order-1 xl:col-span-9"
-    : "col-span-12 space-y-6 xl:col-span-9"
-  const sectionClass = isCooperationPart ? "rounded-lg border border-border bg-card p-4" : "rounded-xl border border-slate-200 bg-white p-5"
-  const asideColumnClass = isCooperationPart
-    ? "order-1 space-y-4 xl:order-2 xl:col-span-3"
-    : "col-span-12 space-y-6 xl:col-span-3"
-  const asideCardClass = isCooperationPart
-    ? "rounded-lg border border-border bg-card p-4"
-    : "rounded-xl border border-slate-200 bg-white p-4"
 
   return (
-    <div className={rootSpacingClass}>
-      <div className={topShellClass}>
-        <Button
-          variant="ghost"
-          size={isCooperationPart ? "icon" : "sm"}
-          className={cn(isCooperationPart ? "h-11 w-11" : "h-9 px-2")}
-          onClick={handleBack}
-        >
-          <ArrowLeft className={cn("h-4 w-4", !isCooperationPart && "mr-1")} />
-          {!isCooperationPart && "Назад"}
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+        <Button variant="ghost" size="sm" className="h-9 px-2" onClick={handleBack}>
+          <ArrowLeft className="mr-1 h-4 w-4" />
+          Назад
         </Button>
-        <h1 className={cn("font-bold", isCooperationPart ? "text-xl" : "text-lg text-slate-900")}>Деталь: {part.code}</h1>
+        <h1 className="text-lg font-bold text-slate-900">Деталь: {part.code}</h1>
       </div>
 
-      <div className={contentGridClass}>
-        <div className={mainColumnClass}>
-          <section className={sectionClass}>
+      <div className="grid grid-cols-12 gap-6">
+        <div className="col-span-12 space-y-6 xl:col-span-9">
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-3">
                 <h2 className="text-xl font-bold text-slate-900">Деталь: {part.code}</h2>
@@ -1442,7 +1421,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </div>
           </section>
 
-          <section className={sectionClass}>
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Factory className="h-4 w-4 text-slate-400" />
@@ -1632,13 +1611,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                 <ArrowRight className="h-5 w-5 text-slate-300" />
               </div>
 
-              <div
-                className={cn(
-                  "min-w-[180px] flex-shrink-0 p-4",
-                  isCooperationPart ? "rounded-lg border border-border bg-card" : "rounded-xl border border-slate-200 bg-white"
-                )}
-                data-stage="fg"
-              >
+              <div className="min-w-[180px] flex-shrink-0 rounded-xl border border-slate-200 bg-white p-4" data-stage="fg">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Package className="h-5 w-5 text-slate-400" />
@@ -1663,7 +1636,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </div>
           </section>
 
-          <section className={sectionClass}>
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ClipboardList className="h-5 w-5 text-slate-400" />
@@ -1748,7 +1721,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </div>
           </section>
 
-          <section className={sectionClass}>
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Package className="h-5 w-5 text-slate-400" />
@@ -1821,29 +1794,22 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
         </div>
 
-        <aside className={asideColumnClass}>
-          <div className={asideCardClass}>
+        <aside className="col-span-12 space-y-6 xl:col-span-3">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileImage className="h-4 w-4 text-slate-400" />
-                <h3 className={cn("font-semibold text-slate-800", isCooperationPart ? "text-sm" : "text-xs uppercase tracking-wider")}>Чертёж</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">Чертёж</h3>
               </div>
               {drawingUrlValue ? (
-                isCooperationPart ? (
-                  <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 px-2" onClick={handleOpenDrawingModal}>
-                    <Maximize2 className="h-3 w-3" />
-                    На весь экран
-                  </Button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleOpenDrawingModal}
-                    className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
-                  >
-                    <Maximize2 className="h-3 w-3" />
-                    На весь экран
-                  </button>
-                )
+                <button
+                  type="button"
+                  onClick={handleOpenDrawingModal}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  На весь экран
+                </button>
               ) : null}
             </div>
             <button
@@ -1851,16 +1817,11 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
               onClick={handleOpenDrawingModal}
               disabled={!drawingUrlValue}
               className={cn(
-                "block w-full overflow-hidden rounded-lg border p-0 text-left",
-                isCooperationPart ? "border-border bg-muted/30" : "border-slate-100 bg-slate-100",
-                drawingUrlValue
-                  ? isCooperationPart
-                    ? "cursor-pointer transition-colors hover:border-muted-foreground/40"
-                    : "cursor-pointer transition-colors hover:border-slate-300"
-                  : "cursor-default"
+                "block w-full overflow-hidden rounded-lg border border-slate-100 bg-slate-100 p-0 text-left",
+                drawingUrlValue ? "cursor-pointer transition-colors hover:border-slate-300" : "cursor-default"
               )}
             >
-              <div className={cn("flex h-48 items-center justify-center", isCooperationPart ? "bg-muted/30" : "bg-slate-100")}>
+              <div className="flex h-48 items-center justify-center bg-slate-100">
                 {isLoadingDrawingFile ? (
                   <span className="text-sm text-slate-500">Загрузка...</span>
                 ) : drawingUrlValue && isImageDrawing && !drawingError ? (
@@ -1888,7 +1849,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </p>
           </div>
 
-          <div className={asideCardClass}>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-4 flex items-center gap-2">
               <Truck className="h-4 w-4 text-slate-400" />
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">Отправки в пути</h3>
@@ -1953,7 +1914,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </div>
           </div>
 
-          <div className={asideCardClass}>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-800">Задачи</h3>
               {permissions.canCreateTasks ? (
@@ -1996,7 +1957,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
             </div>
           </div>
 
-          <div className={asideCardClass}>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Cog className="h-5 w-5 text-slate-400" />
@@ -2043,44 +2004,29 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
       </div>
 
       <Dialog open={isDrawingModalOpen} onOpenChange={setIsDrawingModalOpen}>
-        <DialogContent
-          className={cn(
-            "overflow-hidden p-0",
-            isCooperationPart
-              ? "h-[95vh] max-h-[95vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] sm:h-[94vh] sm:w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]"
-              : "max-h-[90vh] max-w-[calc(100%-1.5rem)] sm:max-w-5xl"
-          )}
-        >
-          <DialogHeader className={cn("px-4 py-3 sm:px-5 sm:py-4", isCooperationPart ? "border-b border-border" : "border-b border-slate-100")}>
-            <DialogTitle className={cn("flex min-w-0 items-center gap-2 text-sm font-semibold", isCooperationPart ? "text-foreground" : "text-slate-800")}>
-              <FileImage className={cn("h-4 w-4 flex-shrink-0", isCooperationPart ? "text-muted-foreground" : "text-slate-400")} />
+        <DialogContent className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+            <DialogTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-800">
+              <FileImage className="h-4 w-4 text-slate-400 flex-shrink-0" />
               <span className="truncate">Чертеж: {part.code}</span>
             </DialogTitle>
             <DialogDescription className="sr-only">Просмотр чертежа детали</DialogDescription>
           </DialogHeader>
-          <div
-            className={cn(
-              "flex items-center justify-center p-4 sm:p-8",
-              isCooperationPart ? "h-[calc(95vh-4.5rem)] overflow-auto bg-muted/30 p-2 sm:p-4" : "min-h-[60vh] bg-slate-100"
-            )}
-          >
+          <div className="flex min-h-[60vh] items-center justify-center bg-slate-100 p-4 sm:p-8">
             {isLoadingDrawingFile ? (
               <span className="text-sm text-slate-500">Загрузка...</span>
             ) : drawingUrlValue && isImageDrawing && !drawingError ? (
               <img
                 src={resolvedDrawingUrl || "/placeholder.svg"}
                 alt={`Чертёж ${part.code}`}
-                className={cn("w-full rounded bg-white object-contain", isCooperationPart ? "max-h-full" : "max-h-[75vh]")}
+                className="max-h-[75vh] w-full rounded bg-white object-contain"
                 onError={() => setDrawingError(true)}
               />
             ) : drawingUrlValue && isPdfDrawing ? (
               <iframe
                 src={resolvedDrawingUrl || drawingUrlValue || undefined}
                 title={`Чертёж ${part.code}`}
-                className={cn(
-                  "w-full rounded border border-slate-200 bg-white",
-                  isCooperationPart ? "h-full min-h-[60vh]" : "h-[75vh]"
-                )}
+                className="h-[75vh] w-full rounded border border-slate-200 bg-white"
               />
             ) : (
               <div className="text-center text-slate-500">
