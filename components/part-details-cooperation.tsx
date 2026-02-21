@@ -96,8 +96,8 @@ const NO_STAGE_VALUE = "__none__"
 const FLOW_STAGES: FlowStage[] = [
   {
     key: "machining",
-    label: "Механика",
-    shortLabel: "Механика",
+    label: "Кооператор (изготовление)",
+    shortLabel: "Кооператор",
     external: false,
     optional: false,
   },
@@ -110,14 +110,14 @@ const FLOW_STAGES: FlowStage[] = [
   },
   {
     key: "heat_treatment",
-    label: "Термообработка",
-    shortLabel: "Термо.",
+    label: "Термообработка (внешн.)",
+    shortLabel: "Термообработка",
     external: true,
     optional: true,
   },
   {
     key: "galvanic",
-    label: "Гальваника",
+    label: "Гальваника (внешн.)",
     shortLabel: "Гальваника",
     external: true,
     optional: true,
@@ -425,7 +425,7 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
   }, [part.required_stages, part.stage_statuses])
 
   const activeChain = useMemo(() => {
-    const chain: FlowStageKey[] = ["machining", "fitting"]
+    const chain: FlowStageKey[] = ["machining"]
     if (usedStages.has("heat_treatment")) {
       chain.push("heat_treatment")
     }
@@ -871,7 +871,7 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
       return
     }
 
-    const dynamicChain: FlowStageKey[] = ["machining", "fitting"]
+    const dynamicChain: FlowStageKey[] = ["machining"]
     if (usedStages.has("heat_treatment")) {
       dynamicChain.push("heat_treatment")
     }
@@ -1324,6 +1324,22 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
 
   const sendDestination = sendStage ? flowCardByStage.get(sendStage)?.nextStage ?? null : null
   const isSendToWarehouse = sendDestination === "fg"
+  const incomingInspectionStatus = part.cooperation_qc_status || "pending"
+  const incomingInspectionLabel =
+    incomingInspectionStatus === "accepted"
+      ? "Принято"
+      : incomingInspectionStatus === "rejected"
+        ? "Не принято"
+        : "Не проведён"
+  const incomingInspectionBadgeClass =
+    incomingInspectionStatus === "accepted"
+      ? "bg-emerald-50 text-emerald-700"
+      : incomingInspectionStatus === "rejected"
+        ? "bg-red-50 text-red-700"
+        : "bg-slate-100 text-slate-600"
+  const incomingInspectionCheckedAt = part.cooperation_qc_checked_at
+    ? new Date(part.cooperation_qc_checked_at).toLocaleString("ru-RU")
+    : null
   const isCooperationPart = true
   const rootSpacingClass = isCooperationPart ? "space-y-4" : "space-y-6"
   const topShellClass = isCooperationPart
@@ -1353,7 +1369,12 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
           <ArrowLeft className={cn("h-4 w-4", !isCooperationPart && "mr-1")} />
           {!isCooperationPart && "Назад"}
         </Button>
-        <h1 className={cn("font-bold", isCooperationPart ? "text-xl" : "text-lg text-slate-900")}>Деталь: {part.code}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className={cn("font-bold", isCooperationPart ? "text-xl" : "text-lg text-slate-900")}>Деталь: {part.code}</h1>
+          <span className="rounded-full border border-teal-300 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold tracking-wide text-teal-700">
+            COOP NEW UI
+          </span>
+        </div>
       </div>
 
       <div className={contentGridClass}>
@@ -1518,7 +1539,7 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
                       <div className="mb-3 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className={cn(flowCard.external ? "text-amber-500" : "text-teal-500")}>{stageIcon(flowCard.key)}</span>
-                          <span className="text-sm font-semibold text-slate-800">{flowCard.shortLabel}</span>
+                          <span className="text-sm font-semibold text-slate-800">{flowCard.label}</span>
                         </div>
                         <span
                           className={cn(
@@ -1826,7 +1847,7 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <FileImage className="h-4 w-4 text-slate-400" />
-                <h3 className={cn("font-semibold text-slate-800", isCooperationPart ? "text-sm" : "text-xs uppercase tracking-wider")}>Чертёж</h3>
+                <h3 className={cn("font-semibold text-slate-800", isCooperationPart ? "text-sm uppercase tracking-wider" : "text-xs uppercase tracking-wider")}>ЧЕРТЁЖ</h3>
               </div>
               {drawingUrlValue ? (
                 isCooperationPart ? (
@@ -1951,6 +1972,25 @@ export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationP
                 })
               )}
             </div>
+          </div>
+
+          <div className={asideCardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800">Входной контроль</h3>
+              <span className={cn("rounded px-2 py-0.5 text-xs font-medium", incomingInspectionBadgeClass)}>
+                {incomingInspectionLabel}
+              </span>
+            </div>
+            <p className="text-sm text-slate-600">
+              {incomingInspectionStatus === "accepted"
+                ? "Партия принята после входного контроля."
+                : incomingInspectionStatus === "rejected"
+                  ? "Найдены замечания, требуется доработка."
+                  : "Контроль пока не проведён."}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">
+              {incomingInspectionCheckedAt ? `Проверено: ${incomingInspectionCheckedAt}` : "Ожидает проверки ОТК"}
+            </p>
           </div>
 
           <div className={asideCardClass}>

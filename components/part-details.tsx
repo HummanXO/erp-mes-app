@@ -79,8 +79,18 @@ const OPERATOR_UI_STATE_BY_PART_STATUS: Record<PartStatus, OperatorDetailUiState
 }
 
 function normalizeBooleanFlag(value: unknown): boolean {
-  if (value === true || value === "true" || value === 1 || value === "1") return true
+  if (typeof value === "boolean") return value
+  if (typeof value === "number") return value === 1
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase()
+    return normalized === "1" || normalized === "true" || normalized === "yes"
+  }
   return false
+}
+
+function isCoop(part: Part): boolean {
+  const cooperativePart = part as Part & { is_cooperation_part?: unknown }
+  return normalizeBooleanFlag(cooperativePart.is_cooperation) || normalizeBooleanFlag(cooperativePart.is_cooperation_part)
 }
 
 export function PartDetails({
@@ -153,9 +163,7 @@ export function PartDetails({
   const [isStartingOperatorTask, setIsStartingOperatorTask] = useState(false)
   const [operatorNow, setOperatorNow] = useState(() => new Date())
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
-  const isCooperationRaw = (part as Part & { is_cooperation_part?: unknown }).is_cooperation
-  const isCooperationPartRaw = (part as Part & { is_cooperation_part?: unknown }).is_cooperation_part
-  const isCooperationPart = normalizeBooleanFlag(isCooperationRaw) || normalizeBooleanFlag(isCooperationPartRaw)
+  const isCooperationPart = isCoop(part)
   const isCooperationRouteOnly = isCooperationPart
   const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
 
@@ -1281,8 +1289,8 @@ export function PartDetails({
     )
   }
 
-  if (!isOperatorDetail) {
-    if (isCooperationPart) {
+  if (currentUser && currentUser.role !== "operator") {
+    if (isCoop(part)) {
       return <PartDetailsCooperation part={part} onBack={onBack} />
     }
     return <PartDetailsMaster part={part} onBack={onBack} />
