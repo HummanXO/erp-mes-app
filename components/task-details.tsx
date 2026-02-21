@@ -47,6 +47,7 @@ import {
   UserCheck
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import * as dataProvider from "@/lib/data-provider-adapter"
 
 interface TaskDetailsProps {
   task: Task
@@ -64,6 +65,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
     sendTaskForReview,
     reviewTask,
     startTask,
+    acceptTask,
     getPartById,
     demoDate,
     isTaskAssignedToUser,
@@ -87,6 +89,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
   const isOverdue = task.due_date < demoDate && task.status !== "done"
   const isMyTask = currentUser && isTaskAssignedToUser(task, currentUser)
   const isCreator = currentUser?.id === task.creator_id
+  const canDirectStatusUpdate = dataProvider.isCapabilitySupported("taskManualStatusUpdate")
   
   // Mark as read when opening (only once)
   const hasMarkedAsRead = useRef(false)
@@ -219,6 +222,7 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
   }
   
   const handleStatusChange = (newStatus: TaskStatus) => {
+    if (!canDirectStatusUpdate) return
     updateTask({ ...task, status: newStatus })
   }
   
@@ -362,10 +366,11 @@ export function TaskDetails({ task, onBack }: TaskDetailsProps) {
       
       {/* Actions */}
       <div className="flex gap-2 mt-4 flex-wrap">
-        {task.status === "open" && isMyTask && (
-          <Button onClick={() => handleStatusChange("in_progress")}>
-            Взять в работу
-          </Button>
+        {task.status === "open" && isMyTask && canDirectStatusUpdate && (
+          <Button onClick={() => handleStatusChange("in_progress")}>Взять в работу</Button>
+        )}
+        {task.status === "open" && isMyTask && !canDirectStatusUpdate && !task.accepted_by_id && (
+          <Button onClick={() => acceptTask(task.id)}>Принять задачу</Button>
         )}
         {task.status === "accepted" && isMyTask && (
           <Button onClick={() => startTask(task.id)}>

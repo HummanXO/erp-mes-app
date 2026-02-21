@@ -6,50 +6,88 @@
  */
 
 import * as httpProvider from "./http-data-provider"
-import { getApiBaseUrl } from "./env"
+import {
+  getModeCapabilities as readModeCapabilities,
+  getRuntimeApiBaseUrl,
+  getRuntimeMode,
+  isUsingApiMode,
+  isUsingDemoMode,
+  type ProviderCapabilities,
+  type ProviderCapability,
+} from "./runtime-mode"
+import { ProviderOperationError } from "./provider-operation-error"
 
 type LocalProvider = typeof import("./data-provider")
 
-const API_BASE_URL = getApiBaseUrl()
+const MODE = getRuntimeMode()
+const API_BASE_URL = getRuntimeApiBaseUrl()
+const DEFAULT_CAPABILITIES = readModeCapabilities()
+const USE_API = isUsingApiMode()
 
-const NODE_ENV =
-  (typeof process !== "undefined" && process.env ? process.env.NODE_ENV : "") || "development"
-const IS_PROD = NODE_ENV === "production"
+let runtimeCapabilities: ProviderCapabilities = { ...DEFAULT_CAPABILITIES }
+let apiCapabilitiesResolved = !USE_API
+let capabilitiesResolveInFlight: Promise<ProviderCapabilities> | null = null
 
-const DEMO_MODE =
-  (
-    (typeof process !== "undefined" && process.env
-      ? (process.env.NEXT_PUBLIC_DEMO_MODE || process.env.DEMO_MODE || "")
-      : "") || ""
-  )
-    .toLowerCase()
-    .trim() === "true"
+function currentCapabilities(): ProviderCapabilities {
+  return runtimeCapabilities
+}
 
-const HAS_API = API_BASE_URL.length > 0
-
-// Fail closed: never silently fall back to demo auth in production (or dev unless explicitly enabled).
-if (!HAS_API) {
-  if (IS_PROD) {
-    throw new Error(
-      "NEXT_PUBLIC_API_BASE_URL is required in production. Refusing to start without API authentication."
-    )
+function assertAdapterInvariants(): void {
+  if (USE_API && MODE !== "api") {
+    throw new Error("Invariant violation: adapter mode mismatch (USE_API=true but MODE is not api).")
   }
-  if (!DEMO_MODE) {
-    throw new Error(
-      "NEXT_PUBLIC_API_BASE_URL is not set. To run in demo mode, explicitly set NEXT_PUBLIC_DEMO_MODE=true."
-    )
+  if (!USE_API && MODE !== "demo") {
+    throw new Error("Invariant violation: adapter mode mismatch (USE_API=false but MODE is not demo).")
+  }
+  if (USE_API && DEFAULT_CAPABILITIES.localDerivedReadModels) {
+    throw new Error("Invariant violation: API mode must not expose local-derived capabilities.")
   }
 }
 
-const USE_API = HAS_API
+function unsupportedInApi(operation: string, capability?: ProviderCapability): never {
+  const capabilities = currentCapabilities()
+  const resolvedCapability = capability && !capabilities[capability] ? capability : undefined
+  throw new ProviderOperationError({
+    operation,
+    mode: "api",
+    capability: resolvedCapability,
+    message: `Not supported in API mode: ${operation}. This operation is available in DEMO mode only.`,
+  })
+}
+
+function requireDemoMode(operation: string): void {
+  if (USE_API) {
+    unsupportedInApi(operation, "localDerivedReadModels")
+  }
+}
+
+function requireCapability(capability: ProviderCapability, operation: string): void {
+  const capabilities = currentCapabilities()
+  if (!capabilities[capability]) {
+    if (USE_API) {
+      unsupportedInApi(operation, capability)
+    }
+    throw new ProviderOperationError({
+      operation,
+      mode: "demo",
+      capability,
+      message: `Capability "${capability}" is disabled: ${operation}`,
+    })
+  }
+}
 
 let _local: LocalProvider | null = null
 function local(): LocalProvider {
+  if (USE_API) {
+    throw new Error("Invariant violation: attempted to load local provider while API mode is active.")
+  }
   if (_local) return _local
   // Lazy-load only when local mode is actually used.
   _local = require("./data-provider") as LocalProvider
   return _local
 }
+
+assertAdapterInvariants()
 
 if (typeof window !== "undefined") {
   console.log(
@@ -57,6 +95,31 @@ if (typeof window !== "undefined") {
       ? `🌐 Using HTTP API: ${API_BASE_URL}`
       : "⚠️ DEMO MODE ENABLED (localStorage). NO real authentication. DO NOT use in production."
   )
+}
+
+async function resolveApiCapabilitiesImpl(): Promise<ProviderCapabilities> {
+  if (!USE_API) return currentCapabilities()
+  const apiCapabilities = await httpProvider.getApiCapabilities()
+  runtimeCapabilities = {
+    ...currentCapabilities(),
+    inventory: Boolean(apiCapabilities.inventory),
+    workOrders: Boolean(apiCapabilities.workOrders),
+  }
+  apiCapabilitiesResolved = true
+  return currentCapabilities()
+}
+
+async function ensureApiCapabilitiesResolved(): Promise<ProviderCapabilities> {
+  if (!USE_API || apiCapabilitiesResolved) {
+    return currentCapabilities()
+  }
+  if (capabilitiesResolveInFlight) {
+    return await capabilitiesResolveInFlight
+  }
+  capabilitiesResolveInFlight = resolveApiCapabilitiesImpl().finally(() => {
+    capabilitiesResolveInFlight = null
+  })
+  return await capabilitiesResolveInFlight
 }
 
 export function initializeData() {
@@ -104,6 +167,7 @@ export function getMachineById(id: string) {
 }
 
 export function getMachinesByDepartment(department: any) {
+  requireDemoMode("getMachinesByDepartment")
   return local().getMachinesByDepartment(department)
 }
 
@@ -128,10 +192,12 @@ export function getOwnProductionParts() {
 }
 
 export function getPartsByStage(stage: any) {
+  requireDemoMode("getPartsByStage")
   return local().getPartsByStage(stage)
 }
 
 export function getPartsInProgressAtStage(stage: any) {
+  requireDemoMode("getPartsInProgressAtStage")
   return local().getPartsInProgressAtStage(stage)
 }
 
@@ -158,6 +224,7 @@ export function updatePartDrawing(partId: string, drawingUrl: string) {
 }
 
 export function updatePartStageStatus(partId: string, stage: any, status: any, operatorId?: string) {
+  requireDemoMode("updatePartStageStatus")
   return local().updatePartStageStatus(partId, stage, status, operatorId)
 }
 
@@ -170,6 +237,7 @@ export function getStageFacts() {
 }
 
 export function getStageFactsForDate(date: string) {
+  requireDemoMode("getStageFactsForDate")
   return local().getStageFactsForDate(date)
 }
 
@@ -178,15 +246,18 @@ export function getStageFactsForPart(partId: string) {
 }
 
 export function getStageFactsForPartAndStage(partId: string, stage: any) {
+  requireDemoMode("getStageFactsForPartAndStage")
   return local().getStageFactsForPartAndStage(partId, stage)
 }
 
 export function getStageFactsForMachine(machineId: string) {
+  requireDemoMode("getStageFactsForMachine")
   return local().getStageFactsForMachine(machineId)
 }
 
-export function getStageFactForDateShiftAndStage(date: string, shiftType: any, stage: any, machineId?: string) {
-  return local().getStageFactForDateShiftAndStage(date, shiftType, stage, machineId)
+export function getStageFactForDateShiftAndStage(date: string, shiftType: any, partId: string, stage: any) {
+  requireDemoMode("getStageFactForDateShiftAndStage")
+  return local().getStageFactForDateShiftAndStage(date, shiftType, partId, stage)
 }
 
 export function createStageFact(fact: any) {
@@ -201,8 +272,8 @@ export function deleteStageFact(factId: string) {
   return USE_API ? httpProvider.deleteStageFact(factId) : local().deleteStageFact(factId)
 }
 
-export function getLogistics() {
-  return USE_API ? httpProvider.getLogistics() : local().getLogistics()
+export function getLogistics(preloadedParts?: any[]) {
+  return USE_API ? httpProvider.getLogistics(preloadedParts) : local().getLogistics()
 }
 
 export function getLogisticsForPart(partId: string) {
@@ -273,46 +344,57 @@ export function updateSpecItemProgress(specItemId: string, qtyDone: number, stat
 }
 
 export function createWorkOrdersForSpecification(specificationId: string, createdBy: string) {
+  requireCapability("workOrders", "createWorkOrdersForSpecification")
   return local().createWorkOrdersForSpecification(specificationId, createdBy)
 }
 
 export function getWorkOrders() {
+  requireCapability("workOrders", "getWorkOrders")
   return local().getWorkOrders()
 }
 
 export function getWorkOrdersForUser(userId: string) {
+  requireCapability("workOrders", "getWorkOrdersForUser")
   return local().getWorkOrdersForUser(userId)
 }
 
 export function getWorkOrdersForSpecification(specificationId: string) {
+  requireCapability("workOrders", "getWorkOrdersForSpecification")
   return local().getWorkOrdersForSpecification(specificationId)
 }
 
 export function createWorkOrder(order: any) {
+  requireCapability("workOrders", "createWorkOrder")
   return local().createWorkOrder(order)
 }
 
 export function updateWorkOrder(order: any) {
+  requireCapability("workOrders", "updateWorkOrder")
   return local().updateWorkOrder(order)
 }
 
 export function queueWorkOrder(workOrderId: string, machineId: string, queuePos?: number) {
+  requireCapability("workOrders", "queueWorkOrder")
   return local().queueWorkOrder(workOrderId, machineId, queuePos)
 }
 
 export function startWorkOrder(workOrderId: string, operatorId?: string) {
+  requireCapability("workOrders", "startWorkOrder")
   return local().startWorkOrder(workOrderId, operatorId)
 }
 
 export function blockWorkOrder(workOrderId: string, reason: string) {
+  requireCapability("workOrders", "blockWorkOrder")
   return local().blockWorkOrder(workOrderId, reason)
 }
 
 export function reportWorkOrderProgress(workOrderId: string, qtyGood: number, qtyScrap?: number) {
+  requireCapability("workOrders", "reportWorkOrderProgress")
   return local().reportWorkOrderProgress(workOrderId, qtyGood, qtyScrap)
 }
 
 export function completeWorkOrder(workOrderId: string) {
+  requireCapability("workOrders", "completeWorkOrder")
   return local().completeWorkOrder(workOrderId)
 }
 
@@ -336,34 +418,42 @@ export function revokeAccess(grantId: string) {
 
 // Inventory
 export function getInventoryMetal() {
+  requireCapability("inventory", "getInventoryMetal")
   return USE_API ? httpProvider.getInventoryMetal() : local().getInventoryMetal()
 }
 
 export function createInventoryMetal(item: any) {
+  requireCapability("inventory", "createInventoryMetal")
   return USE_API ? httpProvider.createInventoryMetal(item) : local().createInventoryMetal(item)
 }
 
 export function updateInventoryMetal(item: any) {
+  requireCapability("inventory", "updateInventoryMetal")
   return USE_API ? httpProvider.updateInventoryMetal(item) : local().updateInventoryMetal(item)
 }
 
 export function getInventoryTooling() {
+  requireCapability("inventory", "getInventoryTooling")
   return USE_API ? httpProvider.getInventoryTooling() : local().getInventoryTooling()
 }
 
 export function createInventoryTooling(item: any) {
+  requireCapability("inventory", "createInventoryTooling")
   return USE_API ? httpProvider.createInventoryTooling(item) : local().createInventoryTooling(item)
 }
 
 export function updateInventoryTooling(item: any) {
+  requireCapability("inventory", "updateInventoryTooling")
   return USE_API ? httpProvider.updateInventoryTooling(item) : local().updateInventoryTooling(item)
 }
 
 export function getInventoryMovements() {
+  requireCapability("inventory", "getInventoryMovements")
   return USE_API ? httpProvider.getInventoryMovements() : local().getInventoryMovements()
 }
 
 export function createInventoryMovement(movement: any) {
+  requireCapability("inventory", "createInventoryMovement")
   return USE_API ? httpProvider.createInventoryMovement(movement) : local().createInventoryMovement(movement)
 }
 
@@ -376,18 +466,22 @@ export function getTasksForPart(partId: string) {
 }
 
 export function getTasksForMachine(machineId: string) {
+  requireDemoMode("getTasksForMachine")
   return local().getTasksForMachine(machineId)
 }
 
 export function getTasksForStage(stage: any) {
+  requireDemoMode("getTasksForStage")
   return local().getTasksForStage(stage)
 }
 
 export function getBlockersForMachine(machineId: string) {
+  requireDemoMode("getBlockersForMachine")
   return local().getBlockersForMachine(machineId)
 }
 
 export function getBlockersForPart(partId: string) {
+  requireDemoMode("getBlockersForPart")
   return local().getBlockersForPart(partId)
 }
 
@@ -400,7 +494,13 @@ export function markTaskAsRead(taskId: string, userId: string) {
 }
 
 export function acceptTask(taskId: string, userId?: string) {
-  return USE_API ? httpProvider.acceptTask(taskId, userId) : local().acceptTask(taskId, userId)
+  if (USE_API) {
+    return httpProvider.acceptTask(taskId, userId)
+  }
+  if (!userId) {
+    throw new Error("acceptTask requires userId in DEMO mode")
+  }
+  return local().acceptTask(taskId, userId)
 }
 
 export function startTask(taskId: string, userId: string) {
@@ -411,11 +511,11 @@ export function isTaskAssignedToUser(task: any, user: any) {
   return USE_API ? httpProvider.isTaskAssignedToUser(task, user) : local().isTaskAssignedToUser(task, user)
 }
 
-export function getTasksForUser(userId: string) {
+export function getTasksForUser(userId?: string) {
   return USE_API ? httpProvider.getTasksForUser(userId) : local().getTasksForUser(userId)
 }
 
-export function getUnreadTasksForUser(userId: string) {
+export function getUnreadTasksForUser(userId?: string) {
   return USE_API ? httpProvider.getUnreadTasksForUser(userId) : local().getUnreadTasksForUser(userId)
 }
 
@@ -449,16 +549,18 @@ export function reviewTask(taskId: string, reviewerId: string, approved: boolean
     : local().reviewTask(taskId, reviewerId, approved, comment)
 }
 
-export function getMachineNorms() {
-  return USE_API ? httpProvider.getMachineNorms() : local().getMachineNorms()
+export function getMachineNorms(preloadedParts?: any[]) {
+  return USE_API ? httpProvider.getMachineNorms(preloadedParts) : local().getMachineNorms()
 }
 
 export function getMachineNorm(machineId: string, partId: string, stage: any) {
-  return USE_API ? undefined : local().getMachineNorm(machineId, partId, stage)
+  requireDemoMode("getMachineNorm")
+  return local().getMachineNorm(machineId, partId, stage)
 }
 
 export function getMachineNormsForPart(partId: string) {
-  return USE_API ? [] : local().getMachineNormsForPart(partId)
+  requireDemoMode("getMachineNormsForPart")
+  return local().getMachineNormsForPart(partId)
 }
 
 export function setMachineNorm(norm: any) {
@@ -466,34 +568,42 @@ export function setMachineNorm(norm: any) {
 }
 
 export function getPartProgress(partId: string) {
+  requireDemoMode("getPartProgress")
   return local().getPartProgress(partId)
 }
 
 export function getPartForecast(partId: string, currentDate?: string) {
-  return local().getPartForecast(partId, currentDate)
+  requireDemoMode("getPartForecast")
+  return local().getPartForecast(partId, currentDate ?? local().getDemoDate())
 }
 
 export function getMachineTodayProgress(machineId: string, currentDate?: string) {
-  return local().getMachineTodayProgress(machineId, currentDate)
+  requireDemoMode("getMachineTodayProgress")
+  return local().getMachineTodayProgress(machineId, currentDate ?? local().getDemoDate())
 }
 
 export function getOverdueTasks(currentDate?: string) {
-  return local().getOverdueTasks(currentDate)
+  requireDemoMode("getOverdueTasks")
+  return local().getOverdueTasks(currentDate ?? local().getDemoDate())
 }
 
 export function getAllBlockers() {
+  requireDemoMode("getAllBlockers")
   return local().getAllBlockers()
 }
 
 export function isMissingShiftFact(machineId: string, shiftType: any, currentDate?: string) {
-  return local().isMissingShiftFact(machineId, shiftType, currentDate)
+  requireDemoMode("isMissingShiftFact")
+  return local().isMissingShiftFact(machineId, shiftType, currentDate ?? local().getDemoDate())
 }
 
 export function getCurrentStage(partId: string) {
+  requireDemoMode("getCurrentStage")
   return local().getCurrentStage(partId)
 }
 
 export function getStageCompletion(partId: string) {
+  requireDemoMode("getStageCompletion")
   return local().getStageCompletion(partId)
 }
 
@@ -502,4 +612,137 @@ export const logout = USE_API ? httpProvider.logout : undefined
 export const restoreSession = USE_API ? httpProvider.restoreSession : undefined
 
 export const isUsingApi = () => USE_API
-export const isDemoMode = () => !USE_API
+export const isDemoMode = () => isUsingDemoMode()
+export const getDataMode = () => MODE
+export const getModeCapabilities = () => ({ ...currentCapabilities() })
+export const isCapabilitySupported = (capability: ProviderCapability) =>
+  currentCapabilities()[capability]
+export const resolveApiCapabilities = USE_API ? ensureApiCapabilitiesResolved : undefined
+
+// Explicit API-mode contract for AppContext wiring.
+const KNOWN_CONTEXT_OPERATIONS = Object.freeze([
+  "login",
+  "loginWithCredentials",
+  "completePasswordChange",
+  "logout",
+  "setDemoDate",
+  "refreshData",
+  "resetData",
+  "createPart",
+  "updatePart",
+  "deletePart",
+  "updatePartDrawing",
+  "uploadAttachment",
+  "updatePartStageStatus",
+  "createStageFact",
+  "updateStageFact",
+  "deleteStageFact",
+  "createTask",
+  "updateTask",
+  "markTaskAsRead",
+  "acceptTask",
+  "startTask",
+  "getTasksForUser",
+  "getUnreadTasksForUser",
+  "getTasksCreatedByUser",
+  "getUnreadTasksCount",
+  "isTaskAssignedToUser",
+  "getUsersByRole",
+  "addTaskComment",
+  "sendTaskForReview",
+  "reviewTask",
+  "getMachineNorm",
+  "getMachineNormsForPart",
+  "setMachineNorm",
+  "createLogisticsEntry",
+  "updateLogisticsEntry",
+  "createInventoryMovement",
+  "createInventoryMetal",
+  "updateInventoryMetal",
+  "createInventoryTooling",
+  "updateInventoryTooling",
+  "createSpecification",
+  "createSpecItem",
+  "updateSpecification",
+  "setSpecificationPublished",
+  "deleteSpecification",
+  "updateSpecItemProgress",
+  "createWorkOrdersForSpecification",
+  "createWorkOrder",
+  "updateWorkOrder",
+  "queueWorkOrder",
+  "startWorkOrder",
+  "blockWorkOrder",
+  "reportWorkOrderProgress",
+  "completeWorkOrder",
+  "grantAccess",
+  "revokeAccess",
+  "getPartProgress",
+  "getPartForecast",
+  "getMachineTodayProgress",
+  "getPartsForMachine",
+  "getPartsByStage",
+  "getPartsInProgressAtStage",
+  "getCooperationParts",
+  "getOwnProductionParts",
+  "getTasksForPart",
+  "getTasksForMachine",
+  "getBlockersForMachine",
+  "getBlockersForPart",
+  "getStageFactsForPart",
+  "getStageFactsForPartAndStage",
+  "getLogisticsForPart",
+  "getJourneyForPart",
+  "getOverdueTasks",
+  "getAllBlockers",
+  "isMissingShiftFact",
+  "getCurrentStage",
+  "getStageCompletion",
+  "getUserById",
+  "getMachineById",
+  "getPartById",
+  "getOperators",
+  "getSpecificationsForCurrentUser",
+  "getSpecItemsBySpecification",
+  "getWorkOrdersForCurrentUser",
+  "getWorkOrdersForSpecification",
+  "getAccessGrantsForSpecification",
+])
+
+const API_MODE_UNSUPPORTED_CONTEXT_OPERATIONS = Object.freeze([
+  "updatePartStageStatus",
+  "getPartsByStage",
+  "getPartsInProgressAtStage",
+  "getTasksForMachine",
+  "getBlockersForMachine",
+  "getBlockersForPart",
+  "getStageFactsForPartAndStage",
+  "createWorkOrdersForSpecification",
+  "createWorkOrder",
+  "updateWorkOrder",
+  "queueWorkOrder",
+  "startWorkOrder",
+  "blockWorkOrder",
+  "reportWorkOrderProgress",
+  "completeWorkOrder",
+  "getMachineNorm",
+  "getMachineNormsForPart",
+  "createInventoryMetal",
+  "updateInventoryMetal",
+  "createInventoryTooling",
+  "updateInventoryTooling",
+  "getPartProgress",
+  "getPartForecast",
+  "getMachineTodayProgress",
+  "getOverdueTasks",
+  "getAllBlockers",
+  "isMissingShiftFact",
+  "getCurrentStage",
+  "getStageCompletion",
+])
+
+export const getApiModeUnsupportedContextOperations = () => [...API_MODE_UNSUPPORTED_CONTEXT_OPERATIONS]
+export const getApiModeSupportedContextOperations = () =>
+  KNOWN_CONTEXT_OPERATIONS.filter((operation) => !API_MODE_UNSUPPORTED_CONTEXT_OPERATIONS.includes(operation))
+export const isContextOperationSupportedInApi = (operation: string) =>
+  !API_MODE_UNSUPPORTED_CONTEXT_OPERATIONS.includes(operation)

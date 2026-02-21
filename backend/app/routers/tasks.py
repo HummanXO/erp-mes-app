@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, func
+from sqlalchemy import or_, and_
 from uuid import UUID
 from typing import Optional
 from ..database import get_db
@@ -24,12 +24,19 @@ from ..models import (
 )
 from ..schemas import (
     TaskCreate, TaskResponse, TaskCommentCreate, TaskCommentResponse,
-    TaskReviewRequest, UserBrief, PartBrief, AttachmentBase, TaskReadInfo
+    TaskReviewRequest, UserBrief, AttachmentBase
 )
 from ..auth import get_current_user, PermissionChecker
 from ..celery_app import create_notification_for_task
 from ..config import settings
 from ..security import can_view_task, is_task_assigned_to_user, require_org_entity
+from ..services.task_response_builder import task_to_response, tasks_to_response
+from ..use_cases.task_transitions import (
+    accept_task_use_case,
+    review_task_use_case,
+    send_to_review_use_case,
+    start_task_use_case,
+)
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -147,86 +154,6 @@ def validate_task_assignment_rules(db: Session, current_user: User, data: TaskCr
                 )
 
 
-def task_to_response(db: Session, task: Task, current_user: User) -> TaskResponse:
-    """Convert task to response with all relations."""
-    creator = db.query(User).filter(User.id == task.creator_id, User.org_id == task.org_id).first()
-    accepted_by = (
-        db.query(User).filter(User.id == task.accepted_by_id, User.org_id == task.org_id).first()
-        if task.accepted_by_id
-        else None
-    )
-    reviewed_by = (
-        db.query(User).filter(User.id == task.reviewed_by_id, User.org_id == task.org_id).first()
-        if task.reviewed_by_id
-        else None
-    )
-    part = (
-        db.query(Part).filter(Part.id == task.part_id, Part.org_id == task.org_id).first()
-        if task.part_id
-        else None
-    )
-    
-    # Check if read
-    is_read = db.query(TaskReadStatus).filter(
-        TaskReadStatus.task_id == task.id,
-        TaskReadStatus.user_id == current_user.id
-    ).first() is not None
-    
-    # Get all read statuses (who read and when), excluding task creator
-    read_statuses = (
-        db.query(TaskReadStatus, User)
-        .join(User, TaskReadStatus.user_id == User.id)
-        .filter(
-            TaskReadStatus.task_id == task.id,
-            TaskReadStatus.user_id != task.creator_id,
-        )
-        .all()
-    )
-    
-    read_by_users = [
-        {"user": UserBrief.model_validate(user), "read_at": status.read_at}
-        for status, user in read_statuses
-    ]
-    
-    # Get comments with attachments
-    comments = []
-    for comment in task.comments:
-        comment_user = db.query(User).filter(User.id == comment.user_id, User.org_id == task.org_id).first()
-        comments.append(TaskCommentResponse(
-            id=comment.id,
-            user=UserBrief.model_validate(comment_user) if comment_user else None,
-            message=comment.message,
-            attachments=[AttachmentBase.model_validate(a) for a in comment.attachments],
-            created_at=comment.created_at
-        ))
-    
-    return TaskResponse(
-        id=task.id,
-        title=task.title,
-        description=task.description,
-        creator=UserBrief.model_validate(creator) if creator else None,
-        assignee_type=task.assignee_type,
-        assignee_id=task.assignee_id,
-        assignee_role=task.assignee_role,
-        accepted_by=UserBrief.model_validate(accepted_by) if accepted_by else None,
-        accepted_at=task.accepted_at,
-        status=task.status,
-        is_blocker=task.is_blocker,
-        due_date=task.due_date,
-        category=task.category,
-        stage=task.stage,
-        part=PartBrief.model_validate(part) if part else None,
-        is_read=is_read,
-        read_by_users=read_by_users,
-        comments=comments,
-        review_comment=task.review_comment,
-        reviewed_by=UserBrief.model_validate(reviewed_by) if reviewed_by else None,
-        reviewed_at=task.reviewed_at,
-        created_at=task.created_at,
-        updated_at=task.updated_at
-    )
-
-
 @router.get("", response_model=list[TaskResponse])
 def get_tasks(
     status: Optional[str] = None,
@@ -235,6 +162,7 @@ def get_tasks(
     is_blocker: Optional[bool] = None,
     part_id: Optional[UUID] = None,
     unread: bool = False,
+    assignee_user_id: Optional[UUID] = None,
     limit: int = Query(50, le=100),
     offset: int = Query(0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -251,6 +179,24 @@ def get_tasks(
                 Task.assignee_type == "all",
                 and_(Task.assignee_type == "role", Task.assignee_role == "operator"),
                 and_(Task.assignee_type == "user", Task.assignee_id == current_user.id)
+            )
+        )
+
+    # Optional: query tasks for a specific target user assignment scope.
+    # Includes direct + role-based + assignee_type=all tasks for that user.
+    if assignee_user_id:
+        target_user = db.query(User).filter(
+            User.id == assignee_user_id,
+            User.org_id == current_user.org_id,
+            User.is_active == True,
+        ).first()
+        if not target_user:
+            return []
+        query = query.filter(
+            or_(
+                Task.assignee_type == "all",
+                and_(Task.assignee_type == "role", Task.assignee_role == target_user.role),
+                and_(Task.assignee_type == "user", Task.assignee_id == target_user.id),
             )
         )
     
@@ -279,18 +225,16 @@ def get_tasks(
     if part_id:
         query = query.filter(Task.part_id == part_id)
     
-    # Get tasks
+    # Apply unread filter before pagination to keep pages stable and hole-free.
+    if unread:
+        query = query.filter(
+            ~Task.read_statuses.any(TaskReadStatus.user_id == current_user.id)
+        )
+
+    # Get paginated tasks
     tasks = query.order_by(Task.created_at.desc()).offset(offset).limit(limit).all()
     
-    # Filter unread on Python side (easier than complex SQL)
-    if unread:
-        unread_task_ids = db.query(TaskReadStatus.task_id).filter(
-            TaskReadStatus.user_id == current_user.id
-        ).all()
-        unread_task_ids = {tid[0] for tid in unread_task_ids}
-        tasks = [t for t in tasks if t.id not in unread_task_ids]
-    
-    return [task_to_response(db, task, current_user) for task in tasks]
+    return tasks_to_response(db, tasks, current_user)
 
 
 @router.get("/{task_id}", response_model=TaskResponse)
@@ -416,56 +360,7 @@ def accept_task(
     db: Session = Depends(get_db)
 ):
     """Accept task."""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.org_id == current_user.org_id
-    ).first()
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    # Check if assigned to current user
-    if not is_task_assigned_to_user(task, current_user):
-        raise HTTPException(status_code=403, detail="Task not assigned to you")
-    
-    # Idempotent: if already accepted by this user, return OK
-    if task.accepted_by_id == current_user.id:
-        return task_to_response(db, task, current_user)
-    
-    # If already accepted by someone else
-    if task.accepted_by_id and task.accepted_by_id != current_user.id:
-        raise HTTPException(status_code=400, detail="Task already accepted by another user")
-    
-    # Accept task
-    old_status = task.status
-    task.accepted_by_id = current_user.id
-    task.accepted_at = func.now()
-    task.status = "accepted"
-    
-    # Mark as read
-    read_status = db.query(TaskReadStatus).filter(
-        TaskReadStatus.task_id == task_id,
-        TaskReadStatus.user_id == current_user.id
-    ).first()
-    if not read_status:
-        read_status = TaskReadStatus(task_id=task_id, user_id=current_user.id)
-        db.add(read_status)
-    
-    # Audit
-    audit = AuditEvent(
-        org_id=current_user.org_id,
-        action="task_accepted",
-        entity_type="task",
-        entity_id=task.id,
-        entity_name=task.title,
-        user_id=current_user.id,
-        user_name=current_user.initials,
-        details={"oldStatus": old_status, "newStatus": "accepted"}
-    )
-    db.add(audit)
-    
-    db.commit()
-    
+    task = accept_task_use_case(db=db, task_id=task_id, current_user=current_user)
     return task_to_response(db, task, current_user)
 
 
@@ -476,38 +371,7 @@ def start_task(
     db: Session = Depends(get_db)
 ):
     """Start work on task."""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.org_id == current_user.org_id
-    ).first()
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    if task.accepted_by_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only accepted user can start task")
-    
-    if task.status != "accepted":
-        raise HTTPException(status_code=400, detail="Task must be in accepted status")
-    
-    old_status = task.status
-    task.status = "in_progress"
-    
-    # Audit
-    audit = AuditEvent(
-        org_id=current_user.org_id,
-        action="task_status_changed",
-        entity_type="task",
-        entity_id=task.id,
-        entity_name=task.title,
-        user_id=current_user.id,
-        user_name=current_user.initials,
-        details={"oldStatus": old_status, "newStatus": "in_progress"}
-    )
-    db.add(audit)
-    
-    db.commit()
-    
+    task = start_task_use_case(db=db, task_id=task_id, current_user=current_user)
     return task_to_response(db, task, current_user)
 
 
@@ -518,39 +382,7 @@ def send_to_review(
     db: Session = Depends(get_db)
 ):
     """Send task for review."""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.org_id == current_user.org_id
-    ).first()
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    if task.accepted_by_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only accepted user can send for review")
-    
-    # Idempotent
-    if task.status == "review":
-        return task_to_response(db, task, current_user)
-    
-    old_status = task.status
-    task.status = "review"
-    
-    # Audit
-    audit = AuditEvent(
-        org_id=current_user.org_id,
-        action="task_sent_for_review",
-        entity_type="task",
-        entity_id=task.id,
-        entity_name=task.title,
-        user_id=current_user.id,
-        user_name=current_user.initials,
-        details={"oldStatus": old_status, "newStatus": "review"}
-    )
-    db.add(audit)
-    
-    db.commit()
-    
+    task = send_to_review_use_case(db=db, task_id=task_id, current_user=current_user)
     return task_to_response(db, task, current_user)
 
 
@@ -562,74 +394,13 @@ def review_task(
     db: Session = Depends(get_db)
 ):
     """Review task (approve or return)."""
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.org_id == current_user.org_id
-    ).first()
-    
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    
-    # Only creator can review
-    if task.creator_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Only creator can review task")
-    
-    if task.status != "review":
-        raise HTTPException(status_code=400, detail="Task must be in review status")
-    
-    old_status = task.status
-    task.reviewed_by_id = current_user.id
-    task.reviewed_at = func.now()
-    
-    if data.approved:
-        task.status = "done"
-        if data.comment:
-            # Add comment
-            comment = TaskComment(
-                task_id=task_id,
-                user_id=current_user.id,
-                message=f"Принято: {data.comment}"
-            )
-            db.add(comment)
-        
-        # Audit
-        audit = AuditEvent(
-            org_id=current_user.org_id,
-            action="task_approved",
-            entity_type="task",
-            entity_id=task.id,
-            entity_name=task.title,
-            user_id=current_user.id,
-            user_name=current_user.initials,
-            details={"oldStatus": old_status, "newStatus": "done", "comment": data.comment}
-        )
-        db.add(audit)
-    else:
-        task.status = "in_progress"
-        task.review_comment = data.comment
-        if data.comment:
-            comment = TaskComment(
-                task_id=task_id,
-                user_id=current_user.id,
-                message=f"Возвращено: {data.comment}"
-            )
-            db.add(comment)
-        
-        # Audit
-        audit = AuditEvent(
-            org_id=current_user.org_id,
-            action="task_returned",
-            entity_type="task",
-            entity_id=task.id,
-            entity_name=task.title,
-            user_id=current_user.id,
-            user_name=current_user.initials,
-            details={"oldStatus": old_status, "newStatus": "in_progress", "comment": data.comment}
-        )
-        db.add(audit)
-    
-    db.commit()
-    
+    task = review_task_use_case(
+        db=db,
+        task_id=task_id,
+        current_user=current_user,
+        approved=data.approved,
+        comment=data.comment,
+    )
     return task_to_response(db, task, current_user)
 
 
@@ -738,6 +509,3 @@ def mark_as_read(
         db.commit()
     
     return {"message": "Marked as read"}
-
-
-# NOTE: sqlalchemy.func is imported at module top.

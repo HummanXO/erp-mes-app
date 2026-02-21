@@ -403,6 +403,74 @@ ROLE_PERMISSIONS = {
 }
 
 
+UI_PERMISSION_KEYS: tuple[str, ...] = (
+    "canViewCooperation",
+    "canEditFacts",
+    "canRollbackFacts",
+    "canCreateTasks",
+    "canManageUsers",
+    "canCreateParts",
+    "canCreateOwnParts",
+    "canCreateCoopParts",
+    "canEditParts",
+    "canViewInventory",
+    "canManageInventory",
+    "canViewSpecifications",
+    "canManageSpecifications",
+    "canGrantSpecificationAccess",
+    "canViewAudit",
+)
+
+_INVENTORY_VIEW_ROLES: set[str] = {
+    "admin",
+    "director",
+    "chief_engineer",
+    "shop_head",
+    "supply",
+    "master",
+}
+
+
+def get_role_ui_permissions(role: str) -> dict[str, bool]:
+    """
+    Return frontend UI-hint permissions for a role.
+
+    Backend remains the enforcement source of truth.
+    """
+    base = ROLE_PERMISSIONS.get(role, {})
+    can_create_parts = bool(base.get("canCreateParts", False))
+
+    if role == "supply":
+        can_create_own_parts = False
+        can_create_coop_parts = can_create_parts
+    elif role == "master":
+        can_create_own_parts = can_create_parts
+        can_create_coop_parts = False
+    else:
+        can_create_own_parts = can_create_parts
+        can_create_coop_parts = can_create_parts
+
+    permissions = {
+        "canViewCooperation": bool(base.get("canViewCooperation", False)),
+        "canEditFacts": bool(base.get("canEditFacts", False)),
+        "canRollbackFacts": bool(base.get("canRollbackFacts", False)),
+        "canCreateTasks": bool(base.get("canCreateTasks", False)),
+        "canManageUsers": bool(base.get("canManageUsers", False)),
+        "canCreateParts": can_create_parts,
+        "canCreateOwnParts": can_create_own_parts,
+        "canCreateCoopParts": can_create_coop_parts,
+        "canEditParts": bool(base.get("canEditParts", False)),
+        "canViewInventory": role in _INVENTORY_VIEW_ROLES,
+        "canManageInventory": bool(base.get("canManageLogistics", False)),
+        "canViewSpecifications": bool(base.get("canViewSpecifications", False)),
+        "canManageSpecifications": bool(base.get("canManageSpecifications", False)),
+        "canGrantSpecificationAccess": bool(base.get("canGrantSpecificationAccess", False)),
+        "canViewAudit": bool(base.get("canViewAudit", False)),
+    }
+
+    return {key: bool(permissions.get(key, False)) for key in UI_PERMISSION_KEYS}
+
+
 def check_permission(user: User, permission: str) -> bool:
     """Check if user has specific permission."""
     permissions = ROLE_PERMISSIONS.get(user.role, {})

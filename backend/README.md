@@ -12,6 +12,20 @@ FastAPI backend for Production Control System.
 - **Celery** - Background tasks
 - **JWT** - Authentication
 
+## Models Source of Truth
+
+Runtime SQLAlchemy models are defined only in `app/models.py`. This is the only canonical model module for routers/services/migrations.
+
+## Use-case Logic Map
+
+Router handlers are intentionally thin; business branches live in `app/use_cases/`. Current map:
+- `app/use_cases/task_transitions.py` (task status flows)
+- `app/use_cases/part_lifecycle.py` (part deletion flow)
+- `app/use_cases/movements_use_cases.py` (movement lifecycle rules)
+- `app/use_cases/inventory_slice.py` (inventory vertical slice for API mode)
+
+See `USE_CASES.md` for the short entrypoint guide.
+
 ## Quick Start
 
 ### 1. Setup Environment
@@ -107,6 +121,12 @@ docker-compose exec backend python seed_data.py
 - `POST /api/v1/parts` - Create part
 - `PUT /api/v1/parts/{id}` - Update part
 
+### Inventory (Vertical Slice #1)
+- `GET /api/v1/inventory/capabilities` - Runtime feature capabilities for API mode
+- `GET /api/v1/inventory/metal` - Minimal inventory positions (selection read-model)
+- `GET /api/v1/inventory/movements` - Inventory movement journal
+- `POST /api/v1/inventory/movements` - Create inventory movement
+
 ### Stage Facts
 - `POST /api/v1/parts/{id}/facts` - Create fact
 - `GET /api/v1/parts/{id}/facts` - List facts
@@ -142,7 +162,7 @@ alembic downgrade -1
 ## Testing
 
 ```bash
-pytest
+SECRET_KEY=ci-secret JWT_SECRET_KEY=ci-jwt DATABASE_URL=sqlite:///./ci.db pytest -q
 ```
 
 ## cURL Examples

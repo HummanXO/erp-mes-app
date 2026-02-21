@@ -76,10 +76,14 @@ cp backend/.env.example backend/.env
 
 # Use API mode (backend)
 NEXT_PUBLIC_API_BASE_URL=/api/v1
+NEXT_PUBLIC_DEMO_MODE=false
 
 # OR demo mode (no backend)
 # NEXT_PUBLIC_API_BASE_URL=
+# NEXT_PUBLIC_DEMO_MODE=true
 ```
+
+Mode rules (single source of truth): see `docs/runtime-modes.md`.
 
 ## ✅ What's Implemented
 
@@ -116,8 +120,11 @@ NEXT_PUBLIC_API_BASE_URL=/api/v1
 ### Test Backend
 
 ```bash
-cd backend
-pytest
+# Python 3.11 recommended
+python3.11 -m venv .venv-backend
+source .venv-backend/bin/activate
+pip install -r backend/requirements.txt
+npm run test:backend
 ```
 
 ### Test API with cURL
@@ -136,7 +143,8 @@ curl http://localhost:8000/api/v1/parts \
 ### Test Frontend
 
 ```bash
-npm run test
+npm run lint
+npm run typecheck
 ```
 
 ## 📦 Project Structure

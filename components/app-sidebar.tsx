@@ -37,6 +37,7 @@ interface AppSidebarProps {
 export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
   const { currentUser, logout, resetData, getAllBlockers, getOverdueTasks, getUnreadTasksCount, inventoryMetal, inventoryTooling, permissions } = useApp()
   const usingApi = dataProvider.isUsingApi()
+  const inventorySupported = dataProvider.isCapabilitySupported("inventory")
 
   const blockers = getAllBlockers()
   const overdue = getOverdueTasks()
@@ -117,12 +118,18 @@ export function AppSidebar({ activeView, onViewChange }: AppSidebarProps) {
             <SidebarMenuItem>
               <SidebarMenuButton
                 isActive={activeView === "inventory"}
-                onClick={() => onViewChange("inventory")}
+                onClick={() => {
+                  if (inventorySupported) onViewChange("inventory")
+                }}
                 className="justify-start relative"
+                disabled={!inventorySupported}
+                tooltip={!inventorySupported ? "Склад недоступен: backend capability inventory=false" : undefined}
               >
                 <Warehouse className="h-4 w-4" />
                 <span>Склад</span>
-                {lowStockCount > 0 && (
+                {!inventorySupported ? (
+                  <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground">off</span>
+                ) : lowStockCount > 0 && (
                   <span className={cn(
                     "ml-auto text-xs px-1.5 py-0.5 rounded-full",
                     "bg-[color:var(--status-warning-bg)] text-[color:var(--status-warning-fg)] border border-[color:var(--status-warning-border)]"

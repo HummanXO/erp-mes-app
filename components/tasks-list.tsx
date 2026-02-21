@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { TaskDetails } from "./task-details"
+import * as dataProvider from "@/lib/data-provider-adapter"
 
 interface TasksListProps {
   partId?: string
@@ -63,6 +64,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   const [category, setCategory] = useState<TaskCategory>("general")
   const [stage, setStage] = useState<ProductionStage | "none">("none")
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all")
+  const canDirectStatusUpdate = dataProvider.isCapabilitySupported("taskManualStatusUpdate")
   
   // Filter tasks
   const filteredTasks = tasks.filter(t => {
@@ -123,6 +125,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
       is_blocker: isBlocker,
       due_date: dueDate || demoDate,
       category,
+      comments: [],
     })
     
     // Reset form
@@ -139,6 +142,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   }
   
   const handleStatusChange = (taskId: string, newStatus: TaskStatus) => {
+    if (!canDirectStatusUpdate) return
     const task = tasks.find(t => t.id === taskId)
     if (task) {
       updateTask({ ...task, status: newStatus })
@@ -211,7 +215,13 @@ export function TasksList({ partId, machineId }: TasksListProps) {
           </Button>
         )
       })}
-    </div>
+	  </div>
+
+      {!canDirectStatusUpdate && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          В API-режиме ручная смена статуса отключена. Используйте действия Принять, Начать и На проверку.
+        </div>
+      )}
   </div>
   
   {/* Create button */}
@@ -490,17 +500,19 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                       </div>
                     </button>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        aria-label={task.status === "open" ? "Отметить как в работе" : "Отметить как выполнено"}
-                        className="rounded-md h-10 w-10 flex items-center justify-center hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")
-                        }}
-                      >
-                        {getStatusIcon(task.status)}
-                      </button>
+                      {canDirectStatusUpdate && (
+                        <button
+                          type="button"
+                          aria-label={task.status === "open" ? "Отметить как в работе" : "Отметить как выполнено"}
+                          className="rounded-md h-10 w-10 flex items-center justify-center hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleStatusChange(task.id, task.status === "open" ? "in_progress" : "done")
+                          }}
+                        >
+                          {getStatusIcon(task.status)}
+                        </button>
+                      )}
                       {isMyTask && task.status === "open" && !task.accepted_by_id && (
                         <Button 
                           size="sm" 
@@ -521,26 +533,32 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                           <span className="text-xs">{task.comments.length}</span>
                         </div>
                       )}
-                      <Select 
-                        value={task.status} 
-                        onValueChange={(v) => {
-                          v && handleStatusChange(task.id, v as TaskStatus)
-                        }}
-                      >
-                        <SelectTrigger
-                          className="w-32 h-10 text-sm md:text-xs"
-                          onClick={(e) => e.stopPropagation()}
+                      {canDirectStatusUpdate ? (
+                        <Select 
+                          value={task.status} 
+                          onValueChange={(v) => {
+                            v && handleStatusChange(task.id, v as TaskStatus)
+                          }}
                         >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="open">Открыта</SelectItem>
-                          <SelectItem value="accepted">Принята</SelectItem>
-                          <SelectItem value="in_progress">В работе</SelectItem>
-                          <SelectItem value="review">На проверке</SelectItem>
-                          <SelectItem value="done">Готово</SelectItem>
-                        </SelectContent>
-                      </Select>
+                          <SelectTrigger
+                            className="w-32 h-10 text-sm md:text-xs"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="open">Открыта</SelectItem>
+                            <SelectItem value="accepted">Принята</SelectItem>
+                            <SelectItem value="in_progress">В работе</SelectItem>
+                            <SelectItem value="review">На проверке</SelectItem>
+                            <SelectItem value="done">Готово</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          API workflow
+                        </Badge>
+                      )}
                       <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
                     </div>
                   </div>

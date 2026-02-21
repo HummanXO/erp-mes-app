@@ -6,14 +6,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from uuid import UUID
 from ..database import get_db
 from ..models import User, Part, StageFact, StageFactAttachment, AuditEvent
 from ..schemas import StageFactCreate, StageFactUpdate, StageFactResponse, UserBrief, AttachmentBase
 from ..auth import get_current_user, PermissionChecker
 from ..config import settings
-from ..security import can_access_part, require_org_entity
+from ..security import apply_part_visibility_scope, can_access_part, require_org_entity
 from ..services.part_state import (
     STAGE_LABELS_RU,
     StageTotals,
@@ -164,6 +164,54 @@ def _ensure_single_shift_per_operator(
             status_code=409,
             detail="Оператор уже закреплён за другой сменой в этот день по этой детали. Один оператор = одна смена.",
         )
+
+
+def _load_fact_operators(db: Session, *, org_id: UUID, facts: list[StageFact]) -> dict[UUID, User]:
+    operator_ids = {fact.operator_id for fact in facts if fact.operator_id}
+    if not operator_ids:
+        return {}
+    users = (
+        db.query(User)
+        .filter(
+            User.org_id == org_id,
+            User.id.in_(operator_ids),
+        )
+        .all()
+    )
+    return {user.id: user for user in users}
+
+
+def _fact_to_response(fact: StageFact, operator: User | None) -> StageFactResponse:
+    return StageFactResponse(
+        id=fact.id,
+        part_id=fact.part_id,
+        stage=fact.stage,
+        date=fact.date,
+        shift_type=fact.shift_type,
+        machine_id=fact.machine_id,
+        qty_good=fact.qty_good,
+        qty_scrap=fact.qty_scrap,
+        qty_expected=fact.qty_expected,
+        comment=fact.comment,
+        deviation_reason=fact.deviation_reason,
+        operator=UserBrief.model_validate(operator) if operator else None,
+        attachments=[AttachmentBase.model_validate(a) for a in fact.attachments],
+        created_at=fact.created_at,
+    )
+
+
+def _facts_to_response_list(
+    *,
+    facts: list[StageFact],
+    operators_by_id: dict[UUID, User],
+) -> list[StageFactResponse]:
+    return [
+        _fact_to_response(
+            fact,
+            operators_by_id.get(fact.operator_id) if fact.operator_id else None,
+        )
+        for fact in facts
+    ]
 
 
 @router.post("/parts/{part_id}/facts", response_model=StageFactResponse, dependencies=[Depends(PermissionChecker("canEditFacts"))])
@@ -359,20 +407,37 @@ def create_stage_fact(
         else None
     )
     
-    return StageFactResponse(
-        id=fact.id,
-        stage=fact.stage,
-        date=fact.date,
-        shift_type=fact.shift_type,
-        qty_good=fact.qty_good,
-        qty_scrap=fact.qty_scrap,
-        qty_expected=fact.qty_expected,
-        comment=fact.comment,
-        deviation_reason=fact.deviation_reason,
-        operator=UserBrief.model_validate(operator) if operator else None,
-        attachments=[AttachmentBase.model_validate(a) for a in fact.attachments],
-        created_at=fact.created_at
+    return _fact_to_response(fact, operator)
+
+
+@router.get("/facts", response_model=list[StageFactResponse])
+def get_facts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get facts for all parts visible to current user (aggregated endpoint)."""
+    visible_parts_query = apply_part_visibility_scope(
+        db.query(Part.id).filter(Part.org_id == current_user.org_id),
+        db,
+        current_user,
     )
+    visible_part_ids = [row[0] for row in visible_parts_query.all()]
+    if not visible_part_ids:
+        return []
+
+    facts = (
+        db.query(StageFact)
+        .options(selectinload(StageFact.attachments))
+        .filter(
+            StageFact.org_id == current_user.org_id,
+            StageFact.part_id.in_(visible_part_ids),
+        )
+        .order_by(StageFact.date.desc(), StageFact.created_at.desc())
+        .all()
+    )
+
+    operators_by_id = _load_fact_operators(db, org_id=current_user.org_id, facts=facts)
+    return _facts_to_response_list(facts=facts, operators_by_id=operators_by_id)
 
 
 @router.get("/parts/{part_id}/facts", response_model=list[StageFactResponse])
@@ -392,34 +457,19 @@ def get_part_facts(
     if not can_access_part(db, part, current_user):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    facts = db.query(StageFact).filter(
-        StageFact.part_id == part_id,
-        StageFact.org_id == current_user.org_id
-    ).order_by(StageFact.date.desc(), StageFact.created_at.desc()).all()
-    
-    responses = []
-    for fact in facts:
-        operator = (
-            db.query(User).filter(User.id == fact.operator_id, User.org_id == current_user.org_id).first()
-            if fact.operator_id
-            else None
+    facts = (
+        db.query(StageFact)
+        .options(selectinload(StageFact.attachments))
+        .filter(
+            StageFact.part_id == part_id,
+            StageFact.org_id == current_user.org_id,
         )
-        responses.append(StageFactResponse(
-            id=fact.id,
-            stage=fact.stage,
-            date=fact.date,
-            shift_type=fact.shift_type,
-            qty_good=fact.qty_good,
-            qty_scrap=fact.qty_scrap,
-            qty_expected=fact.qty_expected,
-            comment=fact.comment,
-            deviation_reason=fact.deviation_reason,
-            operator=UserBrief.model_validate(operator) if operator else None,
-            attachments=[AttachmentBase.model_validate(a) for a in fact.attachments],
-            created_at=fact.created_at
-        ))
-    
-    return responses
+        .order_by(StageFact.date.desc(), StageFact.created_at.desc())
+        .all()
+    )
+    operators_by_id = _load_fact_operators(db, org_id=current_user.org_id, facts=facts)
+
+    return _facts_to_response_list(facts=facts, operators_by_id=operators_by_id)
 
 
 @router.put("/facts/{fact_id}", response_model=StageFactResponse, dependencies=[Depends(PermissionChecker("canEditFacts"))])
@@ -556,20 +606,7 @@ def update_stage_fact(
         if fact.operator_id
         else None
     )
-    return StageFactResponse(
-        id=fact.id,
-        stage=fact.stage,
-        date=fact.date,
-        shift_type=fact.shift_type,
-        qty_good=fact.qty_good,
-        qty_scrap=fact.qty_scrap,
-        qty_expected=fact.qty_expected,
-        comment=fact.comment,
-        deviation_reason=fact.deviation_reason,
-        operator=UserBrief.model_validate(operator) if operator else None,
-        attachments=[AttachmentBase.model_validate(a) for a in fact.attachments],
-        created_at=fact.created_at
-    )
+    return _fact_to_response(fact, operator)
 
 
 @router.delete("/facts/{fact_id}", status_code=204, dependencies=[Depends(PermissionChecker("canRollbackFacts"))])

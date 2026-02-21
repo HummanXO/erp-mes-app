@@ -454,6 +454,13 @@ class ApiClient {
     return this.request<any>(`/parts/${partId}/movements`)
   }
 
+  async getPartsRelatedBatch(partIds: string[]) {
+    return this.request<any>("/parts/batch/related", {
+      method: "POST",
+      body: JSON.stringify({ part_ids: partIds }),
+    })
+  }
+
   async createMovement(partId: string, data: any) {
     return this.request<any>(`/parts/${partId}/movements`, {
       method: "POST",
@@ -470,6 +477,25 @@ class ApiClient {
 
   async getPartJourney(partId: string) {
     return this.request<any>(`/parts/${partId}/journey`)
+  }
+
+  async getInventoryCapabilities() {
+    return this.request<any>("/inventory/capabilities")
+  }
+
+  async getInventoryMetal() {
+    return this.request<any>("/inventory/metal")
+  }
+
+  async getInventoryMovements() {
+    return this.request<any>("/inventory/movements")
+  }
+
+  async createInventoryMovement(data: any) {
+    return this.request<any>("/inventory/movements", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
   }
 
   async createPart(data: any) {
@@ -656,6 +682,10 @@ class ApiClient {
     return this.request<any>(`/parts/${partId}/facts`)
   }
 
+  async getFacts() {
+    return this.request<any>("/facts")
+  }
+
   async getPartNorms(partId: string) {
     return this.request<any>(`/parts/${partId}/norms`)
   }
@@ -671,6 +701,7 @@ class ApiClient {
   async getTasks(filters?: {
     status?: string
     assigned_to_me?: boolean
+    assignee_user_id?: string
     created_by_me?: boolean
     is_blocker?: boolean
     part_id?: string

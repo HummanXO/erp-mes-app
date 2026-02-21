@@ -1471,19 +1471,23 @@ export function isTaskAssignedToUser(task: Task, user: User): boolean {
 }
 
 // Получить задачи для пользователя (включая групповые)
-export function getTasksForUser(userId: string): Task[] {
-  const user = getUserById(userId)
+export function getTasksForUser(userId?: string): Task[] {
+  const resolvedUserId = (userId || getCurrentUser()?.id || "").trim()
+  if (!resolvedUserId) return []
+  const user = getUserById(resolvedUserId)
   if (!user) return []
   return getTasks().filter(t => isTaskAssignedToUser(t, user))
 }
 
 // Получить непрочитанные задачи для пользователя (включая групповые)
-export function getUnreadTasksForUser(userId: string): Task[] {
-  const user = getUserById(userId)
+export function getUnreadTasksForUser(userId?: string): Task[] {
+  const resolvedUserId = (userId || getCurrentUser()?.id || "").trim()
+  if (!resolvedUserId) return []
+  const user = getUserById(resolvedUserId)
   if (!user) return []
   return getTasks().filter(t => 
     isTaskAssignedToUser(t, user) && 
-    !t.read_by.includes(userId) &&
+    !t.read_by.includes(resolvedUserId) &&
     t.status !== "done"
   )
 }

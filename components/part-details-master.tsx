@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { apiClient } from "@/lib/api-client"
 import {
   AlertCircle,
   ArrowLeft,
@@ -36,8 +37,11 @@ import {
   ClipboardList,
   Cog,
   Factory,
+  FileImage,
+  FileText,
   Flame,
   FlaskConical,
+  Maximize2,
   Package,
   Pencil,
   Plus,
@@ -693,6 +697,19 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
   const [machineNormDraft, setMachineNormDraft] = useState(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
   const [machineError, setMachineError] = useState("")
   const [isSavingMachine, setIsSavingMachine] = useState(false)
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false)
+  const [drawingError, setDrawingError] = useState(false)
+  const [drawingObjectUrl, setDrawingObjectUrl] = useState<string | null>(null)
+  const [isLoadingDrawingFile, setIsLoadingDrawingFile] = useState(false)
+
+  const drawingUrlValue = (part.drawing_url || "").trim()
+  const drawingUrlLower = drawingUrlValue.toLowerCase()
+  const isPdfDrawing = drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
+  const isImageDrawing =
+    drawingUrlLower.startsWith("data:image/") ||
+    /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
+  const isKnownDrawingType = isPdfDrawing || isImageDrawing
+  const resolvedDrawingUrl = drawingObjectUrl || drawingUrlValue
 
   const factStageOptions = useMemo<ProductionStage[]>(() => {
     const ordered: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
@@ -712,6 +729,88 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
   }, [machineNorm?.qty_per_shift, part.id, part.machine_id])
 
   useEffect(() => {
+    setDrawingError(false)
+    setIsDrawingModalOpen(false)
+  }, [part.id, drawingUrlValue])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const clearObjectUrl = () => {
+      setDrawingObjectUrl((prev) => {
+        if (prev) {
+          URL.revokeObjectURL(prev)
+        }
+        return null
+      })
+    }
+
+    const isProtectedAttachmentUrl = (value: string) => {
+      if (value.startsWith("/uploads/") || value.startsWith("/api/v1/attachments/serve/")) return true
+      if (value.startsWith("http://") || value.startsWith("https://")) {
+        try {
+          const parsed = new URL(value)
+          return parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/v1/attachments/serve/")
+        } catch {
+          return false
+        }
+      }
+      return false
+    }
+
+    if (!drawingUrlValue || !isKnownDrawingType) {
+      clearObjectUrl()
+      setIsLoadingDrawingFile(false)
+      return
+    }
+
+    if (
+      drawingUrlValue.startsWith("data:") ||
+      drawingUrlValue.startsWith("blob:") ||
+      !isProtectedAttachmentUrl(drawingUrlValue)
+    ) {
+      clearObjectUrl()
+      setIsLoadingDrawingFile(false)
+      return
+    }
+
+    setIsLoadingDrawingFile(true)
+    void (async () => {
+      try {
+        const blob = await apiClient.fetchBlob(drawingUrlValue)
+        if (cancelled) return
+        const nextUrl = URL.createObjectURL(blob)
+        setDrawingObjectUrl((prev) => {
+          if (prev) {
+            URL.revokeObjectURL(prev)
+          }
+          return nextUrl
+        })
+        setDrawingError(false)
+      } catch {
+        if (cancelled) return
+        clearObjectUrl()
+        setDrawingError(true)
+      } finally {
+        if (cancelled) return
+        setIsLoadingDrawingFile(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [drawingUrlValue, isKnownDrawingType])
+
+  useEffect(() => {
+    return () => {
+      if (drawingObjectUrl) {
+        URL.revokeObjectURL(drawingObjectUrl)
+      }
+    }
+  }, [drawingObjectUrl])
+
+  useEffect(() => {
     setTaskDueDate(part.deadline || localIsoDate())
     setTaskStage(NO_STAGE_VALUE)
   }, [part.deadline, part.id])
@@ -728,6 +827,11 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
       return
     }
     onBack()
+  }
+
+  const handleOpenDrawingModal = () => {
+    if (!drawingUrlValue) return
+    setIsDrawingModalOpen(true)
   }
 
   const handleOpenTransferDialog = (stage: FlowStageKey) => {
@@ -1674,6 +1778,60 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
         <aside className="col-span-12 space-y-6 xl:col-span-3">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileImage className="h-4 w-4 text-slate-400" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">Чертёж</h3>
+              </div>
+              {drawingUrlValue ? (
+                <button
+                  type="button"
+                  onClick={handleOpenDrawingModal}
+                  className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+                >
+                  <Maximize2 className="h-3 w-3" />
+                  На весь экран
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenDrawingModal}
+              disabled={!drawingUrlValue}
+              className={cn(
+                "block w-full overflow-hidden rounded-lg border border-slate-100 bg-slate-100 p-0 text-left",
+                drawingUrlValue ? "cursor-pointer transition-colors hover:border-slate-300" : "cursor-default"
+              )}
+            >
+              <div className="flex h-48 items-center justify-center bg-slate-100">
+                {isLoadingDrawingFile ? (
+                  <span className="text-sm text-slate-500">Загрузка...</span>
+                ) : drawingUrlValue && isImageDrawing && !drawingError ? (
+                  <img
+                    src={resolvedDrawingUrl || "/placeholder.svg"}
+                    alt={`Чертёж ${part.code}`}
+                    className="h-full w-full object-contain"
+                    onError={() => setDrawingError(true)}
+                  />
+                ) : drawingUrlValue && isPdfDrawing ? (
+                  <div className="text-center text-slate-500">
+                    <FileText className="mx-auto mb-2 h-8 w-8 opacity-70" />
+                    <p className="text-sm">PDF-чертёж</p>
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-500">
+                    <FileImage className="mx-auto mb-2 h-8 w-8 opacity-60" />
+                    <p className="text-sm">Чертёж не загружен</p>
+                  </div>
+                )}
+              </div>
+            </button>
+            <p className="mt-2 text-xs text-slate-400">
+              {drawingUrlValue ? part.code : "Добавьте файл в карточке детали"}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="mb-4 flex items-center gap-2">
               <Truck className="h-4 w-4 text-slate-400" />
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">Отправки в пути</h3>
@@ -1826,6 +1984,41 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
           </div>
         </aside>
       </div>
+
+      <Dialog open={isDrawingModalOpen} onOpenChange={setIsDrawingModalOpen}>
+        <DialogContent className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-hidden p-0 sm:max-w-5xl">
+          <DialogHeader className="border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+            <DialogTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-800">
+              <FileImage className="h-4 w-4 text-slate-400 flex-shrink-0" />
+              <span className="truncate">Чертеж: {part.code}</span>
+            </DialogTitle>
+            <DialogDescription className="sr-only">Просмотр чертежа детали</DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-[60vh] items-center justify-center bg-slate-100 p-4 sm:p-8">
+            {isLoadingDrawingFile ? (
+              <span className="text-sm text-slate-500">Загрузка...</span>
+            ) : drawingUrlValue && isImageDrawing && !drawingError ? (
+              <img
+                src={resolvedDrawingUrl || "/placeholder.svg"}
+                alt={`Чертёж ${part.code}`}
+                className="max-h-[75vh] w-full rounded bg-white object-contain"
+                onError={() => setDrawingError(true)}
+              />
+            ) : drawingUrlValue && isPdfDrawing ? (
+              <iframe
+                src={resolvedDrawingUrl}
+                title={`Чертёж ${part.code}`}
+                className="h-[75vh] w-full rounded border border-slate-200 bg-white"
+              />
+            ) : (
+              <div className="text-center text-slate-500">
+                <FileImage className="mx-auto mb-2 h-10 w-10 opacity-60" />
+                <p>Чертёж не загружен</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(transferStage)}

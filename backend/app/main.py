@@ -1,8 +1,12 @@
 """FastAPI application."""
-from fastapi import FastAPI
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+
 from .config import settings
-from .routers import auth, users, parts, facts, tasks, uploads, telegram, machines, audit, specifications, directory, movements
+from .domain_errors import DomainError
+from .problem_details import build_problem_details_response
+from .routers import auth, users, parts, facts, tasks, uploads, telegram, machines, audit, specifications, directory, movements, inventory
 
 # Create app
 app = FastAPI(
@@ -51,6 +55,13 @@ app.include_router(machines.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(specifications.router, prefix="/api/v1")
 app.include_router(movements.router, prefix="/api/v1")
+app.include_router(inventory.router, prefix="/api/v1")
+
+
+@app.exception_handler(DomainError)
+async def handle_domain_error(_: Request, exc: DomainError):
+    """Return RFC 7807 Problem Details with stable domain error code."""
+    return build_problem_details_response(exc)
 
 
 @app.get("/api/v1/system/health")

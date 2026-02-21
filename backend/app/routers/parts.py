@@ -22,12 +22,14 @@ from ..models import (
 )
 from ..schemas import (
     PartCreate, PartUpdate, PartResponse, StageStatusResponse,
-    PartProgressResponse, PartForecastResponse, MachineResponse,
-    MachineNormUpsert, MachineNormResponse
+    PartProgressResponse, PartForecastResponse, MachineResponse, PartListResponse,
+    MachineNormUpsert, MachineNormResponse, PartRelatedBatchRequest, PartRelatedBatchResponse
 )
 from ..auth import get_current_user, PermissionChecker
 from ..security import apply_part_visibility_scope, can_access_part
 from ..services.part_state import compute_stage_totals, recompute_part_state, validate_stage_flow
+from ..use_cases.part_lifecycle import delete_part_use_case
+from ..use_cases.parts_related import get_parts_related_batch_use_case
 
 router = APIRouter(prefix="/parts", tags=["parts"])
 
@@ -291,7 +293,7 @@ def calculate_part_forecast(db: Session, part: Part, current_date: date) -> Part
     )
 
 
-@router.get("", response_model=list[PartResponse])
+@router.get("", response_model=PartListResponse)
 def get_parts(
     status: Optional[str] = None,
     is_cooperation: Optional[bool] = None,
@@ -333,7 +335,22 @@ def get_parts(
         }
         responses.append(PartResponse(**response_data))
     
-    return responses
+    return PartListResponse(items=responses, total=total, limit=limit, offset=offset)
+
+
+@router.post("/batch/related", response_model=PartRelatedBatchResponse)
+def get_parts_related_batch(
+    payload: PartRelatedBatchRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Batch lookup for part-related data used by frontend refresh paths."""
+    items = get_parts_related_batch_use_case(
+        db=db,
+        current_user=current_user,
+        part_ids=payload.part_ids,
+    )
+    return PartRelatedBatchResponse(items=items)
 
 
 @router.get("/{part_id}", response_model=PartResponse)
@@ -655,69 +672,12 @@ def delete_part(
     db: Session = Depends(get_db)
 ):
     """Delete part with dependent records."""
-    part = db.query(Part).filter(
-        Part.id == part_id,
-        Part.org_id == current_user.org_id
-    ).first()
-
-    if not part:
-        raise HTTPException(status_code=404, detail="Part not found")
-
-    affected_spec_ids = [
-        row[0]
-        for row in db.query(SpecItem.specification_id).join(
-            Specification,
-            SpecItem.specification_id == Specification.id,
-        ).filter(
-            Specification.org_id == current_user.org_id,
-            SpecItem.part_id == part_id,
-        ).distinct().all()
-    ]
-
-    # Keep audit trail rows but remove FK link to avoid constraint violations
-    db.query(AuditEvent).filter(
-        AuditEvent.part_id == part_id
-    ).update({"part_id": None}, synchronize_session=False)
-
-    # Delete dependents that don't have ON DELETE CASCADE in schema
-    db.query(MachineNorm).filter(
-        MachineNorm.part_id == part_id
-    ).delete(synchronize_session=False)
-
-    db.query(LogisticsEntry).filter(
-        LogisticsEntry.part_id == part_id
-    ).delete(synchronize_session=False)
-
-    db.query(Task).filter(
-        Task.part_id == part_id
-    ).delete(synchronize_session=False)
-
-    db.query(StageFact).filter(
-        StageFact.part_id == part_id
-    ).delete(synchronize_session=False)
-
-    db.query(PartStageStatus).filter(
-        PartStageStatus.part_id == part_id
-    ).delete(synchronize_session=False)
-
-    # Remove orphan spec positions linked to this part so specification counters stay consistent.
-    if affected_spec_ids:
-        db.query(SpecItem).filter(
-            SpecItem.part_id == part_id,
-            SpecItem.specification_id.in_(affected_spec_ids),
-        ).delete(synchronize_session=False)
-
-    db.delete(part)
-
-    if affected_spec_ids:
-        affected_specs = db.query(Specification).filter(
-            Specification.id.in_(affected_spec_ids),
-            Specification.org_id == current_user.org_id,
-        ).all()
-        for specification in affected_specs:
-            _recompute_specification_status(db, specification)
-
-    db.commit()
+    delete_part_use_case(
+        db=db,
+        part_id=part_id,
+        current_user=current_user,
+        recompute_specification_status=_recompute_specification_status,
+    )
 
 
 @router.get("/{part_id}/norms", response_model=list[MachineNormResponse])

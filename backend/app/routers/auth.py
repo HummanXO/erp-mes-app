@@ -23,17 +23,30 @@ from ..auth import (
     hash_password,
     validate_new_password,
     verify_password,
+    get_role_ui_permissions,
 )
 from ..config import settings
 from ..database import get_db
 from ..models import AuditEvent, RefreshSession, User
-from ..schemas import ChangePasswordRequest, LoginRequest, RefreshTokenRequest, TokenResponse, UserResponse
+from ..schemas import (
+    AuthUserResponse,
+    ChangePasswordRequest,
+    LoginRequest,
+    RefreshTokenRequest,
+    TokenResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 
 
 _redis_client = None
+
+
+def _auth_user_response(user: User) -> AuthUserResponse:
+    base = UserResponse.model_validate(user)
+    return AuthUserResponse(**base.model_dump(), permissions=get_role_ui_permissions(user.role))
 
 
 def _get_redis():
@@ -414,7 +427,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         access_token=access_token,
         refresh_token=None,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user),
+        user=_auth_user_response(user),
         must_change_password=user.must_change_password
     )
 
@@ -519,7 +532,7 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
                 )
                 replacement_expires_at = _as_utc(replacement.expires_at) if replacement else None
                 if replacement and replacement_expires_at and replacement_expires_at >= now:
-                    user_resp = UserResponse.model_validate(user)
+                    user_resp = _auth_user_response(user)
                     must_change = user.must_change_password
                     access_token = create_access_token({"sub": str(user.id), "ver": user.token_version})
                     refresh_cookie_token = create_refresh_token(
@@ -587,7 +600,7 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
         access_token=access_token,
         refresh_token=None,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(user),
+        user=_auth_user_response(user),
         must_change_password=user.must_change_password,
     )
 
@@ -627,11 +640,11 @@ def logout(
     return {"message": "Logged out successfully"}
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=AuthUserResponse)
 def get_me(response: Response, current_user: User = Depends(get_current_user_allow_password_change)):
     """Get current user info."""
     _set_no_store(response)
-    return UserResponse.model_validate(current_user)
+    return _auth_user_response(current_user)
 
 
 @router.post("/change-password", response_model=TokenResponse)
@@ -703,7 +716,7 @@ def change_password(
         access_token=access_token,
         refresh_token=None,
         expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        user=UserResponse.model_validate(current_user),
+        user=_auth_user_response(current_user),
         must_change_password=False,
     )
 

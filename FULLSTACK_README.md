@@ -172,14 +172,17 @@ frontend/
 ### Backend
 
 ```bash
-cd backend
-pytest
+python3.11 -m venv .venv-backend
+source .venv-backend/bin/activate
+pip install -r backend/requirements.txt
+npm run test:backend
 ```
 
 ### Frontend
 
 ```bash
-npm run test
+npm run lint
+npm run typecheck
 ```
 
 ### E2E
@@ -232,10 +235,14 @@ TELEGRAM_BOT_TOKEN=your-bot-token  # Optional
 ```bash
 # Use API mode
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_DEMO_MODE=false
 
 # OR localStorage mode (leave empty)
 # NEXT_PUBLIC_API_BASE_URL=
+# NEXT_PUBLIC_DEMO_MODE=true
 ```
+
+Mode selection rules and capability matrix: `docs/runtime-modes.md`.
 
 ## API Examples
 

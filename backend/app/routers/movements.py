@@ -7,27 +7,26 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import ProgrammingError
 
 from ..auth import PermissionChecker, get_current_user
 from ..database import get_db
-from ..models import AuditEvent, LogisticsEntry, Part, PartStageStatus, StageFact, User
+from ..models import LogisticsEntry, Part, PartStageStatus, StageFact, User
 from ..schemas import JourneyEventOut, JourneyOut, MovementCreate, MovementOut, MovementUpdate
 from ..security import can_access_part, require_org_entity
-from ..services.part_state import compute_stage_totals, recompute_part_state, stage_prerequisites
+from ..services.part_state import compute_stage_totals, stage_prerequisites
 from ..services.movement_rules import (
     ACTIVE_MOVEMENT_STATUSES,
-    apply_status_timestamps,
-    ensure_not_cancelled_to_received,
-    ensure_received_requires_sent,
     has_real_shipment_semantics,
-    ensure_single_active_movement,
-    ensure_stage_link_matches_part,
-    initial_movement_state,
     normalize_movement_status,
-    validate_status_transition,
+)
+from ..use_cases.movements_use_cases import (
+    MovementUseCaseHooks,
+    create_movement_use_case,
+    update_movement_use_case,
 )
 
 router = APIRouter(tags=["movements"])
@@ -385,7 +384,7 @@ def _resolve_eta(part: Part, active_movement: LogisticsEntry | None) -> datetime
 def _to_movement_out_safe(movement: LogisticsEntry) -> MovementOut:
     try:
         return MovementOut.model_validate(movement)
-    except Exception:
+    except (ValidationError, TypeError, ValueError):
         fallback_ts = movement.updated_at or movement.created_at or _now_utc()
         base_payload = {
             "id": movement.id,
@@ -419,7 +418,7 @@ def _to_movement_out_safe(movement: LogisticsEntry) -> MovementOut:
         }
         try:
             return MovementOut(**base_payload)
-        except Exception:
+        except (ValidationError, TypeError, ValueError):
             # Last-resort fallback for legacy edge-cases on nullable date serialization.
             base_payload["date"] = None
             return MovementOut(**base_payload)
@@ -443,6 +442,17 @@ def _get_stage_status_in_org(
     return stage_status
 
 
+MOVEMENT_USE_CASE_HOOKS = MovementUseCaseHooks(
+    get_stage_status_in_org=_get_stage_status_in_org,
+    ensure_stage_movement_allowed=_ensure_stage_movement_allowed,
+    count_active_movements=_count_active_movements,
+    is_cooperation_inbound=_is_cooperation_inbound,
+    ensure_cooperation_receive_limit=_ensure_cooperation_receive_limit,
+    now_utc=_now_utc,
+    to_movement_out_safe=_to_movement_out_safe,
+)
+
+
 @router.post(
     "/parts/{part_id}/movements",
     response_model=MovementOut,
@@ -454,148 +464,13 @@ def create_movement(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    part = require_org_entity(
-        db,
-        Part,
-        entity_id=part_id,
-        org_id=current_user.org_id,
-        not_found="Part not found",
+    return create_movement_use_case(
+        part_id=part_id,
+        data=data,
+        current_user=current_user,
+        db=db,
+        hooks=MOVEMENT_USE_CASE_HOOKS,
     )
-    if not can_access_part(db, part, current_user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if data.qty_sent is not None and data.qty_received is not None and data.qty_received > data.qty_sent:
-        raise HTTPException(status_code=409, detail="qty_received cannot exceed qty_sent")
-
-    stage_status: PartStageStatus | None = None
-    if data.stage_id:
-        stage_status = _get_stage_status_in_org(
-            db,
-            stage_id=data.stage_id,
-            org_id=current_user.org_id,
-        )
-        try:
-            ensure_stage_link_matches_part(movement_part_id=part.id, stage_part_id=stage_status.part_id)
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    requested_initial_status = normalize_movement_status(data.status)
-    status = requested_initial_status
-    sent_at: datetime | None = None
-    received_at: datetime | None = None
-
-    if requested_initial_status == "sent":
-        status, sent_at = initial_movement_state()
-    elif requested_initial_status == "pending":
-        status, sent_at = "pending", None
-    elif requested_initial_status == "received":
-        sent_at = _now_utc()
-        received_at = sent_at
-        ensure_received_requires_sent(sent_at=sent_at, next_status="received")
-    else:
-        raise HTTPException(status_code=400, detail="Invalid initial movement status")
-
-    if stage_status is not None and status in {"sent", "received"}:
-        requested_stage_qty = (
-            data.qty_received
-            if status == "received" and data.qty_received is not None
-            else data.qty_sent
-        )
-        if requested_stage_qty is None and status == "received":
-            requested_stage_qty = data.qty_sent
-        if requested_stage_qty is None:
-            raise HTTPException(
-                status_code=409,
-                detail="Для отправки/приёмки на этап нужно указать количество",
-            )
-        _ensure_stage_movement_allowed(
-            db=db,
-            part=part,
-            stage_status=stage_status,
-            requested_qty=int(requested_stage_qty),
-        )
-
-    active_count = _count_active_movements(db, org_id=current_user.org_id, part_id=part.id)
-    try:
-        ensure_single_active_movement(
-            existing_active_count=active_count,
-            current_status=None,
-            next_status=status,
-            allow_parallel=data.allow_parallel,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-
-    resolved_qty_received = (
-        data.qty_received
-        if data.qty_received is not None
-        else (data.qty_sent if status == "received" else None)
-    )
-    if status in RECEIVED_MOVEMENT_STATUSES and _is_cooperation_inbound(
-        part=part,
-        stage_id=data.stage_id,
-        movement_type=data.type,
-        to_location=data.to_location,
-        to_holder=data.to_holder,
-    ):
-        _ensure_cooperation_receive_limit(
-            db=db,
-            part=part,
-            incoming_qty=int(resolved_qty_received) if resolved_qty_received is not None else None,
-        )
-
-    movement = LogisticsEntry(
-        org_id=current_user.org_id,
-        part_id=part.id,
-        status=status,
-        sent_at=sent_at,
-        received_at=received_at,
-        from_location=data.from_location,
-        from_holder=data.from_holder,
-        to_location=data.to_location,
-        to_holder=data.to_holder,
-        carrier=data.carrier,
-        tracking_number=data.tracking_number,
-        planned_eta=data.planned_eta,
-        qty_sent=data.qty_sent,
-        qty_received=resolved_qty_received,
-        stage_id=data.stage_id,
-        notes=data.notes,
-        # Deprecated fields kept populated for backward compatibility.
-        type=data.type or "shipping_out",
-        description=data.description or "Movement created",
-        quantity=data.qty_sent,
-        date=(sent_at.date() if sent_at else datetime.now(timezone.utc).date()),
-        counterparty=data.to_holder or data.to_location,
-    )
-    db.add(movement)
-    db.flush()
-    recompute_part_state(db, part=part)
-
-    audit = AuditEvent(
-        org_id=current_user.org_id,
-        action="movement_created",
-        entity_type="logistics",
-        entity_id=movement.id,
-        entity_name=f"movement:{part.code}",
-        user_id=current_user.id,
-        user_name=current_user.initials,
-        part_id=part.id,
-        part_code=part.code,
-        details={
-            "movement_id": str(movement.id),
-            "status": movement.status,
-            "from_location": movement.from_location,
-            "to_location": movement.to_location,
-            "stage_id": str(movement.stage_id) if movement.stage_id else None,
-            "tracking_number": movement.tracking_number,
-        },
-    )
-    db.add(audit)
-
-    db.commit()
-    db.refresh(movement)
-    return _to_movement_out_safe(movement)
 
 
 @router.patch(
@@ -609,195 +484,13 @@ def update_movement(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    movement = require_org_entity(
-        db,
-        LogisticsEntry,
-        entity_id=movement_id,
-        org_id=current_user.org_id,
-        not_found="Movement not found",
+    return update_movement_use_case(
+        movement_id=movement_id,
+        data=data,
+        current_user=current_user,
+        db=db,
+        hooks=MOVEMENT_USE_CASE_HOOKS,
     )
-
-    part = require_org_entity(
-        db,
-        Part,
-        entity_id=movement.part_id,
-        org_id=current_user.org_id,
-        not_found="Part not found",
-    )
-    if not can_access_part(db, part, current_user):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    payload = data.model_dump(exclude_unset=True)
-
-    next_qty_sent = payload.get("qty_sent", movement.qty_sent)
-    next_qty_received = payload.get("qty_received", movement.qty_received)
-    if next_qty_sent is not None and next_qty_received is not None and next_qty_received > next_qty_sent:
-        raise HTTPException(status_code=409, detail="qty_received cannot exceed qty_sent")
-
-    if "stage_id" in payload and payload["stage_id"]:
-        stage_status = _get_stage_status_in_org(
-            db,
-            stage_id=payload["stage_id"],
-            org_id=current_user.org_id,
-        )
-        try:
-            ensure_stage_link_matches_part(movement_part_id=movement.part_id, stage_part_id=stage_status.part_id)
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-    else:
-        stage_status = (
-            _get_stage_status_in_org(
-                db,
-                stage_id=movement.stage_id,
-                org_id=current_user.org_id,
-            )
-            if movement.stage_id
-            else None
-        )
-
-    new_status = None
-    if "status" in payload and payload["status"] is not None:
-        requested_status = str(payload["status"])
-        try:
-            ensure_not_cancelled_to_received(current_status=movement.status, next_status=requested_status)
-            new_status = validate_status_transition(current_status=movement.status, next_status=requested_status)
-            ensure_received_requires_sent(sent_at=movement.sent_at, next_status=new_status)
-            ensure_single_active_movement(
-                existing_active_count=_count_active_movements(
-                    db,
-                    org_id=current_user.org_id,
-                    part_id=movement.part_id,
-                    exclude_movement_id=movement.id,
-                ),
-                current_status=movement.status,
-                next_status=new_status,
-                allow_parallel=data.allow_parallel,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=409, detail=str(error)) from error
-
-    for field in (
-        "from_location",
-        "from_holder",
-        "to_location",
-        "to_holder",
-        "carrier",
-        "tracking_number",
-        "planned_eta",
-        "qty_sent",
-        "qty_received",
-        "stage_id",
-        "notes",
-        "description",
-    ):
-        if field in payload:
-            setattr(movement, field, payload[field])
-
-    if "qty_sent" in payload:
-        movement.quantity = payload["qty_sent"]
-    if "to_holder" in payload or "to_location" in payload:
-        movement.counterparty = movement.to_holder or movement.to_location
-
-    if new_status:
-        movement.status = new_status
-        timestamp_updates = apply_status_timestamps(
-            next_status=new_status,
-            sent_at=movement.sent_at,
-            received_at=movement.received_at,
-            returned_at=movement.returned_at,
-            cancelled_at=movement.cancelled_at,
-            at=_now_utc(),
-        )
-        movement.sent_at = timestamp_updates["sent_at"]
-        movement.received_at = timestamp_updates["received_at"]
-        movement.returned_at = timestamp_updates["returned_at"]
-        movement.cancelled_at = timestamp_updates["cancelled_at"]
-        if new_status == "received" and payload.get("qty_received") is None and movement.qty_received is None:
-            movement.qty_received = movement.qty_sent
-
-    effective_status = normalize_movement_status(new_status or movement.status)
-    if stage_status is not None and (
-        "stage_id" in payload
-        or "qty_sent" in payload
-        or "qty_received" in payload
-        or "status" in payload
-    ) and effective_status in {"sent", "in_transit", "received"}:
-        requested_stage_qty = (
-            movement.qty_received
-            if effective_status == "received" and movement.qty_received is not None
-            else movement.qty_sent
-        )
-        if requested_stage_qty is None and effective_status == "received":
-            requested_stage_qty = movement.qty_sent
-        if requested_stage_qty is None:
-            raise HTTPException(
-                status_code=409,
-                detail="Для отправки/приёмки на этап нужно указать количество",
-            )
-        _ensure_stage_movement_allowed(
-            db=db,
-            part=part,
-            stage_status=stage_status,
-            requested_qty=int(requested_stage_qty),
-            exclude_movement_id=movement.id,
-        )
-
-    if (
-        effective_status in RECEIVED_MOVEMENT_STATUSES
-        and _is_cooperation_inbound(
-            part=part,
-            stage_id=movement.stage_id,
-            movement_type=movement.type,
-            to_location=movement.to_location,
-            to_holder=movement.to_holder,
-        )
-        and any(
-            field in payload
-            for field in (
-                "status",
-                "qty_sent",
-                "qty_received",
-                "stage_id",
-                "to_location",
-                "to_holder",
-                "type",
-            )
-        )
-    ):
-        incoming_qty = movement.qty_received if movement.qty_received is not None else movement.qty_sent
-        _ensure_cooperation_receive_limit(
-            db=db,
-            part=part,
-            incoming_qty=int(incoming_qty) if incoming_qty is not None else None,
-            exclude_movement_id=movement.id,
-        )
-
-    recompute_part_state(db, part=part)
-
-    audit = AuditEvent(
-        org_id=current_user.org_id,
-        action="movement_status_changed",
-        entity_type="logistics",
-        entity_id=movement.id,
-        entity_name=f"movement:{part.code}",
-        user_id=current_user.id,
-        user_name=current_user.initials,
-        part_id=part.id,
-        part_code=part.code,
-        details={
-            "movement_id": str(movement.id),
-            "status": movement.status,
-            "from_location": movement.from_location,
-            "to_location": movement.to_location,
-            "stage_id": str(movement.stage_id) if movement.stage_id else None,
-            "tracking_number": movement.tracking_number,
-        },
-    )
-    db.add(audit)
-
-    db.commit()
-    db.refresh(movement)
-    return _to_movement_out_safe(movement)
 
 
 @router.get("/parts/{part_id}/movements", response_model=list[MovementOut])

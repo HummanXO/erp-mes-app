@@ -27,6 +27,14 @@ import type {
 import type { InventoryMetalItem, InventoryToolingItem, InventoryMovement } from "./inventory-types"
 import { apiClient, ApiClientError, type TokenResponse } from "./api-client"
 import { getApiBaseUrl, isApiConfigured as isApiConfiguredEnv } from "./env"
+import { ProviderOperationError } from "./provider-operation-error"
+
+function notSupportedInApi(operation: string): never {
+  throw new ProviderOperationError({
+    operation,
+    mode: "api",
+  })
+}
 
 // Helper to check if user is authenticated
 function isAuthenticated(): boolean {
@@ -237,6 +245,54 @@ function transformJourney(backendJourney: any): JourneySummary {
   }
 }
 
+function transformInventoryQty(value: any): { pcs?: number; kg?: number } {
+  if (!value || typeof value !== "object") return {}
+  return {
+    pcs: typeof value.pcs === "number" ? value.pcs : undefined,
+    kg: typeof value.kg === "number" ? value.kg : undefined,
+  }
+}
+
+function transformInventoryMetal(backendItem: any): InventoryMetalItem {
+  return {
+    id: String(backendItem.id),
+    material_grade: String(backendItem.material_grade ?? ""),
+    shape: String(backendItem.shape ?? "деталь"),
+    size: String(backendItem.size ?? ""),
+    length: typeof backendItem.length === "number" ? backendItem.length : 1,
+    qty: transformInventoryQty(backendItem.qty),
+    location: String(backendItem.location ?? "Производство"),
+    status: (backendItem.status ?? "available") as InventoryMetalItem["status"],
+    min_level: backendItem.min_level ? transformInventoryQty(backendItem.min_level) : undefined,
+    lot: backendItem.lot ?? undefined,
+    supplier: backendItem.supplier ?? undefined,
+    certificate_ref: backendItem.certificate_ref ?? undefined,
+    reserved_qty: backendItem.reserved_qty ? transformInventoryQty(backendItem.reserved_qty) : undefined,
+    in_use_qty: backendItem.in_use_qty ? transformInventoryQty(backendItem.in_use_qty) : undefined,
+    created_at: backendItem.created_at ?? undefined,
+    updated_at: backendItem.updated_at ?? undefined,
+  }
+}
+
+function transformInventoryMovement(backendMovement: any): InventoryMovement {
+  return {
+    id: String(backendMovement.id),
+    type: backendMovement.type as InventoryMovement["type"],
+    datetime: String(backendMovement.datetime),
+    item_ref: {
+      type: backendMovement.item_ref?.type as InventoryMovement["item_ref"]["type"],
+      id: String(backendMovement.item_ref?.id ?? ""),
+      label: backendMovement.item_ref?.label ?? undefined,
+    },
+    qty: transformInventoryQty(backendMovement.qty),
+    from_location: backendMovement.from_location ?? undefined,
+    to_location: backendMovement.to_location ?? undefined,
+    reason: backendMovement.reason ?? undefined,
+    user_id: String(backendMovement.user_id ?? "system"),
+    link_to_task: backendMovement.link_to_task ?? undefined,
+  }
+}
+
 function resolveUploadUrl(url: string): string {
   if (!url) return url
   if (url.startsWith("/uploads/")) {
@@ -329,13 +385,83 @@ async function fetchAllParts(filters?: {
   while (true) {
     const response = await apiClient.getParts({ ...(filters || {}), limit: pageSize, offset })
     const page = (response as any)?.data ?? response
-    const items = Array.isArray(page) ? page : []
+    const items = Array.isArray(page)
+      ? page
+      : Array.isArray((page as any)?.items)
+        ? ((page as any).items as any[])
+        : []
+    const total = typeof (page as any)?.total === "number" ? Number((page as any).total) : null
     collected.push(...items)
-    if (items.length < pageSize) break
+    if (items.length === 0) break
+    if (total !== null && collected.length >= total) break
+    if (total === null && items.length < pageSize) break
     offset += pageSize
   }
 
   return collected
+}
+
+type PartRelatedBatchPayload = {
+  movements: LogisticsEntry[]
+  norms: MachineNorm[]
+}
+
+const partRelatedBatchInFlight = new Map<string, Promise<PartRelatedBatchPayload>>()
+
+function normalizeBatchPartIds(partIds: string[]): string[] {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+  for (const partId of partIds) {
+    const trimmed = String(partId || "").trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    normalized.push(trimmed)
+  }
+  return normalized
+}
+
+function buildPartRelatedBatchKey(partIds: string[]): string {
+  return [...partIds].sort().join(",")
+}
+
+async function loadPartsRelatedBatch(partIds: string[]): Promise<PartRelatedBatchPayload> {
+  const normalizedPartIds = normalizeBatchPartIds(partIds)
+  if (normalizedPartIds.length === 0) {
+    return { movements: [], norms: [] }
+  }
+
+  const key = buildPartRelatedBatchKey(normalizedPartIds)
+  const existing = partRelatedBatchInFlight.get(key)
+  if (existing) {
+    return await existing
+  }
+
+  const request = (async () => {
+    const response = await apiClient.getPartsRelatedBatch(normalizedPartIds)
+    const payload = (response as any)?.data ?? response
+    const items = Array.isArray((payload as any)?.items) ? (payload as any).items : []
+
+    const movements: LogisticsEntry[] = []
+    const norms: MachineNorm[] = []
+
+    for (const item of items) {
+      const itemMovements = Array.isArray(item?.movements) ? item.movements : []
+      const itemNorms = Array.isArray(item?.norms) ? item.norms : []
+      for (const movement of itemMovements) {
+        movements.push(transformMovement(movement))
+      }
+      for (const norm of itemNorms) {
+        norms.push(transformMachineNorm(norm))
+      }
+    }
+
+    return { movements, norms }
+  })().finally(() => {
+    partRelatedBatchInFlight.delete(key)
+  })
+
+  partRelatedBatchInFlight.set(key, request)
+  return await request
 }
 
 export async function getParts(): Promise<Part[]> {
@@ -400,23 +526,12 @@ export async function getOwnProductionParts(): Promise<Part[]> {
 }
 
 // Movements / logistics journal
-export async function getLogistics(): Promise<LogisticsEntry[]> {
+export async function getLogistics(preloadedParts?: Part[]): Promise<LogisticsEntry[]> {
   if (!isAuthenticated()) return []
-  const parts = await getParts()
+  const parts = preloadedParts ?? (await getParts())
   if (parts.length === 0) return []
-
-  const byPart = await Promise.all(
-    parts.map(async (part) => {
-      try {
-        const response = await apiClient.getPartMovements(part.id)
-        const movements = (response as any)?.data ?? response
-        return Array.isArray(movements) ? movements.map(transformMovement) : []
-      } catch {
-        return []
-      }
-    })
-  )
-  return byPart.flat()
+  const batch = await loadPartsRelatedBatch(parts.map((part) => part.id))
+  return batch.movements
 }
 
 export async function getLogisticsForPart(partId: string): Promise<LogisticsEntry[]> {
@@ -485,25 +600,10 @@ export async function getJourneyForPart(partId: string): Promise<JourneySummary 
 // Stage Facts
 export async function getStageFacts(): Promise<StageFact[]> {
   if (!isAuthenticated()) return []
-
-  const parts = await getParts()
-  if (parts.length === 0) return []
-
-  const factsByPart = await Promise.all(
-    parts.map(async (part) => {
-      try {
-        const response = await apiClient.getPartFacts(part.id)
-        const facts = response.data || response
-        return facts.map((fact: any) =>
-          transformStageFact(fact, part.id, part.machine_id)
-        )
-      } catch {
-        return []
-      }
-    })
-  )
-
-  return factsByPart.flat()
+  const response = await apiClient.getFacts()
+  const facts = response.data || response
+  const list = Array.isArray(facts) ? facts : []
+  return list.map((fact: any) => transformStageFact(fact))
 }
 
 export async function getStageFactsForPart(partId: string): Promise<StageFact[]> {
@@ -532,25 +632,12 @@ export async function deleteStageFact(factId: string): Promise<void> {
 }
 
 // Machine norms
-export async function getMachineNorms(): Promise<MachineNorm[]> {
+export async function getMachineNorms(preloadedParts?: Part[]): Promise<MachineNorm[]> {
   if (!isAuthenticated()) return []
-
-  const parts = await getParts()
+  const parts = preloadedParts ?? (await getParts())
   if (parts.length === 0) return []
-
-  const normsByPart = await Promise.all(
-    parts.map(async (part) => {
-      try {
-        const response = await apiClient.getPartNorms(part.id)
-        const norms = response.data || response
-        return norms.map((norm: any) => transformMachineNorm(norm))
-      } catch {
-        return []
-      }
-    })
-  )
-
-  return normsByPart.flat()
+  const batch = await loadPartsRelatedBatch(parts.map((part) => part.id))
+  return batch.norms
 }
 
 export async function setMachineNorm(
@@ -574,14 +661,39 @@ export async function getTasksForPart(partId: string): Promise<Task[]> {
   return tasks.map(transformTask)
 }
 
-export async function getTasksForUser(userId: string): Promise<Task[]> {
-  const response = await apiClient.getTasks({ assigned_to_me: true })
+type TaskUserFilters = {
+  assigned_to_me?: true
+  assignee_user_id?: string
+  unread?: true
+}
+
+function buildTaskUserFilters(userId?: string, unread = false): TaskUserFilters {
+  const normalizedUserId = typeof userId === "string" ? userId.trim() : ""
+  const filters: TaskUserFilters = normalizedUserId
+    ? { assignee_user_id: normalizedUserId }
+    : { assigned_to_me: true }
+
+  if (unread) {
+    filters.unread = true
+  }
+
+  const hasAssigneeUser = typeof filters.assignee_user_id === "string" && filters.assignee_user_id.length > 0
+  const hasAssignedToMe = filters.assigned_to_me === true
+  if (hasAssigneeUser === hasAssignedToMe) {
+    throw new Error("Invariant violation: exactly one of assignee_user_id or assigned_to_me must be set")
+  }
+
+  return filters
+}
+
+export async function getTasksForUser(userId?: string): Promise<Task[]> {
+  const response = await apiClient.getTasks(buildTaskUserFilters(userId))
   const tasks = response.data || response
   return tasks.map(transformTask)
 }
 
-export async function getUnreadTasksForUser(userId: string): Promise<Task[]> {
-  const response = await apiClient.getTasks({ assigned_to_me: true, unread: true })
+export async function getUnreadTasksForUser(userId?: string): Promise<Task[]> {
+  const response = await apiClient.getTasks(buildTaskUserFilters(userId, true))
   const tasks = response.data || response
   return tasks.map(transformTask)
 }
@@ -594,7 +706,8 @@ export async function createTask(
 }
 
 export async function updateTask(task: Task): Promise<void> {
-  // TODO: Implement when needed
+  void task
+  return notSupportedInApi("updateTask")
 }
 
 export async function markTaskAsRead(taskId: string, userId: string): Promise<void> {
@@ -682,6 +795,25 @@ export function isApiConfigured(): boolean {
   return isApiConfiguredEnv()
 }
 
+export async function getApiCapabilities(): Promise<{ inventory: boolean; workOrders: boolean }> {
+  try {
+    const response = await apiClient.getInventoryCapabilities()
+    const data = (response as any)?.data ?? response
+    return {
+      inventory: Boolean(data?.inventory),
+      workOrders: Boolean(data?.workOrders),
+    }
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      // Backward-compatible fallback only when capability endpoint is unavailable or hidden.
+      if (error.statusCode === 403 || error.statusCode === 404) {
+        return { inventory: false, workOrders: false }
+      }
+    }
+    throw error
+  }
+}
+
 // Specifications
 export async function getSpecifications(): Promise<Specification[]> {
   const response = await apiClient.getSpecifications()
@@ -763,43 +895,43 @@ export async function updateSpecItemProgress(
 }
 
 export async function getWorkOrders(): Promise<WorkOrder[]> {
-  return []
+  return notSupportedInApi("getWorkOrders")
 }
 
 export async function getWorkOrdersForUser(_userId: string): Promise<WorkOrder[]> {
-  return []
+  return notSupportedInApi("getWorkOrdersForUser")
 }
 
 export async function getWorkOrdersForSpecification(_specificationId: string): Promise<WorkOrder[]> {
-  return []
+  return notSupportedInApi("getWorkOrdersForSpecification")
 }
 
 export async function createWorkOrder(_order: Omit<WorkOrder, "id" | "created_at">): Promise<WorkOrder> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("createWorkOrder")
 }
 
 export async function updateWorkOrder(_order: WorkOrder): Promise<void> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("updateWorkOrder")
 }
 
 export async function queueWorkOrder(_workOrderId: string, _machineId: string, _queuePos?: number): Promise<void> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("queueWorkOrder")
 }
 
 export async function startWorkOrder(_workOrderId: string, _operatorId?: string): Promise<void> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("startWorkOrder")
 }
 
 export async function blockWorkOrder(_workOrderId: string, _reason: string): Promise<void> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("blockWorkOrder")
 }
 
 export async function reportWorkOrderProgress(_workOrderId: string, _qtyGood: number, _qtyScrap = 0): Promise<void> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("reportWorkOrderProgress")
 }
 
 export async function completeWorkOrder(_workOrderId: string): Promise<void> {
-  throw new Error("Work order API is not implemented")
+  return notSupportedInApi("completeWorkOrder")
 }
 
 export async function getAccessGrants(): Promise<AccessGrant[]> {
@@ -837,17 +969,18 @@ export async function revokeAccess(grantId: string): Promise<void> {
   await apiClient.revokeAccess(grantId)
 }
 
-// Inventory (API not implemented yet)
 export async function getInventoryMetal(): Promise<InventoryMetalItem[]> {
-  return []
+  const response = await apiClient.getInventoryMetal()
+  const data = (response as any)?.data ?? response
+  return (Array.isArray(data) ? data : []).map(transformInventoryMetal)
 }
 
 export async function createInventoryMetal(_item: Omit<InventoryMetalItem, "id">): Promise<InventoryMetalItem> {
-  throw new Error("Inventory API is not implemented")
+  return notSupportedInApi("createInventoryMetal")
 }
 
 export async function updateInventoryMetal(_item: InventoryMetalItem): Promise<void> {
-  throw new Error("Inventory API is not implemented")
+  return notSupportedInApi("updateInventoryMetal")
 }
 
 export async function getInventoryTooling(): Promise<InventoryToolingItem[]> {
@@ -855,28 +988,31 @@ export async function getInventoryTooling(): Promise<InventoryToolingItem[]> {
 }
 
 export async function createInventoryTooling(_item: Omit<InventoryToolingItem, "id">): Promise<InventoryToolingItem> {
-  throw new Error("Inventory API is not implemented")
+  return notSupportedInApi("createInventoryTooling")
 }
 
 export async function updateInventoryTooling(_item: InventoryToolingItem): Promise<void> {
-  throw new Error("Inventory API is not implemented")
+  return notSupportedInApi("updateInventoryTooling")
 }
 
 export async function getInventoryMovements(): Promise<InventoryMovement[]> {
-  return []
+  const response = await apiClient.getInventoryMovements()
+  const data = (response as any)?.data ?? response
+  return (Array.isArray(data) ? data : []).map(transformInventoryMovement)
 }
 
-export async function createInventoryMovement(_movement: Omit<InventoryMovement, "id">): Promise<InventoryMovement> {
-  throw new Error("Inventory API is not implemented")
+export async function createInventoryMovement(movement: Omit<InventoryMovement, "id">): Promise<InventoryMovement> {
+  const created = await apiClient.createInventoryMovement(movement)
+  return transformInventoryMovement(created)
 }
 
 // Helper functions (fallbacks for localStorage-specific features)
 export function getTasksCreatedByUser(userId: string): Task[] {
-  // Not implemented in API mode - return empty array
-  return []
+  void userId
+  return notSupportedInApi("getTasksCreatedByUser")
 }
 
 export function getUsersByRole(role: string): User[] {
-  // Not implemented in API mode - return empty array
-  return []
+  void role
+  return notSupportedInApi("getUsersByRole")
 }

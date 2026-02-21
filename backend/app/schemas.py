@@ -26,6 +26,28 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class UiPermissions(BaseModel):
+    canViewCooperation: bool
+    canEditFacts: bool
+    canRollbackFacts: bool
+    canCreateTasks: bool
+    canManageUsers: bool
+    canCreateParts: bool
+    canCreateOwnParts: bool
+    canCreateCoopParts: bool
+    canEditParts: bool
+    canViewInventory: bool
+    canManageInventory: bool
+    canViewSpecifications: bool
+    canManageSpecifications: bool
+    canGrantSpecificationAccess: bool
+    canViewAudit: bool
+
+
+class AuthUserResponse(UserResponse):
+    permissions: UiPermissions
+
+
 class UserDirectoryItem(BaseModel):
     """Minimal user directory entry (safe to show to all authenticated users)."""
 
@@ -67,7 +89,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: Optional[str] = None
     expires_in: int
-    user: UserResponse
+    user: AuthUserResponse
     must_change_password: bool = False
 
 
@@ -193,6 +215,13 @@ class PartResponse(BaseModel):
         return cls(**data)
 
 
+class PartListResponse(BaseModel):
+    items: list[PartResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 # Specification schemas
 class SpecificationCreate(BaseModel):
     number: str
@@ -279,6 +308,68 @@ class AccessGrantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# API capabilities (frontend runtime feature switches)
+class ApiCapabilitiesResponse(BaseModel):
+    inventory: bool
+    workOrders: bool
+
+
+# Inventory vertical slice (API mode)
+class InventoryQty(BaseModel):
+    pcs: Optional[int] = Field(default=None, ge=0)
+    kg: Optional[float] = Field(default=None, ge=0)
+
+
+class InventoryItemRef(BaseModel):
+    type: str = Field(pattern="^(metal|tooling)$")
+    id: UUID
+    label: Optional[str] = None
+
+
+class InventoryMetalOut(BaseModel):
+    id: UUID
+    material_grade: str
+    shape: str
+    size: str
+    length: int = Field(gt=0)
+    qty: InventoryQty
+    location: str
+    status: str = Field(pattern="^(available|reserved|in_use)$")
+    min_level: Optional[InventoryQty] = None
+    lot: Optional[str] = None
+    supplier: Optional[str] = None
+    certificate_ref: Optional[str] = None
+    reserved_qty: Optional[InventoryQty] = None
+    in_use_qty: Optional[InventoryQty] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class InventoryMovementCreate(BaseModel):
+    type: str = Field(pattern="^(receipt|issue|transfer|adjustment|inventory)$")
+    datetime: Optional[datetime] = None
+    item_ref: InventoryItemRef
+    qty: InventoryQty
+    from_location: Optional[str] = None
+    to_location: Optional[str] = None
+    reason: Optional[str] = None
+    user_id: Optional[str] = None
+    link_to_task: Optional[str] = None
+
+
+class InventoryMovementOut(BaseModel):
+    id: UUID
+    type: str = Field(pattern="^(receipt|issue|transfer|adjustment|inventory)$")
+    datetime: datetime
+    item_ref: InventoryItemRef
+    qty: InventoryQty
+    from_location: Optional[str] = None
+    to_location: Optional[str] = None
+    reason: Optional[str] = None
+    user_id: str
+    link_to_task: Optional[str] = None
+
+
 # Stage Fact schemas
 class AttachmentBase(BaseModel):
     name: str
@@ -311,9 +402,11 @@ class StageFactUpdate(BaseModel):
 
 class StageFactResponse(BaseModel):
     id: UUID
+    part_id: Optional[UUID] = None
     stage: str
     date: date
     shift_type: str
+    machine_id: Optional[UUID] = None
     qty_good: int
     qty_scrap: int
     qty_expected: Optional[int] = None
@@ -343,6 +436,10 @@ class MachineNormResponse(BaseModel):
     configured_by_id: Optional[UUID] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PartRelatedBatchRequest(BaseModel):
+    part_ids: list[UUID] = Field(default_factory=list, max_length=500)
 
 
 # Movements / transfers (logistics separated from production stages)
@@ -418,6 +515,16 @@ class MovementOut(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PartRelatedBatchItem(BaseModel):
+    part_id: UUID
+    movements: list[MovementOut] = Field(default_factory=list)
+    norms: list[MachineNormResponse] = Field(default_factory=list)
+
+
+class PartRelatedBatchResponse(BaseModel):
+    items: list[PartRelatedBatchItem]
 
 
 class JourneyEventOut(BaseModel):

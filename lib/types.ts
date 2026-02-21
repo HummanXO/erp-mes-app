@@ -8,6 +8,8 @@ export interface User {
   name: string
   initials: string // Инициалы: "Колчин А.А."
   username: string
+  // API mode: backend-provided UI permissions (source of truth for UI gating).
+  permissions?: AppPermissions
   // Operators can work any shift - no shift assignment
 }
 
@@ -450,183 +452,162 @@ export const TASK_CATEGORY_LABELS: Record<TaskCategory, string> = {
   general: "Общее",
 }
 
-// Role permissions
-export const ROLE_PERMISSIONS: Record<UserRole, {
-  canViewAll: boolean
-  canViewCooperation: boolean // Может видеть кооперацию
+// UI permission hints. In API mode these are delivered by backend.
+// This map is used only as a demo/local fallback.
+export interface AppPermissions {
+  canViewCooperation: boolean
   canEditFacts: boolean
-  canRollbackFacts: boolean // Может откатывать (удалять) факты
+  canRollbackFacts: boolean
   canCreateTasks: boolean
   canManageUsers: boolean
-  canDeleteData: boolean
-  canViewReports: boolean
+  canCreateParts: boolean
+  canCreateOwnParts: boolean
+  canCreateCoopParts: boolean
+  canEditParts: boolean
+  canViewInventory: boolean
+  canManageInventory: boolean
+  canViewSpecifications: boolean
+  canManageSpecifications: boolean
+  canGrantSpecificationAccess: boolean
   canViewAudit: boolean
-  canCreateParts: boolean // Может создавать детали
-  canCreateOwnParts: boolean // Может создавать цеховые детали
-  canCreateCoopParts: boolean // Может создавать кооперационные детали
-  canEditParts: boolean // Может изменять детали
-  canManageLogistics: boolean // Управление логистикой, материалами, оснасткой
-  canViewInventory: boolean // Может видеть вкладку Склад
-  canManageInventory: boolean // Может изменять склад (движения/редактирование)
-  canViewSpecifications: boolean // Может видеть спецификации и задания
-  canManageSpecifications: boolean // Может создавать/редактировать спецификации
-  canGrantSpecificationAccess: boolean // Может выдавать операторам доступ к спецификации/деталям
-  canManageWorkOrders: boolean // Может управлять очередью и запуском заданий
-}> = {
+}
+
+export const DEFAULT_APP_PERMISSIONS: AppPermissions = {
+  canViewCooperation: false,
+  canEditFacts: false,
+  canRollbackFacts: false,
+  canCreateTasks: false,
+  canManageUsers: false,
+  canCreateParts: false,
+  canCreateOwnParts: false,
+  canCreateCoopParts: false,
+  canEditParts: false,
+  canViewInventory: false,
+  canManageInventory: false,
+  canViewSpecifications: false,
+  canManageSpecifications: false,
+  canGrantSpecificationAccess: false,
+  canViewAudit: false,
+}
+
+export const ROLE_UI_HINTS: Record<UserRole, AppPermissions> = {
   admin: {
-    canViewAll: true,
     canViewCooperation: true,
     canEditFacts: true,
     canRollbackFacts: true,
     canCreateTasks: true,
     canManageUsers: true,
-    canDeleteData: true,
-    canViewReports: true,
-    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
     canEditParts: true,
-    canManageLogistics: true,
     canViewInventory: true,
     canManageInventory: true,
     canViewSpecifications: true,
     canManageSpecifications: true,
     canGrantSpecificationAccess: true,
-    canManageWorkOrders: true,
+    canViewAudit: true,
   },
   director: {
-    canViewAll: true,
     canViewCooperation: true,
     canEditFacts: true,
     canRollbackFacts: true,
     canCreateTasks: true,
     canManageUsers: false,
-    canDeleteData: false,
-    canViewReports: true,
-    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
     canEditParts: true,
-    canManageLogistics: true,
     canViewInventory: true,
     canManageInventory: true,
     canViewSpecifications: true,
     canManageSpecifications: true,
     canGrantSpecificationAccess: true,
-    canManageWorkOrders: true,
+    canViewAudit: true,
   },
   chief_engineer: {
-    canViewAll: true,
     canViewCooperation: true,
     canEditFacts: false,
     canRollbackFacts: false,
     canCreateTasks: true,
     canManageUsers: false,
-    canDeleteData: false,
-    canViewReports: true,
-    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
     canEditParts: true,
-    canManageLogistics: false,
     canViewInventory: true,
     canManageInventory: false,
     canViewSpecifications: true,
-    // Главный инженер может видеть спецификации (включая черновики), но не должен создавать/редактировать/публиковать.
     canManageSpecifications: false,
     canGrantSpecificationAccess: false,
-    canManageWorkOrders: true,
+    canViewAudit: true,
   },
   shop_head: {
-    canViewAll: true,
     canViewCooperation: true,
     canEditFacts: true,
     canRollbackFacts: true,
     canCreateTasks: true,
     canManageUsers: false,
-    canDeleteData: false,
-    canViewReports: true,
-    canViewAudit: true,
     canCreateParts: true,
     canCreateOwnParts: true,
     canCreateCoopParts: true,
     canEditParts: true,
-    canManageLogistics: true,
     canViewInventory: true,
     canManageInventory: true,
     canViewSpecifications: true,
     canManageSpecifications: true,
     canGrantSpecificationAccess: true,
-    canManageWorkOrders: true,
+    canViewAudit: true,
   },
   supply: {
-    canViewAll: true,
     canViewCooperation: true,
-    canEditFacts: false, // Снабжение НЕ вносит факты производства
+    canEditFacts: false,
     canRollbackFacts: false,
     canCreateTasks: true,
     canManageUsers: false,
-    canDeleteData: false,
-    canViewReports: true,
-    canViewAudit: true,
     canCreateParts: true,
-    canCreateOwnParts: false, // Снабжение НЕ может создавать цеховые детали
-    canCreateCoopParts: true, // Снабжение может создавать только кооперацию
-    canEditParts: true, // Может изменять кооперационные детали
-    canManageLogistics: true, // Основная задача - логистика, материалы, снабжение
+    canCreateOwnParts: false,
+    canCreateCoopParts: true,
+    canEditParts: true,
     canViewInventory: true,
     canManageInventory: true,
     canViewSpecifications: true,
-    // Снабжение может видеть спецификации (включая черновики), но не должно создавать/редактировать/публиковать.
     canManageSpecifications: false,
     canGrantSpecificationAccess: false,
-    canManageWorkOrders: false,
+    canViewAudit: true,
   },
   master: {
-    canViewAll: true,
-    canViewCooperation: false, // Мастер НЕ видит кооперацию
+    canViewCooperation: false,
     canEditFacts: true,
     canRollbackFacts: true,
-    canCreateTasks: true, // Мастер может создавать задачи операторам по производству
+    canCreateTasks: true,
     canManageUsers: false,
-    canDeleteData: false,
-    canViewReports: true,
-    canViewAudit: true,
     canCreateParts: true,
-    canCreateOwnParts: true, // Мастер может создавать только цеховые детали
-    canCreateCoopParts: false, // Мастер НЕ может создавать кооперацию
+    canCreateOwnParts: true,
+    canCreateCoopParts: false,
     canEditParts: true,
-    canManageLogistics: false,
     canViewInventory: true,
     canManageInventory: false,
     canViewSpecifications: true,
     canManageSpecifications: false,
     canGrantSpecificationAccess: true,
-    canManageWorkOrders: true,
+    canViewAudit: true,
   },
   operator: {
-    canViewAll: false,
-    canViewCooperation: false, // Оператор НЕ видит кооперацию
-    canEditFacts: true, // Оператор вносит факты производства
+    canViewCooperation: false,
+    canEditFacts: true,
     canRollbackFacts: false,
-    canCreateTasks: false, // Оператор НЕ может создавать задачи
+    canCreateTasks: false,
     canManageUsers: false,
-    canDeleteData: false,
-    canViewReports: false,
-    canViewAudit: false,
-    canCreateParts: false, // Оператор НЕ может создавать детали
+    canCreateParts: false,
     canCreateOwnParts: false,
     canCreateCoopParts: false,
     canEditParts: false,
-    canManageLogistics: false,
     canViewInventory: false,
     canManageInventory: false,
     canViewSpecifications: true,
     canManageSpecifications: false,
     canGrantSpecificationAccess: false,
-    canManageWorkOrders: false,
+    canViewAudit: false,
   },
 }
