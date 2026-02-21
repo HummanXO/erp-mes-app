@@ -5,18 +5,15 @@ import { useApp } from "@/lib/app-context"
 import type { SpecificationStatus } from "@/lib/types"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { SpecListPane } from "@/components/specifications/spec-list-pane"
 import { SpecDetailHeader } from "@/components/specifications/spec-detail-header"
 import { SpecItemsPanel } from "@/components/specifications/spec-items-panel"
 import { SpecAccessPanel } from "@/components/specifications/spec-access-panel"
-import { SpecItemDialog } from "@/components/specifications/spec-item-dialog"
 import { HowItWorksSheet } from "@/components/specifications/how-it-works-sheet"
 import type { HowItWorksTopic } from "@/components/specifications/how-it-works-sheet"
+import { DeleteConfirmationModal } from "@/components/specifications/modals/delete-confirmation-modal"
+import { NewPositionModal } from "@/components/specifications/modals/new-position-modal"
+import { NewSpecificationModal } from "@/components/specifications/modals/new-specification-modal"
 import { Plus } from "lucide-react"
 
 interface SpecificationsViewProps {
@@ -134,6 +131,8 @@ export function SpecificationsView({
     [selectedSpecification, getSpecItemsBySpecification]
   )
   const isOperator = currentUser?.role === "operator"
+  const isMaster = currentUser?.role === "master"
+  const isSupply = currentUser?.role === "supply"
   const selectedSpecItemsForView = useMemo(() => {
     if (permissions.canViewCooperation) return selectedSpecItems
     return selectedSpecItems.filter((item) => {
@@ -151,6 +150,15 @@ export function SpecificationsView({
 
   const canManageSpecifications = permissions.canManageSpecifications
   const canGrantSpecificationAccess = permissions.canGrantSpecificationAccess
+
+  const pageTitle = isOperator ? "Мои задачи" : isSupply ? "Кооперация" : "Спецификации"
+  const pageDescription = isOperator
+    ? "Позиции в работе"
+    : isSupply
+      ? "Контроль внешних поставщиков"
+      : isMaster
+        ? "Мониторинг производства"
+        : "Управление производственными спецификациями"
 
   const handleSelectSpecification = (id: string | null) => {
     if (!id) {
@@ -240,210 +248,144 @@ export function SpecificationsView({
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-bold">Спецификации</h1>
-          <p className="text-sm text-muted-foreground">
-            Сначала добавьте позиции. Детали и спецификации связаны напрямую, без отдельной очереди заданий
-          </p>
-        </div>
-        {canManageSpecifications && (
-          <Button className="h-11" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Новая спецификация
-          </Button>
-        )}
-      </div>
+    <>
+      <div className="min-h-[70vh] rounded-lg bg-gray-50">
+        <div className="flex h-full flex-col overflow-hidden lg:flex-row">
+          <div className="w-full border-b border-gray-200 bg-white p-4 lg:w-96 lg:border-b-0 lg:border-r lg:p-6 xl:w-[28rem]">
+            <div className="space-y-4 lg:space-y-6">
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 lg:text-3xl">{pageTitle}</h1>
+                <p className="text-sm text-gray-600">{pageDescription}</p>
+              </div>
 
-      {actionError && (
-        <div className="rounded-md border border-[color:var(--status-danger-border)] bg-[color:var(--status-danger-bg)] px-3 py-2 text-sm text-[color:var(--status-danger-fg)]" aria-live="polite">
-          {actionError}
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <SpecListPane
-          specifications={filteredSpecifications}
-          selectedId={selectedSpecificationId}
-          onSelect={handleSelectSpecification}
-          showFilters={!isOperator}
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
-          statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
-          isLoading={isLoading}
-          error={dataError}
-        />
-
-        <div className="space-y-4">
-          {!selectedSpecification ? (
-            <Card>
-              <CardContent className="p-8 text-center text-sm text-muted-foreground">
-                Выберите спецификацию в списке или создайте новую
-              </CardContent>
-            </Card>
-          ) : (
-            <>
-              <SpecDetailHeader
-                specification={selectedSpecification}
-                itemCount={selectedSpecItemsForView.length}
-                canManageSpecifications={canManageSpecifications}
-                actionBusy={actionBusy}
-                onTogglePublished={handleTogglePublished}
-                onAddItem={() => setAddItemOpen(true)}
-                onDelete={() => setDeleteOpen(true)}
-              />
-
-              <SpecItemsPanel
-                items={selectedSpecItemsForView}
-                canManageSpecifications={canManageSpecifications}
-                showFilters={!isOperator}
-                onAddItem={() => setAddItemOpen(true)}
-                onHelp={() => openHowItWorks("items")}
-                onOpenPart={openPartDetails}
-              />
-
-              {!isOperator && canGrantSpecificationAccess && (
-                <SpecAccessPanel
-                  grants={selectedGrants}
-                  operators={users.filter((user) => user.role === "operator")}
-                  getUserName={(userId) => getUserById(userId)?.initials ?? userId}
-                  canGrantSpecificationAccess={canGrantSpecificationAccess}
-                  onGrant={(userId, permission) => {
-                    if (!selectedSpecification) return
-                    void runAction(async () => {
-                      await grantAccess("specification", selectedSpecification.id, userId, permission)
-                    })
-                  }}
-                  onRevoke={(grantId) => {
-                    void runAction(async () => {
-                      await revokeAccess(grantId)
-                    })
-                  }}
-                  actionBusy={actionBusy}
-                />
+              {canManageSpecifications && (
+                <Button className="h-11 w-full" onClick={() => setCreateOpen(true)}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Новая спецификация
+                </Button>
               )}
-            </>
-          )}
-        </div>
-      </div>
 
-      {selectedSpecification && (
-        <SpecItemDialog
-          open={addItemOpen && canManageSpecifications}
-          onOpenChange={setAddItemOpen}
-          specificationId={selectedSpecification.id}
-          defaultCustomer={selectedSpecification.customer}
-          defaultDeadline={selectedSpecification.deadline}
-        />
-      )}
-
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Новая спецификация</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 py-1">
-            <div className="space-y-2">
-              <Label htmlFor="spec-number">Номер *</Label>
-              <Input
-                id="spec-number"
-                className="h-11"
-                placeholder="SP-2026-003"
-                value={newSpecNumber}
-                onChange={(event) => setNewSpecNumber(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="spec-customer">Клиент</Label>
-              <Input
-                id="spec-customer"
-                className="h-11"
-                placeholder="ООО Заказчик"
-                value={newSpecCustomer}
-                onChange={(event) => setNewSpecCustomer(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="spec-deadline">Дедлайн спецификации</Label>
-              <Input
-                id="spec-deadline"
-                className="h-11"
-                type="date"
-                value={newSpecDeadline}
-                onChange={(event) => setNewSpecDeadline(event.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="spec-note">Примечание</Label>
-              <Textarea
-                id="spec-note"
-                rows={2}
-                placeholder="Комментарий к заказу"
-                value={newSpecNote}
-                onChange={(event) => setNewSpecNote(event.target.value)}
+              <SpecListPane
+                specifications={filteredSpecifications}
+                selectedId={selectedSpecificationId}
+                onSelect={handleSelectSpecification}
+                showFilters
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
+                isLoading={isLoading}
+                error={dataError}
+                getItemCount={(specificationId) => getSpecItemsBySpecification(specificationId).length}
               />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" className="h-11" onClick={() => setCreateOpen(false)}>
-              Отмена
-            </Button>
-            <Button className="h-11" onClick={() => void handleCreateSpecification()} disabled={actionBusy}>
-              Создать
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          <main className="flex-1 overflow-y-auto p-4 lg:p-6 xl:p-8">
+            <div className="mx-auto max-w-7xl space-y-4 lg:space-y-6">
+              {actionError && (
+                <div className="rounded-md border border-[color:var(--status-danger-border)] bg-[color:var(--status-danger-bg)] px-3 py-2 text-sm text-[color:var(--status-danger-fg)]" aria-live="polite">
+                  {actionError}
+                </div>
+              )}
 
-      <Dialog
+              {!selectedSpecification ? (
+                <Card>
+                  <CardContent className="p-8 text-center text-sm text-muted-foreground">
+                    Выберите спецификацию в списке или создайте новую
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <SpecDetailHeader
+                    specification={selectedSpecification}
+                    itemCount={selectedSpecItemsForView.length}
+                    canManageSpecifications={canManageSpecifications}
+                    actionBusy={actionBusy}
+                    onTogglePublished={handleTogglePublished}
+                    onAddItem={() => setAddItemOpen(true)}
+                    onDelete={() => setDeleteOpen(true)}
+                  />
+
+                  <SpecItemsPanel
+                    items={selectedSpecItemsForView}
+                    canManageSpecifications={canManageSpecifications}
+                    showFilters
+                    onAddItem={() => setAddItemOpen(true)}
+                    onHelp={() => openHowItWorks("items")}
+                    onOpenPart={openPartDetails}
+                  />
+
+                  {!isOperator && canGrantSpecificationAccess && (
+                    <SpecAccessPanel
+                      grants={selectedGrants}
+                      operators={users.filter((user) => user.role === "operator")}
+                      getUserName={(userId) => getUserById(userId)?.initials ?? userId}
+                      canGrantSpecificationAccess={canGrantSpecificationAccess}
+                      onGrant={(userId, permission) => {
+                        if (!selectedSpecification) return
+                        void runAction(async () => {
+                          await grantAccess("specification", selectedSpecification.id, userId, permission)
+                        })
+                      }}
+                      onRevoke={(grantId) => {
+                        void runAction(async () => {
+                          await revokeAccess(grantId)
+                        })
+                      }}
+                      actionBusy={actionBusy}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          </main>
+        </div>
+      </div>
+
+      {selectedSpecification && (
+        <NewPositionModal
+          open={addItemOpen}
+          onOpenChange={setAddItemOpen}
+          specificationId={selectedSpecification.id}
+          defaultCustomer={selectedSpecification.customer}
+          defaultDeadline={selectedSpecification.deadline}
+          enabled={canManageSpecifications}
+        />
+      )}
+
+      <NewSpecificationModal
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        number={newSpecNumber}
+        customer={newSpecCustomer}
+        deadline={newSpecDeadline}
+        note={newSpecNote}
+        onNumberChange={setNewSpecNumber}
+        onCustomerChange={setNewSpecCustomer}
+        onDeadlineChange={setNewSpecDeadline}
+        onNoteChange={setNewSpecNote}
+        onCreate={() => void handleCreateSpecification()}
+        busy={actionBusy}
+      />
+
+      <DeleteConfirmationModal
         open={deleteOpen}
         onOpenChange={(open) => {
           setDeleteOpen(open)
           if (!open) setDeleteLinkedParts(false)
         }}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Удалить спецификацию</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-1">
-            <p className="text-sm text-muted-foreground">
-              Спецификация <span className="font-medium text-foreground">{selectedSpecification?.number ?? "—"}</span> будет удалена вместе с позициями и доступами операторов.
-            </p>
-            <div className="rounded-md border p-3">
-              <div className="flex items-start gap-3">
-                <Checkbox
-                  id="delete-linked-parts"
-                  checked={deleteLinkedParts}
-                  onCheckedChange={(checked) => setDeleteLinkedParts(Boolean(checked))}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor="delete-linked-parts" className="text-sm font-medium">
-                    Удалить связанные детали каскадом
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Удаляются только детали, которые больше не используются в других спецификациях.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" className="h-11" onClick={() => setDeleteOpen(false)}>
-              Отмена
-            </Button>
-            <Button className="h-11" onClick={handleDeleteSpecification} disabled={actionBusy}>
-              Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        title="Удалить спецификацию?"
+        description="Это действие нельзя отменить. Спецификация будет удалена вместе с позициями и доступами операторов."
+        itemName={selectedSpecification?.number}
+        withCascadeOption
+        cascadeChecked={deleteLinkedParts}
+        onCascadeCheckedChange={setDeleteLinkedParts}
+        onConfirm={handleDeleteSpecification}
+        busy={actionBusy}
+      />
 
       <HowItWorksSheet open={howItWorksOpen} onOpenChange={setHowItWorksOpen} topic={howItWorksTopic} />
-    </div>
+    </>
   )
 }

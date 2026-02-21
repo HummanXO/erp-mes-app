@@ -1,17 +1,18 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import type { Part, ProductionStage, SpecItem } from "@/lib/types"
-import { STAGE_LABELS } from "@/lib/types"
+import type { Part, SpecItem } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { PartCard } from "@/components/part-card"
+import { Button } from "@/components/ui/button"
 import { EmptyStateCard } from "@/components/specifications/empty-state-card"
+import { StatusBadge } from "@/components/inventory/status-badge"
 import { useApp } from "@/lib/app-context"
-import { STAGE_ICONS } from "@/lib/stage-icons"
-import { Building2, Filter, PackagePlus, Search } from "lucide-react"
+import { Building2, ChevronRight, PackagePlus, Search } from "lucide-react"
+import { cn } from "@/lib/utils"
+
+type StatusTab = "all" | "working" | "waiting" | "ready"
+type TypeTab = "all" | "own" | "cooperation"
 
 interface SpecItemsPanelProps {
   items: SpecItem[]
@@ -22,25 +23,54 @@ interface SpecItemsPanelProps {
   onOpenPart: (partId: string) => void
 }
 
+function mapPartStatusToTab(status: Part["status"]): Exclude<StatusTab, "all"> {
+  if (status === "in_progress") return "working"
+  if (status === "done") return "ready"
+  return "waiting"
+}
+
+function toneForPartStatus(status: Part["status"]): "info" | "success" | "warning" | "danger" {
+  if (status === "done") return "success"
+  if (status === "in_progress") return "warning"
+  return "info"
+}
+
+function labelForPartStatus(status: Part["status"]): string {
+  if (status === "done") return "Готово"
+  if (status === "in_progress") return "В работе"
+  return "Ожидают"
+}
+
+function getDeadlineView(part: Part, demoDate: string, bufferDays: number | null): { tone: "success" | "warning" | "danger"; text: string; buffer: string } {
+  const deadline = new Date(part.deadline)
+  const now = new Date(demoDate)
+  const deltaDays = Math.ceil((deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+
+  const tone = deltaDays < 0 ? "danger" : deltaDays <= 2 ? "warning" : "success"
+  const text = Number.isNaN(deadline.getTime()) ? "Не задан" : deadline.toLocaleDateString("ru-RU")
+
+  if (bufferDays === null) return { tone, text, buffer: "Нет прогноза" }
+  if (bufferDays > 0) return { tone, text, buffer: `Запас: ${bufferDays} дн.` }
+  if (bufferDays < 0) return { tone, text, buffer: `Риск: ${Math.abs(bufferDays)} дн.` }
+  return { tone, text, buffer: "В срок" }
+}
+
 export function SpecItemsPanel({ items, canManageSpecifications, showFilters = true, onAddItem, onHelp, onOpenPart }: SpecItemsPanelProps) {
-  const { getPartById, machines, permissions } = useApp()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState<"all" | "in_progress" | "not_started" | "done">("all")
-  const [typeFilter, setTypeFilter] = useState<"all" | "own" | "cooperation">("all")
-  const [machineFilter, setMachineFilter] = useState<string>("all")
-  const [stageFilter, setStageFilter] = useState<ProductionStage | "all">("all")
+  const { getPartById, getPartForecast, getMachineById, permissions, demoDate } = useApp()
+  const [searchValue, setSearchValue] = useState("")
+  const [activeStatusTab, setActiveStatusTab] = useState<StatusTab>("all")
+  const [activeTypeTab, setActiveTypeTab] = useState<TypeTab>("all")
 
   const linkedParts = useMemo(() => {
-    const result: Part[] = []
+    const rows: Part[] = []
     for (const item of items) {
-      if (!permissions.canViewCooperation && item.item_type === "coop") {
-        continue
-      }
       if (!item.part_id) continue
       const part = getPartById(item.part_id)
-      if (part) result.push(part)
+      if (!part) continue
+      if (!permissions.canViewCooperation && part.is_cooperation) continue
+      rows.push(part)
     }
-    return result
+    return rows
   }, [getPartById, items, permissions.canViewCooperation])
 
   if (items.length === 0) {
@@ -50,7 +80,7 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
         description={
           canManageSpecifications
             ? "Позиции описывают, что нужно изготовить у себя или отдать в кооперацию. Начните с первой позиции."
-            : "Позиции ещё не заведены. Для вашей роли доступен только просмотр и ввод фактов."
+            : "Позиции ещё не заведены. Для вашей роли доступен только просмотр."
         }
         actionLabel={canManageSpecifications ? "Добавить позицию" : "Только чтение"}
         onAction={() => {
@@ -64,140 +94,162 @@ export function SpecItemsPanel({ items, canManageSpecifications, showFilters = t
     )
   }
 
-  let visibleParts = [...linkedParts]
-  if (!permissions.canViewCooperation) {
-    visibleParts = visibleParts.filter((part) => !part.is_cooperation)
-  }
+  const filteredParts = linkedParts
+    .filter((part) => {
+      if (activeStatusTab !== "all" && mapPartStatusToTab(part.status) !== activeStatusTab) return false
+      if (activeTypeTab === "own" && part.is_cooperation) return false
+      if (activeTypeTab === "cooperation" && !part.is_cooperation) return false
 
-  let filteredParts = [...visibleParts]
-
-  const query = searchQuery.trim().toLowerCase()
-  if (query) {
-    filteredParts = filteredParts.filter((part) =>
-      part.code.toLowerCase().includes(query)
-      || part.name.toLowerCase().includes(query)
-      || part.customer?.toLowerCase().includes(query)
-    )
-  }
-
-  if (statusFilter !== "all") {
-    filteredParts = filteredParts.filter((part) => part.status === statusFilter)
-  }
-
-  if (typeFilter === "own") {
-    filteredParts = filteredParts.filter((part) => !part.is_cooperation)
-  } else if (typeFilter === "cooperation") {
-    filteredParts = filteredParts.filter((part) => part.is_cooperation)
-  }
-
-  if (machineFilter !== "all") {
-    filteredParts = filteredParts.filter((part) => part.machine_id === machineFilter)
-  }
-
-  if (stageFilter !== "all") {
-    filteredParts = filteredParts.filter((part) => {
-      const stageStatuses = part.stage_statuses || []
-      const stageStatus = stageStatuses.find((status) => status.stage === stageFilter)
-      return Boolean(stageStatus && (stageStatus.status === "in_progress" || stageStatus.status === "pending"))
+      const query = searchValue.trim().toLowerCase()
+      if (!query) return true
+      return (
+        part.code.toLowerCase().includes(query)
+        || part.name.toLowerCase().includes(query)
+        || part.customer?.toLowerCase().includes(query)
+      )
     })
-  }
+    .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
 
-  filteredParts.sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
-
-  const cooperationCount = visibleParts.filter((part) => part.is_cooperation).length
-  const ownCount = visibleParts.filter((part) => !part.is_cooperation).length
+  const ownCount = linkedParts.filter((part) => !part.is_cooperation).length
+  const cooperationCount = linkedParts.filter((part) => part.is_cooperation).length
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Позиции спецификации ({visibleParts.length})</CardTitle>
+    <Card className="border-gray-200">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold text-gray-900">Позиции спецификации ({linkedParts.length})</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {showFilters && (
-          <div className="space-y-3">
+          <>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <Input
+                value={searchValue}
+                onChange={(event) => setSearchValue(event.target.value)}
                 placeholder="Поиск по коду, названию или заказчику..."
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                className="h-11 pl-10"
+                className="h-10 border-gray-300 pl-9"
               />
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-              {permissions.canViewCooperation && (
-                <Tabs value={typeFilter} onValueChange={(value) => setTypeFilter(value as typeof typeFilter)}>
-                  <div className="overflow-x-auto overflow-y-hidden py-1">
-                    <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
-                      <TabsTrigger value="all" className="flex-none shrink-0">Все</TabsTrigger>
-                      <TabsTrigger value="own" className="flex-none shrink-0">Своё ({ownCount})</TabsTrigger>
-                      <TabsTrigger value="cooperation" className="flex-none shrink-0 gap-1">
-                        <Building2 className="h-3 w-3" aria-hidden="true" />
-                        Кооперация ({cooperationCount})
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
-                </Tabs>
-              )}
+            {permissions.canViewCooperation && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={activeTypeTab === "all" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setActiveTypeTab("all")}
+                >
+                  Все
+                </Button>
+                <Button
+                  variant={activeTypeTab === "own" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setActiveTypeTab("own")}
+                >
+                  Своё ({ownCount})
+                </Button>
+                <Button
+                  variant={activeTypeTab === "cooperation" ? "default" : "outline"}
+                  className="h-9 gap-1"
+                  onClick={() => setActiveTypeTab("cooperation")}
+                >
+                  <Building2 className="h-3.5 w-3.5" aria-hidden="true" />
+                  Кооперация ({cooperationCount})
+                </Button>
+              </div>
+            )}
 
-              <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                <div className="overflow-x-auto overflow-y-hidden py-1">
-                  <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
-                    <TabsTrigger value="all" className="flex-none shrink-0">Все</TabsTrigger>
-                    <TabsTrigger value="in_progress" className="flex-none shrink-0">В работе</TabsTrigger>
-                    <TabsTrigger value="not_started" className="flex-none shrink-0">Ожидают</TabsTrigger>
-                    <TabsTrigger value="done" className="flex-none shrink-0">Готовы</TabsTrigger>
-                  </TabsList>
-                </div>
-              </Tabs>
+            <div className="flex flex-wrap gap-2">
+              <Button variant={activeStatusTab === "all" ? "default" : "outline"} className="h-9" onClick={() => setActiveStatusTab("all")}>
+                Все
+              </Button>
+              <Button
+                variant={activeStatusTab === "working" ? "default" : "outline"}
+                className="h-9"
+                onClick={() => setActiveStatusTab("working")}
+              >
+                В работе
+              </Button>
+              <Button
+                variant={activeStatusTab === "waiting" ? "default" : "outline"}
+                className="h-9"
+                onClick={() => setActiveStatusTab("waiting")}
+              >
+                Ожидают
+              </Button>
+              <Button variant={activeStatusTab === "ready" ? "default" : "outline"} className="h-9" onClick={() => setActiveStatusTab("ready")}>
+                Готовы
+              </Button>
             </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Select value={machineFilter} onValueChange={setMachineFilter}>
-                <SelectTrigger className="h-11 w-full sm:w-[220px]">
-                  <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
-                  <SelectValue placeholder="Станок" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все станки</SelectItem>
-                  {machines.map((machine) => (
-                    <SelectItem key={machine.id} value={machine.id}>
-                      {machine.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={stageFilter} onValueChange={(value) => setStageFilter(value as ProductionStage | "all")}>
-                <SelectTrigger className="h-11 w-full sm:w-[220px]">
-                  <Filter className="h-4 w-4 mr-2" aria-hidden="true" />
-                  <SelectValue placeholder="Этап" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все этапы</SelectItem>
-                  {(Object.keys(STAGE_LABELS) as ProductionStage[]).map((stage) => (
-                    <SelectItem key={stage} value={stage}>
-                      <span className="flex items-center gap-2">
-                        {STAGE_ICONS[stage]}
-                        {STAGE_LABELS[stage]}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          </>
         )}
 
         {filteredParts.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-            Нет деталей по заданным фильтрам
+          <div className="rounded-md border border-dashed border-gray-300 p-8 text-center">
+            <p className="text-sm font-medium text-gray-900">Ничего не найдено</p>
+            <p className="text-sm text-gray-500">Попробуйте изменить параметры поиска</p>
           </div>
         ) : (
-          filteredParts.map((part) => (
-            <PartCard key={part.id} part={part} onClick={() => onOpenPart(part.id)} />
-          ))
+          <div className="divide-y divide-gray-200 rounded-lg border border-gray-200">
+            {filteredParts.map((part) => {
+              const forecast = getPartForecast(part.id)
+              const machine = part.machine_id ? getMachineById(part.machine_id) : null
+              const progress = part.qty_plan > 0 ? Math.min(100, Math.round((part.qty_done / part.qty_plan) * 100)) : 0
+              const deadlineView = getDeadlineView(part, demoDate, typeof forecast.bufferDays === "number" ? forecast.bufferDays : null)
+
+              return (
+                <button
+                  key={part.id}
+                  type="button"
+                  className="group w-full px-4 py-4 text-left transition-colors hover:bg-gray-50"
+                  onClick={() => onOpenPart(part.id)}
+                  aria-label={`Открыть деталь ${part.code}`}
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">{part.code}</span>
+                        {part.is_cooperation && <StatusBadge tone="info">Кооперация</StatusBadge>}
+                        <StatusBadge tone={toneForPartStatus(part.status)}>{labelForPartStatus(part.status)}</StatusBadge>
+                      </div>
+
+                      <p className="text-sm text-gray-700">{part.name}</p>
+                      <div className="mt-1 text-xs text-gray-500">
+                        {part.is_cooperation ? "Внешний поставщик" : machine?.name || "Станок не назначен"}
+                      </div>
+
+                      <div className="mt-3">
+                        <div className="mb-1 flex items-center justify-between text-xs text-gray-600">
+                          <span>Прогресс</span>
+                          <span className="font-medium text-gray-900">{progress}%</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
+                          <div className="h-full bg-gray-900 transition-all duration-300" style={{ width: `${progress}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5",
+                            deadlineView.tone === "danger" && "bg-red-100 text-red-700",
+                            deadlineView.tone === "warning" && "bg-amber-100 text-amber-700",
+                            deadlineView.tone === "success" && "bg-green-100 text-green-700"
+                          )}
+                        >
+                          Дедлайн: {deadlineView.text}
+                        </span>
+                        <span className="text-gray-500">{deadlineView.buffer}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-1 flex flex-col items-end gap-2">
+                      <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-gray-600" aria-hidden="true" />
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         )}
       </CardContent>
     </Card>

@@ -5,7 +5,6 @@ import type { Specification, SpecificationStatus } from "@/lib/types"
 import { SPEC_STATUS_LABELS } from "@/lib/types"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/inventory/status-badge"
@@ -29,6 +28,7 @@ interface SpecListPaneProps {
   onStatusFilterChange: (value: SpecificationStatus | "all") => void
   isLoading: boolean
   error?: string | null
+  getItemCount?: (specificationId: string) => number
 }
 
 export function SpecListPane({
@@ -42,6 +42,7 @@ export function SpecListPane({
   onStatusFilterChange,
   isLoading,
   error,
+  getItemCount,
 }: SpecListPaneProps) {
   const handleRowKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!["ArrowDown", "ArrowUp", "Home", "End", "Enter"].includes(event.key)) return
@@ -68,43 +69,40 @@ export function SpecListPane({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-6">
       {showFilters && (
-        <Card>
+        <Card className="border-gray-200">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Фильтры</CardTitle>
+            <CardTitle className="text-sm font-semibold text-gray-900">Фильтры</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <Input
-                className="h-11 pl-9"
-                placeholder="Поиск по номеру, клиенту, примечанию"
+                className="h-10 border-gray-300 pl-9"
+                placeholder="Поиск по номеру, клиенту, описанию..."
                 value={searchQuery}
                 onChange={(event) => onSearchQueryChange(event.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Статус</Label>
-              <Select value={statusFilter} onValueChange={(value) => onStatusFilterChange(value as SpecificationStatus | "all")}> 
-                <SelectTrigger className="h-11 w-full">
-                  <SelectValue placeholder="Все статусы" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все</SelectItem>
-                  <SelectItem value="draft">{SPEC_STATUS_LABELS.draft}</SelectItem>
-                  <SelectItem value="active">{SPEC_STATUS_LABELS.active}</SelectItem>
-                  <SelectItem value="closed">{SPEC_STATUS_LABELS.closed}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <Select value={statusFilter} onValueChange={(value) => onStatusFilterChange(value as SpecificationStatus | "all")}>
+              <SelectTrigger className="h-10 w-full border-gray-300">
+                <SelectValue placeholder="Статус" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все</SelectItem>
+                <SelectItem value="draft">{SPEC_STATUS_LABELS.draft}</SelectItem>
+                <SelectItem value="active">{SPEC_STATUS_LABELS.active}</SelectItem>
+                <SelectItem value="closed">{SPEC_STATUS_LABELS.closed}</SelectItem>
+              </SelectContent>
+            </Select>
           </CardContent>
         </Card>
       )}
 
-      <Card>
+      <Card className="border-gray-200">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Список спецификаций ({specifications.length})</CardTitle>
+          <CardTitle className="text-sm font-semibold text-gray-900">Список спецификаций ({specifications.length})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
           {error ? (
@@ -131,17 +129,20 @@ export function SpecListPane({
                 onFocus={() => onSelect(specification.id)}
                 onKeyDown={(event) => handleRowKeyDown(event, index)}
                 className={cn(
-                  "w-full min-h-[44px] rounded-lg border px-3 py-2 text-left transition",
-                  selectedId === specification.id ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  "w-full min-h-[44px] rounded-lg border px-3 py-3 text-left transition",
+                  selectedId === specification.id
+                    ? "border-gray-300 bg-gray-50"
+                    : "border-transparent hover:bg-gray-50"
                 )}
                 aria-selected={selectedId === specification.id}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="font-medium">{specification.number}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-sm font-medium text-gray-900">{specification.number}</div>
+                    <div className="text-xs text-gray-600">
                       {specification.customer ?? "Без клиента"}
                     </div>
+                    <div className="text-xs text-gray-500">Позиций: {getItemCount ? getItemCount(specification.id) : 0}</div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge tone={STATUS_TONES[specification.status]}>
