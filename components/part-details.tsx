@@ -78,6 +78,11 @@ const OPERATOR_UI_STATE_BY_PART_STATUS: Record<PartStatus, OperatorDetailUiState
   done: "done",
 }
 
+function normalizeBooleanFlag(value: unknown): boolean {
+  if (value === true || value === "true" || value === 1 || value === "1") return true
+  return false
+}
+
 export function PartDetails({
   part,
   onBack,
@@ -148,7 +153,10 @@ export function PartDetails({
   const [isStartingOperatorTask, setIsStartingOperatorTask] = useState(false)
   const [operatorNow, setOperatorNow] = useState(() => new Date())
   const drawingInputRef = useRef<HTMLInputElement | null>(null)
-  const isCooperationRouteOnly = part.is_cooperation
+  const isCooperationRaw = (part as Part & { is_cooperation_part?: unknown }).is_cooperation
+  const isCooperationPartRaw = (part as Part & { is_cooperation_part?: unknown }).is_cooperation_part
+  const isCooperationPart = normalizeBooleanFlag(isCooperationRaw) || normalizeBooleanFlag(isCooperationPartRaw)
+  const isCooperationRouteOnly = isCooperationPart
   const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
 
   const drawingUrlValue = drawingUrl.trim()
@@ -1273,19 +1281,9 @@ export function PartDetails({
     )
   }
 
-  if (currentUser && currentUser.role !== "operator") {
-    if (part.is_cooperation) {
-      return (
-        <PartDetailsCooperation
-          part={part}
-          onBack={onBack}
-          initialTab={initialTab}
-          onTabChange={onTabChange}
-          selectedTaskId={selectedTaskId}
-          onTaskSelect={onTaskSelect}
-          onTaskBack={onTaskBack}
-        />
-      )
+  if (!isOperatorDetail) {
+    if (isCooperationPart) {
+      return <PartDetailsCooperation part={part} onBack={onBack} />
     }
     return <PartDetailsMaster part={part} onBack={onBack} />
   }

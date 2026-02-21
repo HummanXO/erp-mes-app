@@ -2,2370 +2,2683 @@
 
 import React from "react"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { DeviationReason, Part, PartStatus, ProductionStage, ShiftType } from "@/lib/types"
-import { STAGE_LABELS, DEVIATION_REASON_LABELS, SHIFT_LABELS } from "@/lib/types"
-import { STAGE_ICONS } from "@/lib/stage-icons"
+import type {
+  LogisticsEntry,
+  MovementStatus,
+  Part,
+  ProductionStage,
+  ShiftType,
+  StageFact,
+  Task,
+  TaskCategory,
+  TaskAssigneeType,
+  UserRole,
+} from "@/lib/types"
+import { SHIFT_LABELS, STAGE_LABELS, TASK_STATUS_LABELS } from "@/lib/types"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { apiClient } from "@/lib/api-client"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import {
-  ArrowLeft, 
-  TrendingUp, 
-  TrendingDown, 
-  Trash2,
-  Sun, 
-  Moon,
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  CalendarIcon,
+  Check,
+  CheckCircle2,
+  ClipboardList,
+  Cog,
+  Factory,
   FileImage,
   FileText,
-  ExternalLink,
-  Building2,
-  CheckCircle,
-  Clock,
+  Flame,
+  FlaskConical,
+  Maximize2,
   Package,
-  Upload,
-  Link,
-  Loader2,
-  ListChecks,
-  History,
-  CircleDot,
-  PlayCircle,
-  AlertCircle,
+  Pencil,
+  Plus,
+  Printer,
+  Truck,
+  Wrench,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { StageFactForm } from "./stage-fact-form"
-import { TasksList } from "./tasks-list"
-import { LogisticsList } from "./logistics-list"
-import { FactJournal } from "./fact-journal"
-import { StageProgressSummary } from "./stage-progress-summary"
-import { AuditLogView } from "./audit-log-view"
-import { apiClient } from "@/lib/api-client"
 
 interface PartDetailsCooperationProps {
   part: Part
   onBack: () => void
-  initialTab?: string
-  onTabChange?: (tab: string) => void
-  selectedTaskId?: string | null
-  onTaskSelect?: (taskId: string) => void
-  onTaskBack?: () => void
 }
 
-type OperatorDetailUiState = "waiting" | "in_work" | "done"
+type JournalFilter = "all" | "movement" | "receipt" | "fact" | "task"
+type FlowStageKey = "machining" | "fitting" | "heat_treatment" | "galvanic"
+type FlowStageState = "unused" | "pending" | "in_progress" | "done"
+type TaskPriority = "high" | "normal" | "low"
+type TaskAssigneePreset = "operators" | "masters" | "logistics" | "all"
 
-const OPERATOR_UI_STATE_BY_PART_STATUS: Record<PartStatus, OperatorDetailUiState> = {
-  not_started: "waiting",
-  in_progress: "in_work",
-  done: "done",
+type FlowStage = {
+  key: FlowStageKey
+  label: string
+  shortLabel: string
+  external: boolean
+  optional: boolean
 }
 
-export function PartDetailsCooperation({
-  part,
-  onBack,
-  initialTab,
-  onTabChange,
-  selectedTaskId,
-  onTaskSelect,
-  onTaskBack,
-}: PartDetailsCooperationProps) {
-  const { 
-    getPartProgress, 
-    getPartForecast, 
-    getMachineById,
-    getMachineNorm,
-    machines,
-    getStageFactsForPart,
-    getLogisticsForPart,
-    getJourneyForPart,
-    getTasksForPart,
-    createStageFact,
-    updateStageFact,
-    startTask,
-    isTaskAssignedToUser,
-    getUserById,
-    demoDate,
+type JournalEvent = {
+  id: string
+  type: Exclude<JournalFilter, "all">
+  title: string
+  subtitle?: string
+  at: string
+}
+
+type FlowCard = FlowStage & {
+  state: FlowStageState
+  isUsed: boolean
+  doneQty: number
+  percent: number
+  availableQty: number
+  inWorkQty: number
+  inTransitQty: number
+  nextStage: FlowStageKey | "fg" | null
+}
+
+const ACTIVE_SHIPMENT_STATUSES = new Set<MovementStatus>(["sent", "in_transit", "pending"])
+const RECEIVED_SHIPMENT_STATUSES = new Set<MovementStatus>(["received", "completed"])
+const NO_MACHINE_VALUE = "__none__"
+const NO_STAGE_VALUE = "__none__"
+
+const FLOW_STAGES: FlowStage[] = [
+  {
+    key: "machining",
+    label: "Механика",
+    shortLabel: "Механика",
+    external: false,
+    optional: false,
+  },
+  {
+    key: "fitting",
+    label: "Слесарная",
+    shortLabel: "Слесарная",
+    external: false,
+    optional: false,
+  },
+  {
+    key: "heat_treatment",
+    label: "Термообработка",
+    shortLabel: "Термо.",
+    external: true,
+    optional: true,
+  },
+  {
+    key: "galvanic",
+    label: "Гальваника",
+    shortLabel: "Гальваника",
+    external: true,
+    optional: true,
+  },
+]
+
+const FLOW_STAGE_BY_KEY = new Map(FLOW_STAGES.map((stage) => [stage.key, stage] as const))
+
+function movementStatus(entry: LogisticsEntry): MovementStatus {
+  return (entry.status || "pending") as MovementStatus
+}
+
+function sortByEventDate(entries: LogisticsEntry[]): LogisticsEntry[] {
+  return [...entries].sort((a, b) => {
+    const aTs = new Date(
+      a.received_at ||
+        a.returned_at ||
+        a.cancelled_at ||
+        a.sent_at ||
+        a.updated_at ||
+        a.created_at ||
+        a.date ||
+        0
+    ).getTime()
+    const bTs = new Date(
+      b.received_at ||
+        b.returned_at ||
+        b.cancelled_at ||
+        b.sent_at ||
+        b.updated_at ||
+        b.created_at ||
+        b.date ||
+        0
+    ).getTime()
+    return bTs - aTs
+  })
+}
+
+function formatDate(value?: string): string {
+  if (!value) return "--"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "--"
+  return parsed.toLocaleDateString("ru-RU")
+}
+
+function formatTime(value?: string): string {
+  if (!value) return "--"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return "--"
+  return parsed.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+}
+
+function formatRelativeTime(value?: string): string {
+  if (!value) return ""
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ""
+
+  const now = Date.now()
+  const diffMs = now - parsed.getTime()
+  if (diffMs < 0) return formatTime(value)
+
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return "сейчас"
+  if (minutes < 60) return `${minutes}м`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}ч`
+
+  const days = Math.floor(hours / 24)
+  if (days === 1) return "вчера"
+  if (days < 7) return `${days}д`
+
+  return formatDate(value)
+}
+
+function localIsoDate(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function parsePositiveInt(value: string): number | null {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return parsed
+}
+
+function parseNonNegativeInt(value: string): number | null {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed) || parsed < 0) return null
+  return parsed
+}
+
+function normalizeTaskPriority(task: Task): TaskPriority {
+  if (task.is_blocker) return "high"
+  if (task.category === "quality" || task.category === "machine") return "high"
+  if (task.category === "material" || task.category === "logistics") return "normal"
+  return "low"
+}
+
+function stageIcon(stage: FlowStageKey) {
+  if (stage === "machining") return <Cog className="h-4 w-4" />
+  if (stage === "fitting") return <Wrench className="h-4 w-4" />
+  if (stage === "heat_treatment") return <Flame className="h-4 w-4" />
+  return <FlaskConical className="h-4 w-4" />
+}
+
+function taskAssigneeFromPreset(preset: TaskAssigneePreset): {
+  assignee_type: TaskAssigneeType
+  assignee_role?: UserRole
+} {
+  if (preset === "operators") {
+    return { assignee_type: "role", assignee_role: "operator" }
+  }
+  if (preset === "masters") {
+    return { assignee_type: "role", assignee_role: "master" }
+  }
+  if (preset === "logistics") {
+    return { assignee_type: "role", assignee_role: "supply" }
+  }
+  return { assignee_type: "all" }
+}
+
+function taskCategoryFromInputs(stage: ProductionStage | null, priority: TaskPriority): TaskCategory {
+  if (stage === "heat_treatment" || stage === "galvanic" || stage === "logistics") return "logistics"
+  if (stage === "machining") return "machine"
+  if (priority === "high") return "quality"
+  return "general"
+}
+
+function flowTargetLabel(target: FlowStageKey | "fg" | null): string {
+  if (!target) return "—"
+  if (target === "fg") return "Склад ГП"
+  return STAGE_LABELS[target]
+}
+
+function flowShipButtonLabel(stage: FlowStageKey, target: FlowStageKey | "fg" | null): string {
+  if (stage === "fitting" && target === "heat_treatment") return "Передать на Термообработку"
+  if (stage === "heat_treatment" && target === "galvanic") return "Отправить на Гальванику"
+  if (stage === "galvanic" && target === "fg") return "Отправить на Склад"
+
+  if (target === "fg") return "Отправить на Склад"
+  if (!target) return "Оформить отправку"
+  return `Отправить на ${STAGE_LABELS[target]}`
+}
+
+function movementEffectiveQty(entry: LogisticsEntry): number {
+  const status = movementStatus(entry)
+  const sentQty = entry.qty_sent ?? entry.quantity ?? 0
+  if (RECEIVED_SHIPMENT_STATUSES.has(status)) {
+    return entry.qty_received ?? sentQty
+  }
+  return sentQty
+}
+
+function stageKeyFromLocation(value?: string | null): FlowStageKey | "fg" | null {
+  const raw = String(value || "").trim().toLowerCase()
+  if (!raw) return null
+  if (raw.includes("мех")) return "machining"
+  if (raw.includes("слес")) return "fitting"
+  if (raw.includes("термо")) return "heat_treatment"
+  if (raw.includes("гальв")) return "galvanic"
+  if (raw.includes("склад гп")) return "fg"
+  return null
+}
+
+function parseTransferredOut(notes?: string | null): number {
+  if (!notes) return 0
+  const match = notes.match(/(?:^|;)\s*xfer_out=(\d+)/i)
+  if (!match) return 0
+  const parsed = Number.parseInt(match[1], 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function mergeTransferredOut(notes: string | undefined, increment: number): string {
+  const base = notes || ""
+  const current = parseTransferredOut(base)
+  const next = Math.max(0, current + increment)
+  const cleaned = base.replace(/(?:^|;)\s*xfer_out=\d+/gi, "").trim().replace(/^;|;$/g, "").trim()
+  return cleaned ? `${cleaned}; xfer_out=${next}` : `xfer_out=${next}`
+}
+
+export function PartDetailsCooperation({ part, onBack }: PartDetailsCooperationProps) {
+  const {
     currentUser,
     permissions,
+    users,
+    machines,
+    getPartProgress,
+    getPartForecast,
+    getMachineById,
+    getMachineNorm,
+    setMachineNorm,
+    getStageFactsForPart,
+    getLogisticsForPart,
+    getTasksForPart,
+    getUserById,
+    createStageFact,
+    updateStageFact,
+    deleteStageFact,
+    createTask,
     updatePart,
-    updatePartDrawing,
-    uploadAttachment,
-    deletePart
+    updatePartStageStatus,
+    createLogisticsEntry,
+    updateLogisticsEntry,
   } = useApp()
-  
-  const [activeTab, setActiveTab] = useState(initialTab || "overview")
-  const [drawingUrl, setDrawingUrl] = useState(part.drawing_url || "")
-  const [isDeleting, setIsDeleting] = useState(false)
-  const [actionError, setActionError] = useState("")
-  const [drawingError, setDrawingError] = useState(false)
-  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false)
-  const [drawingBlobUrl, setDrawingBlobUrl] = useState<string | null>(null)
-  const [isLoadingDrawingBlob, setIsLoadingDrawingBlob] = useState(false)
-  const [drawingActionError, setDrawingActionError] = useState("")
-  const [isUploadingDrawing, setIsUploadingDrawing] = useState(false)
-  const [isSavingDrawing, setIsSavingDrawing] = useState(false)
-  const [showLinkInput, setShowLinkInput] = useState(false)
-  const [journeySummary, setJourneySummary] = useState<Awaited<ReturnType<typeof getJourneyForPart>>>(null)
-  const [cooperationDueDateDraft, setCooperationDueDateDraft] = useState("")
-  const [isEditingCooperationDueDate, setIsEditingCooperationDueDate] = useState(false)
-  const [isSavingCooperationDueDate, setIsSavingCooperationDueDate] = useState(false)
-  const [cooperationDueDateError, setCooperationDueDateError] = useState("")
-  const [isSavingCooperationQc, setIsSavingCooperationQc] = useState(false)
-  const [cooperationQcError, setCooperationQcError] = useState("")
-  const [machineDraftId, setMachineDraftId] = useState("")
-  const [isSavingMachine, setIsSavingMachine] = useState(false)
-  const [machineAssignError, setMachineAssignError] = useState("")
-  const [cooperationQcOptimistic, setCooperationQcOptimistic] = useState<{
-    status: "pending" | "accepted" | "rejected"
-    checkedAt: string | null
-  } | null>(null)
-  const [operatorQtyGood, setOperatorQtyGood] = useState("0")
-  const [operatorQtyScrap, setOperatorQtyScrap] = useState("0")
-  const [operatorDeviationReason, setOperatorDeviationReason] = useState<DeviationReason>(null)
-  const [operatorComment, setOperatorComment] = useState("")
-  const [operatorFactError, setOperatorFactError] = useState("")
-  const [operatorFactHint, setOperatorFactHint] = useState("")
-  const [isSavingOperatorFact, setIsSavingOperatorFact] = useState(false)
-  const [operatorEditMode, setOperatorEditMode] = useState(true)
-  const [operatorStartError, setOperatorStartError] = useState("")
-  const [isStartingOperatorTask, setIsStartingOperatorTask] = useState(false)
-  const [operatorNow, setOperatorNow] = useState(() => new Date())
-  const drawingInputRef = useRef<HTMLInputElement | null>(null)
-  const isCooperationRouteOnly = part.is_cooperation
-  const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
 
-  const drawingUrlValue = drawingUrl.trim()
+  const progress = getPartProgress(part.id)
+  const forecast = getPartForecast(part.id)
+  const stageFacts = getStageFactsForPart(part.id)
+  const logistics = getLogisticsForPart(part.id)
+  const tasks = getTasksForPart(part.id)
+
+  const sortedFacts = useMemo(
+    () =>
+      [...stageFacts].sort((a, b) => {
+        const dateCompare = b.date.localeCompare(a.date)
+        if (dateCompare !== 0) return dateCompare
+        return b.created_at.localeCompare(a.created_at)
+      }),
+    [stageFacts]
+  )
+
+  const sortedLogistics = useMemo(() => sortByEventDate(logistics), [logistics])
+
+  const stageOutgoingByLogistics = useMemo(() => {
+    const map = new Map<FlowStageKey, number>()
+    for (const entry of sortedLogistics) {
+      const status = movementStatus(entry)
+      if (status === "cancelled" || status === "returned") continue
+      const sourceStage = stageKeyFromLocation(entry.from_location) ?? stageKeyFromLocation(entry.from_holder)
+      if (!sourceStage || sourceStage === "fg") continue
+      const qty = movementEffectiveQty(entry)
+      if (qty <= 0) continue
+      map.set(sourceStage, (map.get(sourceStage) || 0) + qty)
+    }
+    return map
+  }, [sortedLogistics])
+
+  const stageStatusByStage = useMemo(
+    () => new Map((part.stage_statuses || []).map((status) => [status.stage, status] as const)),
+    [part.stage_statuses]
+  )
+
+  const stageTransferredOutByStage = useMemo(() => {
+    const map = new Map<FlowStageKey, number>()
+    for (const stageStatus of part.stage_statuses || []) {
+      if (!FLOW_STAGE_BY_KEY.has(stageStatus.stage as FlowStageKey)) continue
+      const stageKey = stageStatus.stage as FlowStageKey
+      map.set(stageKey, parseTransferredOut(stageStatus.notes))
+    }
+    return map
+  }, [part.stage_statuses])
+
+  const stageOutgoingQtyByStage = useMemo(() => {
+    const map = new Map<FlowStageKey, number>()
+    for (const stage of FLOW_STAGES) {
+      const byLogistics = stageOutgoingByLogistics.get(stage.key) || 0
+      const byNotes = stageTransferredOutByStage.get(stage.key) || 0
+      map.set(stage.key, Math.max(byLogistics, byNotes))
+    }
+    return map
+  }, [stageOutgoingByLogistics, stageTransferredOutByStage])
+
+  const stageByStatusId = useMemo(() => {
+    const map = new Map<string, ProductionStage>()
+    for (const stageStatus of part.stage_statuses || []) {
+      if (stageStatus.id) {
+        map.set(String(stageStatus.id), stageStatus.stage)
+      }
+    }
+    return map
+  }, [part.stage_statuses])
+
+  const stageQtyByStage = useMemo(() => {
+    const map = new Map<ProductionStage, number>()
+    for (const fact of stageFacts) {
+      map.set(fact.stage, (map.get(fact.stage) || 0) + fact.qty_good)
+    }
+    // Fallback for legacy records where qty is persisted on stage statuses without facts.
+    for (const stageStatus of part.stage_statuses || []) {
+      if (!map.has(stageStatus.stage) && typeof stageStatus.qty_good === "number" && stageStatus.qty_good > 0) {
+        map.set(stageStatus.stage, stageStatus.qty_good)
+      }
+    }
+    return map
+  }, [part.stage_statuses, stageFacts])
+
+  const usedStages = useMemo(() => {
+    const used = new Set<ProductionStage>()
+    for (const stageStatus of part.stage_statuses || []) {
+      if (stageStatus.status !== "skipped") {
+        used.add(stageStatus.stage)
+      }
+    }
+    for (const stage of part.required_stages || []) {
+      used.add(stage)
+    }
+    return used
+  }, [part.required_stages, part.stage_statuses])
+
+  const activeChain = useMemo(() => {
+    const chain: FlowStageKey[] = ["machining", "fitting"]
+    if (usedStages.has("heat_treatment")) {
+      chain.push("heat_treatment")
+    }
+    if (usedStages.has("galvanic")) {
+      chain.push("galvanic")
+    }
+    return chain
+  }, [usedStages])
+
+  const flowCards = useMemo<FlowCard[]>(() => {
+    return activeChain.reduce<FlowCard[]>((cards, stageKey) => {
+      const flowStage = FLOW_STAGE_BY_KEY.get(stageKey)
+      if (!flowStage) return cards
+      const stageStatus = stageStatusByStage.get(flowStage.key)
+      const doneQty = stageQtyByStage.get(flowStage.key) || 0
+      const currentStageIndex = activeChain.indexOf(flowStage.key)
+      const previousStage = currentStageIndex > 0 ? activeChain[currentStageIndex - 1] : null
+      const previousDoneQty = previousStage ? stageQtyByStage.get(previousStage) || 0 : 0
+      const previousStatus = previousStage ? stageStatusByStage.get(previousStage) : undefined
+      const previousRecordedOutgoing = previousStage ? stageOutgoingQtyByStage.get(previousStage) || 0 : 0
+      const previousOutgoingQty = previousStage
+        ? previousRecordedOutgoing > 0
+          ? previousRecordedOutgoing
+          : previousStatus?.status === "done"
+            ? previousDoneQty
+            : 0
+        : 0
+      const recordedOutgoingQty = stageOutgoingQtyByStage.get(flowStage.key) || 0
+      const currentOutgoingQty =
+        recordedOutgoingQty > 0 ? recordedOutgoingQty : stageStatus?.status === "done" ? doneQty : 0
+      const availableQty = Math.max(doneQty - currentOutgoingQty, 0)
+
+      const stageId = stageStatus?.id ? String(stageStatus.id) : ""
+      const inTransitQty = sortedLogistics
+        .filter((entry) => {
+          if (!stageId) return false
+          return String(entry.stage_id || "") === stageId && ACTIVE_SHIPMENT_STATUSES.has(movementStatus(entry))
+        })
+        .reduce((sum, entry) => sum + movementEffectiveQty(entry), 0)
+
+      const inWorkQty =
+        flowStage.external
+          ? inTransitQty
+          : flowStage.key === "machining"
+            ? 0
+            : Math.max(previousOutgoingQty - doneQty, 0)
+
+      const nextStage: FlowStageKey | "fg" | null =
+        currentStageIndex < 0
+          ? null
+          : currentStageIndex < activeChain.length - 1
+            ? activeChain[currentStageIndex + 1]
+            : "fg"
+
+      const state: FlowStageState =
+        stageStatus?.status === "done"
+          ? "done"
+          : stageStatus?.status === "in_progress"
+            ? "in_progress"
+            : "pending"
+
+      cards.push({
+        ...flowStage,
+        state,
+        isUsed: true,
+        doneQty,
+        percent:
+          part.qty_plan > 0 ? Math.max(0, Math.min(100, Math.round((doneQty / part.qty_plan) * 100))) : 0,
+        availableQty,
+        inWorkQty,
+        inTransitQty,
+        nextStage,
+      })
+      return cards
+    }, [])
+  }, [activeChain, part.qty_plan, sortedLogistics, stageOutgoingQtyByStage, stageQtyByStage, stageStatusByStage])
+
+  const flowCardByStage = useMemo(() => {
+    return new Map(flowCards.map((flowCard) => [flowCard.key, flowCard]))
+  }, [flowCards])
+
+  const inTransitShipments = useMemo(
+    () => sortedLogistics.filter((entry) => ACTIVE_SHIPMENT_STATUSES.has(movementStatus(entry))),
+    [sortedLogistics]
+  )
+
+  const machine = part.machine_id ? getMachineById(part.machine_id) : undefined
+  const machiningMachines = machines.filter((machineCandidate) => machineCandidate.department === "machining")
+  const machineNorm = part.machine_id ? getMachineNorm(part.machine_id, part.id, "machining") : undefined
+
+  const finalQty = useMemo(() => {
+    const lastStage = activeChain[activeChain.length - 1]
+    if (!lastStage) return 0
+    return stageOutgoingQtyByStage.get(lastStage) || 0
+  }, [activeChain, stageOutgoingQtyByStage])
+  const finalPercent = part.qty_plan > 0 ? Math.max(0, Math.min(100, Math.round((finalQty / part.qty_plan) * 100))) : 0
+
+  const wipQty = useMemo(() => {
+    const trackedStages: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding"]
+    const sumAcrossStages = trackedStages.reduce((sum, stage) => sum + (stageQtyByStage.get(stage) || 0), 0)
+    return Math.max(sumAcrossStages - finalQty, 0)
+  }, [stageQtyByStage, finalQty])
+
+  const forecastStatus = forecast.status || (forecast.willFinishOnTime ? "on_track" : "risk")
+  const hasForecastInput = forecastStatus !== "unknown"
+  const internalDeadlineLabel = hasForecastInput ? formatDate(forecast.estimatedFinishDate) : "--"
+  const bufferDays = hasForecastInput
+    ? (typeof forecast.bufferDays === "number"
+      ? forecast.bufferDays
+      : Math.ceil((new Date(part.deadline).getTime() - new Date(forecast.estimatedFinishDate).getTime()) / (1000 * 60 * 60 * 24)))
+    : null
+  const forecastReason = forecast.reason
+
+  const scheduleStatus = !hasForecastInput
+    ? "нет данных"
+    : forecastStatus === "overdue"
+      ? "просрочено"
+      : forecastStatus === "risk"
+        ? "риск"
+        : "успеваем"
+
+  const shiftsReserveLabel =
+    bufferDays === null
+      ? (forecastReason || "Запас: --")
+      : bufferDays >= 0
+        ? `Запас: +${bufferDays} дн.`
+        : `Отставание: ${Math.abs(bufferDays)} дн.`
+
+  const tasksForPanel = useMemo(
+    () =>
+      [...tasks]
+        .filter((task) => task.status !== "done")
+        .sort((a, b) => {
+          const priorityWeight = (task: Task) => {
+            const priority = normalizeTaskPriority(task)
+            if (priority === "high") return 0
+            if (priority === "normal") return 1
+            return 2
+          }
+          const byPriority = priorityWeight(a) - priorityWeight(b)
+          if (byPriority !== 0) return byPriority
+          return a.due_date.localeCompare(b.due_date)
+        })
+        .slice(0, 5),
+    [tasks]
+  )
+
+  const journalEvents = useMemo<JournalEvent[]>(() => {
+    const events: JournalEvent[] = []
+
+    for (const entry of sortedLogistics) {
+      const status = movementStatus(entry)
+      const fromLabel = entry.from_holder || entry.from_location || "источник"
+      const toLabel = entry.to_holder || entry.to_location || "назначение"
+      const qtyLabel = entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0
+      const at =
+        entry.received_at ||
+        entry.returned_at ||
+        entry.cancelled_at ||
+        entry.sent_at ||
+        entry.updated_at ||
+        entry.created_at ||
+        entry.date ||
+        new Date().toISOString()
+
+      if (RECEIVED_SHIPMENT_STATUSES.has(status)) {
+        events.push({
+          id: `receipt_${entry.id}`,
+          type: "receipt",
+          title: `Прибыла партия с ${fromLabel}`,
+          subtitle: `${qtyLabel.toLocaleString()} шт.`,
+          at,
+        })
+        continue
+      }
+
+      events.push({
+        id: `movement_${entry.id}`,
+        type: "movement",
+        title: `Отправлено на ${toLabel}`,
+        subtitle: `${qtyLabel.toLocaleString()} шт.`,
+        at,
+      })
+    }
+
+    for (const fact of sortedFacts) {
+      const operator = getUserById(fact.operator_id)
+      const baseAt = fact.created_at || `${fact.date}T00:00:00`
+      if (fact.qty_good > 0) {
+        events.push({
+          id: `fact_good_${fact.id}`,
+          type: "fact",
+          title: `Зафиксирован факт выпуска ${STAGE_LABELS[fact.stage]} (${fact.qty_good.toLocaleString()} шт.)`,
+          subtitle: operator ? `Мастер: ${operator.initials}` : undefined,
+          at: baseAt,
+        })
+      }
+      if (fact.qty_scrap > 0) {
+        events.push({
+          id: `fact_scrap_${fact.id}`,
+          type: "fact",
+          title: `Зафиксирован брак на этапе ${STAGE_LABELS[fact.stage]} (${fact.qty_scrap.toLocaleString()} шт.)`,
+          subtitle: fact.comment ? `Комментарий: ${fact.comment}` : undefined,
+          at: baseAt,
+        })
+      }
+    }
+
+    for (const task of tasks) {
+      events.push({
+        id: `task_${task.id}`,
+        type: "task",
+        title: task.status === "done" ? `Задача выполнена: ${task.title}` : `Задача: ${task.title}`,
+        subtitle: `Статус: ${TASK_STATUS_LABELS[task.status]}`,
+        at: task.created_at || `${task.due_date}T00:00:00`,
+      })
+    }
+
+    return events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+  }, [getUserById, sortedFacts, sortedLogistics, tasks])
+
+  const [journalFilter, setJournalFilter] = useState<JournalFilter>("all")
+
+  const filteredJournalEvents = useMemo(
+    () => (journalFilter === "all" ? journalEvents : journalEvents.filter((event) => event.type === journalFilter)),
+    [journalEvents, journalFilter]
+  )
+
+  const [receivingMovement, setReceivingMovement] = useState<LogisticsEntry | null>(null)
+  const [receivingQty, setReceivingQty] = useState("")
+  const [receivingError, setReceivingError] = useState("")
+  const [isConfirmingReceive, setIsConfirmingReceive] = useState(false)
+
+  const [sendStage, setSendStage] = useState<FlowStageKey | null>(null)
+  const [sendQty, setSendQty] = useState("")
+  const [sendPartner, setSendPartner] = useState("")
+  const [sendEta, setSendEta] = useState("")
+  const [sendTracking, setSendTracking] = useState("")
+  const [sendError, setSendError] = useState("")
+  const [isSubmittingSend, setIsSubmittingSend] = useState(false)
+
+  const [transferStage, setTransferStage] = useState<FlowStageKey | null>(null)
+  const [transferQty, setTransferQty] = useState("")
+  const [transferComment, setTransferComment] = useState("")
+  const [transferError, setTransferError] = useState("")
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false)
+
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false)
+  const [taskTitle, setTaskTitle] = useState("")
+  const [taskDescription, setTaskDescription] = useState("")
+  const [taskStage, setTaskStage] = useState<ProductionStage | typeof NO_STAGE_VALUE>(NO_STAGE_VALUE)
+  const [taskPriority, setTaskPriority] = useState<TaskPriority>("normal")
+  const [taskAssigneePreset, setTaskAssigneePreset] = useState<TaskAssigneePreset>("operators")
+  const [taskDueDate, setTaskDueDate] = useState("")
+  const [taskError, setTaskError] = useState("")
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+
+  const [isAddFactModalOpen, setIsAddFactModalOpen] = useState(false)
+  const [factDate, setFactDate] = useState(localIsoDate())
+  const [factShift, setFactShift] = useState<ShiftType>("day")
+  const [factStage, setFactStage] = useState<ProductionStage>("machining")
+  const [factOperatorId, setFactOperatorId] = useState("")
+  const [factQtyGood, setFactQtyGood] = useState("")
+  const [factQtyScrap, setFactQtyScrap] = useState("0")
+  const [factComment, setFactComment] = useState("")
+  const [factError, setFactError] = useState("")
+  const [isSavingFact, setIsSavingFact] = useState(false)
+
+  const [editingFact, setEditingFact] = useState<StageFact | null>(null)
+  const [editFactOperatorId, setEditFactOperatorId] = useState("")
+  const [editFactQtyGood, setEditFactQtyGood] = useState("")
+  const [editFactQtyScrap, setEditFactQtyScrap] = useState("")
+  const [editFactComment, setEditFactComment] = useState("")
+  const [editFactError, setEditFactError] = useState("")
+  const [isUpdatingFact, setIsUpdatingFact] = useState(false)
+  const [isDeletingFact, setIsDeletingFact] = useState(false)
+
+  const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false)
+  const [machineDraftId, setMachineDraftId] = useState(part.machine_id || NO_MACHINE_VALUE)
+  const [machineNormDraft, setMachineNormDraft] = useState(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
+  const [machineError, setMachineError] = useState("")
+  const [isSavingMachine, setIsSavingMachine] = useState(false)
+  const [isDrawingModalOpen, setIsDrawingModalOpen] = useState(false)
+  const [drawingError, setDrawingError] = useState(false)
+  const [drawingObjectUrl, setDrawingObjectUrl] = useState<string | null>(null)
+  const [isLoadingDrawingFile, setIsLoadingDrawingFile] = useState(false)
+
+  const drawingUrlValue = (part.drawing_url || "").trim()
   const drawingUrlLower = drawingUrlValue.toLowerCase()
-  const isPdfDrawing =
-    drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
+  const isPdfDrawing = drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
   const isImageDrawing =
     drawingUrlLower.startsWith("data:image/") ||
     /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
   const isKnownDrawingType = isPdfDrawing || isImageDrawing
-
-  const isValidDrawingPath = (value: string) => {
-    const candidate = value.trim()
-    if (!candidate) return false
-    if (
-      candidate.startsWith("data:image/") ||
-      candidate.startsWith("data:application/pdf") ||
-      candidate.startsWith("/uploads/") ||
-      candidate.startsWith("/api/v1/attachments/serve/")
-    ) {
-      return true
-    }
-    try {
-      const parsed = new URL(candidate)
-      return parsed.protocol === "http:" || parsed.protocol === "https:"
-    } catch {
-      return false
-    }
-  }
-
-  useEffect(() => {
-    setDrawingUrl(part.drawing_url || "")
-  }, [part.id, part.drawing_url])
-
-  useEffect(() => {
-    setActiveTab(initialTab || "overview")
-  }, [initialTab, part.id])
-
-  useEffect(() => {
-    setDrawingError(false)
-  }, [drawingUrl])
-
-  useEffect(() => {
-    setMachineDraftId(part.machine_id || "")
-    setMachineAssignError("")
-  }, [part.id, part.machine_id])
-
-  useEffect(() => {
-    if (isEditingCooperationDueDate) return
-    const fromPart = part.cooperation_due_date || ""
-    if (fromPart) {
-      setCooperationDueDateDraft(fromPart)
-      return
-    }
-    const fromJourney = journeySummary?.eta ? new Date(journeySummary.eta).toISOString().slice(0, 10) : ""
-    setCooperationDueDateDraft(fromJourney)
-  }, [part.cooperation_due_date, part.id, journeySummary?.eta, isEditingCooperationDueDate])
-
-  useEffect(() => {
-    setCooperationQcOptimistic(null)
-  }, [part.id, part.cooperation_qc_status, part.cooperation_qc_checked_at])
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setOperatorNow(new Date())
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
   const isProtectedAttachmentUrl = (value: string) => {
-    const candidate = value.trim()
-    if (!candidate) return false
-    if (candidate.startsWith("/uploads/") || candidate.startsWith("/api/v1/attachments/serve/")) return true
-    if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+    if (value.startsWith("/uploads/") || value.startsWith("/api/v1/attachments/serve/")) return true
+    if (value.startsWith("http://") || value.startsWith("https://")) {
       try {
-        const u = new URL(candidate)
-        return u.pathname.startsWith("/uploads/") || u.pathname.startsWith("/api/v1/attachments/serve/")
+        const parsed = new URL(value)
+        return parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/v1/attachments/serve/")
       } catch {
         return false
       }
     }
     return false
   }
-
   const isProtectedDrawing = drawingUrlValue ? isProtectedAttachmentUrl(drawingUrlValue) : false
-  const drawingImageSrc = isProtectedDrawing ? drawingBlobUrl : drawingUrlValue
+  const resolvedDrawingUrl = isProtectedDrawing ? drawingObjectUrl : drawingUrlValue
+
+  const factStageOptions = useMemo<ProductionStage[]>(() => {
+    const ordered: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
+    const allowed = ordered.filter((stage) => usedStages.has(stage))
+    return allowed.length > 0 ? allowed : (["machining"] as ProductionStage[])
+  }, [usedStages])
+
+  const factOperatorOptions = useMemo(
+    () => users.filter((user) => user.role === "operator" || user.role === "master" || user.role === "shop_head"),
+    [users]
+  )
+
+  useEffect(() => {
+    setMachineDraftId(part.machine_id || NO_MACHINE_VALUE)
+    setMachineNormDraft(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
+    setMachineError("")
+  }, [machineNorm?.qty_per_shift, part.id, part.machine_id])
+
+  useEffect(() => {
+    setDrawingError(false)
+    setIsDrawingModalOpen(false)
+  }, [part.id, drawingUrlValue])
 
   useEffect(() => {
     let cancelled = false
 
-    if (drawingBlobUrl) {
-      URL.revokeObjectURL(drawingBlobUrl)
-      setDrawingBlobUrl(null)
+    const clearObjectUrl = () => {
+      setDrawingObjectUrl((prev) => {
+        if (prev) {
+          URL.revokeObjectURL(prev)
+        }
+        return null
+      })
     }
 
-    const value = drawingUrlValue
-    if (!value) return
+    if (!drawingUrlValue || !isKnownDrawingType) {
+      clearObjectUrl()
+      setIsLoadingDrawingFile(false)
+      return
+    }
 
-    if (!isImageDrawing) return
-    if (value.startsWith("data:") || value.startsWith("blob:")) return
-    if (!isProtectedAttachmentUrl(value)) return
+    if (
+      drawingUrlValue.startsWith("data:") ||
+      drawingUrlValue.startsWith("blob:") ||
+      !isProtectedAttachmentUrl(drawingUrlValue)
+    ) {
+      clearObjectUrl()
+      setIsLoadingDrawingFile(false)
+      return
+    }
 
-    setIsLoadingDrawingBlob(true)
+    setIsLoadingDrawingFile(true)
     void (async () => {
       try {
-        const blob = await apiClient.fetchBlob(value)
+        const blob = await apiClient.fetchBlob(drawingUrlValue)
         if (cancelled) return
-        const blobUrl = URL.createObjectURL(blob)
-        setDrawingBlobUrl(blobUrl)
+        const nextUrl = URL.createObjectURL(blob)
+        setDrawingObjectUrl((prev) => {
+          if (prev) {
+            URL.revokeObjectURL(prev)
+          }
+          return nextUrl
+        })
         setDrawingError(false)
       } catch {
         if (cancelled) return
+        clearObjectUrl()
         setDrawingError(true)
       } finally {
         if (cancelled) return
-        setIsLoadingDrawingBlob(false)
+        setIsLoadingDrawingFile(false)
       }
     })()
 
     return () => {
       cancelled = true
     }
-  }, [drawingUrlValue, isImageDrawing])
-  
-  const machine = part.machine_id ? getMachineById(part.machine_id) : null
-  const machiningMachines = machines.filter((m) => m.department === "machining")
-  const progress = getPartProgress(part.id)
-  const forecast = getPartForecast(part.id)
-  const stageFacts = getStageFactsForPart(part.id)
-  const logistics = getLogisticsForPart(part.id)
+  }, [drawingUrlValue, isKnownDrawingType])
 
   useEffect(() => {
-    let isCancelled = false
-    void (async () => {
-      try {
-        const journey = await getJourneyForPart(part.id)
-        if (!isCancelled) setJourneySummary(journey)
-      } catch {
-        if (!isCancelled) setJourneySummary(null)
-      }
-    })()
     return () => {
-      isCancelled = true
+      if (drawingObjectUrl) {
+        URL.revokeObjectURL(drawingObjectUrl)
+      }
     }
-  }, [
-    getJourneyForPart,
-    part.id,
-    part.status,
-    part.cooperation_qc_status,
-    part.cooperation_qc_checked_at,
-    part.cooperation_due_date,
-    logistics.length,
-    stageFacts.length,
-  ])
+  }, [drawingObjectUrl])
 
   useEffect(() => {
-    if (!isCooperationRouteOnly) return
-    if (activeTab === "facts" || activeTab === "journal") {
-      setActiveTab("overview")
-      onTabChange?.("overview")
-    }
-  }, [activeTab, isCooperationRouteOnly, onTabChange])
-  
-  // Calculate stages progress with null safety
-  const stageStatuses = part.stage_statuses || []
-  const stageStatusMap = new Map(stageStatuses.map((status) => [status.stage, status.status] as const))
+    setTaskDueDate(part.deadline || localIsoDate())
+    setTaskStage(NO_STAGE_VALUE)
+  }, [part.deadline, part.id])
 
-  // Work progress (average across production stages). Ready quantity is tracked separately in backend via part.qty_done.
-  const overallProgressPercent = progress.percent
-  const overallQtyDone = progress.qtyDone
-  
-  // Sort facts by date descending
-  const sortedFacts = [...stageFacts].sort((a, b) => {
-    const dateCompare = b.date.localeCompare(a.date)
-    if (dateCompare !== 0) return dateCompare
-    return a.shift_type === "night" ? -1 : 1
-  })
-  const forecastStatus = forecast.status || (forecast.willFinishOnTime ? "on_track" : "risk")
-  const hasForecastInput = forecastStatus !== "unknown"
-  const partDeadlineDate = new Date(part.deadline)
-  const hasPartDeadline = !Number.isNaN(partDeadlineDate.getTime())
-  const isOperatorDetail = currentUser?.role === "operator"
-  const operatorUiState = OPERATOR_UI_STATE_BY_PART_STATUS[part.status]
-  const operatorIsWaiting = operatorUiState === "waiting"
-  const operatorIsDone = operatorUiState === "done"
-  const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
-  const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
-  const internalDeltaDays = hasInternalDeadline
-    ? (typeof forecast.bufferDays === "number"
-      ? forecast.bufferDays
-      : Math.ceil((partDeadlineDate.getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24)))
-    : null
-  const forecastReason = forecast.reason
-  const cooperationEtaRaw = journeySummary?.eta || (part.cooperation_due_date ? `${part.cooperation_due_date}T00:00:00` : null)
-  const cooperationEtaDate = cooperationEtaRaw ? new Date(cooperationEtaRaw) : null
-  const hasCooperationEta = Boolean(cooperationEtaDate && !Number.isNaN(cooperationEtaDate.getTime()))
-  const shouldShowCooperationControl = Boolean(
-    part.is_cooperation ||
-    journeySummary?.eta ||
-    part.cooperation_due_date ||
-    journeySummary?.last_movement?.tracking_number ||
-    journeySummary?.last_movement?.to_holder
-  )
-  const cooperationDeltaDays =
-    hasPartDeadline && hasCooperationEta && cooperationEtaDate
-      ? Math.ceil((partDeadlineDate.getTime() - cooperationEtaDate.getTime()) / (1000 * 60 * 60 * 24))
-      : null
-  const cooperationControlTone = !hasCooperationEta
-    ? "neutral"
-    : cooperationDeltaDays !== null && cooperationDeltaDays < 0
-      ? "risk"
-      : "ok"
-  const canDeletePart = permissions.canCreateParts && (
-    (part.is_cooperation && permissions.canCreateCoopParts) ||
-    (!part.is_cooperation && permissions.canCreateOwnParts)
-  )
-  const canEditCooperationDueDate = part.is_cooperation && permissions.canEditParts
-  const routeCurrentLocation = journeySummary?.current_location || (part.is_cooperation ? "У кооператора" : "Не задано")
-  const routeCurrentHolder = journeySummary?.current_holder || (part.is_cooperation ? part.cooperation_partner || "Партнёр не указан" : "Не задано")
-  const routeLastEventDescription = journeySummary?.last_event?.description || "Деталь создана"
-  const routeLastEventAt = journeySummary?.last_event?.occurred_at
-  const cooperationRouteStages = part.required_stages
-    .filter((stage) => stage === "galvanic" || stage === "heat_treatment")
-    .map((stage) => STAGE_LABELS[stage])
-  const cooperationRouteText = cooperationRouteStages.length > 0
-    ? [...cooperationRouteStages, "ОТК"].join(" -> ")
-    : "ОТК"
-  const cooperationMovements = logistics.filter((entry) => !entry.stage_id)
-  const cooperationReceivedQty = cooperationMovements
-    .filter((entry) => entry.status === "received" || entry.status === "completed")
-    .reduce((sum, entry) => sum + (entry.qty_received ?? entry.qty_sent ?? entry.quantity ?? 0), 0)
-  const operatorProducedQty = part.is_cooperation ? cooperationReceivedQty : overallQtyDone
-  const operatorProgressPercent = part.qty_plan > 0
-    ? Math.min(100, Math.round((operatorProducedQty / part.qty_plan) * 100))
-    : 0
-  const operatorDaysToDeadline = hasPartDeadline
-    ? Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))
-    : null
-  const operatorStatusLabel = operatorIsWaiting
-    ? "В ожидании"
-    : operatorIsDone
-      ? "Готово"
-      : "В работе"
-  const operatorStatusHint = operatorIsWaiting
-    ? "Ожидает первого факта по смене"
-    : operatorIsDone
-      ? "Все этапы закрыты и деталь завершена"
-      : "Есть активное производство"
-  const operatorProgressHint = operatorIsWaiting
-    ? "Нет активного факта"
-    : operatorIsDone
-      ? "Финальный результат по детали"
-      : `${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`
-  const cooperationHasActiveShipment = cooperationMovements.some(
-    (entry) => entry.status === "sent" || entry.status === "in_transit"
-  )
-  const cooperationExternalStages = part.required_stages.filter(
-    (stage) => stage === "heat_treatment" || stage === "galvanic" || stage === "grinding"
-  )
-  const cooperationExternalStagesDone = cooperationExternalStages.every(
-    (stage) => stageStatusMap.get(stage) === "done"
-  )
-  const cooperationFullyReceived = cooperationReceivedQty >= part.qty_plan
-  const cooperationQcStatus = cooperationQcOptimistic?.status || part.cooperation_qc_status || "pending"
-  const cooperationQcCheckedAtRaw = cooperationQcOptimistic?.checkedAt ?? part.cooperation_qc_checked_at ?? null
-  const cooperationQcCheckedAt = cooperationQcCheckedAtRaw
-    ? new Date(cooperationQcCheckedAtRaw).toLocaleString("ru-RU")
-    : null
-  const cooperationQcLabel =
-    cooperationQcStatus === "accepted"
-      ? "Принято"
-      : cooperationQcStatus === "rejected"
-        ? "Не принято"
-        : "Не проведён"
-  const cooperationQcTone =
-    cooperationQcStatus === "accepted"
-      ? "ok"
-      : cooperationQcStatus === "rejected"
-        ? "risk"
-        : "neutral"
-  const canRunCooperationQcDecision =
-    canEditCooperationDueDate &&
-    cooperationFullyReceived &&
-    !cooperationHasActiveShipment &&
-    cooperationExternalStagesDone
-  const isCooperationReadyToClose =
-    cooperationQcStatus === "accepted" &&
-    cooperationFullyReceived &&
-    !cooperationHasActiveShipment &&
-    cooperationExternalStagesDone
-  const routeNextStageTitle = part.is_cooperation ? "Следующее действие" : "Следующий этап"
-  const routeNextStageLabel = (() => {
-    if (!part.is_cooperation) {
-      return journeySummary?.next_required_stage
-        ? STAGE_LABELS[journeySummary.next_required_stage]
-        : "Не требуется"
-    }
-    if (isCooperationReadyToClose || (cooperationQcStatus === "accepted" && part.status === "done")) {
-      return "Маршрут завершён"
-    }
-    if (!cooperationFullyReceived) {
-      return "Ожидаем поступление от кооператора"
-    }
-    const pendingExternalStage = cooperationExternalStages.find((stage) => stageStatusMap.get(stage) !== "done")
-    if (pendingExternalStage) {
-      return STAGE_LABELS[pendingExternalStage]
-    }
-    if (cooperationQcStatus === "pending") {
-      return "Входной контроль (ОТК)"
-    }
-    return "Ожидаем закрытие детали"
-  })()
-  const routeStatusTitle = part.is_cooperation ? "Статус кооперации" : "Последнее событие"
-  const routeStatusDescription = (() => {
-    const lastMovement = journeySummary?.last_movement
-    if (!part.is_cooperation) return routeLastEventDescription
-    if (cooperationQcStatus === "accepted") {
-      return isCooperationReadyToClose || part.status === "done"
-        ? "Входной контроль принят, деталь закрыта"
-        : "Входной контроль принят"
-    }
-    if (cooperationQcStatus === "rejected") return "Входной контроль не принят"
-    if (!lastMovement) return "Кооперация запланирована, отправка ещё не отмечена"
-    const destination = lastMovement.to_holder || lastMovement.to_location
-    if (lastMovement.status === "pending") return "Черновик отправки (ещё не отправлено)"
-    if (lastMovement.status === "sent") return destination ? `Отправлено: ${destination}` : "Отправлено кооператору"
-    if (lastMovement.status === "in_transit") return destination ? `В пути: ${destination}` : "В пути к кооператору"
-    if (lastMovement.status === "received" || lastMovement.status === "completed") {
-      if (routeCurrentLocation === "Кооператор + Цех" && routeCurrentHolder) {
-        return `Частично получено: ${routeCurrentHolder}`
-      }
-      return "Получено от кооператора"
-    }
-    if (lastMovement.status === "returned") return "Возврат от кооператора"
-    if (lastMovement.status === "cancelled") return "Отправка отменена"
-    return routeLastEventDescription
-  })()
-  const routeStatusAt = part.is_cooperation
-    ? (
-        (cooperationQcStatus !== "pending" ? cooperationQcCheckedAtRaw : null) ||
-        journeySummary?.last_movement?.received_at ||
-        journeySummary?.last_movement?.returned_at ||
-        journeySummary?.last_movement?.cancelled_at ||
-        journeySummary?.last_movement?.sent_at ||
-        journeySummary?.last_movement?.updated_at ||
-        routeLastEventAt
-      )
-    : routeLastEventAt
-  const machineNorm = part.machine_id ? getMachineNorm(part.machine_id, part.id, "machining") : undefined
-  const operatorNormQty = machineNorm?.qty_per_shift ?? 0
-  const partTasks = getTasksForPart(part.id)
-  const operatorTaskPool = currentUser ? partTasks.filter((task) => isTaskAssignedToUser(task, currentUser)) : partTasks
-  const activePartTasks = [...operatorTaskPool]
-    .filter((task) => task.status !== "done")
-    .sort((a, b) => a.due_date.localeCompare(b.due_date))
-  const recentShiftFacts = sortedFacts.slice(0, 4)
-  const operatorCurrentShift: ShiftType = (() => {
-    const hour = operatorNow.getHours()
-    return hour >= 9 && hour < 21 ? "day" : "night"
-  })()
-  const operatorShiftStart = new Date(operatorNow)
-  const operatorShiftEnd = new Date(operatorNow)
-  if (operatorCurrentShift === "day") {
-    operatorShiftStart.setHours(9, 0, 0, 0)
-    operatorShiftEnd.setHours(21, 0, 0, 0)
-  } else if (operatorNow.getHours() < 9) {
-    operatorShiftStart.setDate(operatorShiftStart.getDate() - 1)
-    operatorShiftStart.setHours(21, 0, 0, 0)
-    operatorShiftEnd.setHours(9, 0, 0, 0)
-  } else {
-    operatorShiftStart.setHours(21, 0, 0, 0)
-    operatorShiftEnd.setDate(operatorShiftEnd.getDate() + 1)
-    operatorShiftEnd.setHours(9, 0, 0, 0)
-  }
-  const operatorShiftRemainingMs = Math.max(0, operatorShiftEnd.getTime() - operatorNow.getTime())
-  const operatorShiftHours = Math.floor(operatorShiftRemainingMs / 3_600_000)
-  const operatorShiftMinutes = Math.floor((operatorShiftRemainingMs % 3_600_000) / 60_000)
-  const operatorShiftSeconds = Math.floor((operatorShiftRemainingMs % 60_000) / 1_000)
-  const operatorShiftCountdown = `${String(operatorShiftHours).padStart(2, "0")}:${String(operatorShiftMinutes).padStart(2, "0")}:${String(operatorShiftSeconds).padStart(2, "0")}`
-  const operatorShiftRangeLabel = operatorCurrentShift === "day" ? "09:00 - 21:00" : "21:00 - 09:00"
-  const operatorCurrentFact = stageFacts.find(
-    (fact) =>
-      fact.date === demoDate &&
-      fact.stage === "machining" &&
-      fact.shift_type === operatorCurrentShift
-  )
-  const operatorInputDisabled = operatorIsWaiting || operatorIsDone
-  const operatorFormLockedByState = operatorInputDisabled
-  const operatorFormReadOnly = operatorFormLockedByState || (Boolean(operatorCurrentFact) && !operatorEditMode)
-  const canEditExistingFact = Boolean(operatorCurrentFact) && !operatorFormLockedByState
-  const operatorInputDisabledReason = operatorIsWaiting
-    ? "Ввод данных станет доступен после перехода детали в работу."
-    : operatorIsDone
-      ? "Деталь завершена. Ввод факта закрыт."
-      : null
-  const startableTask =
-    operatorTaskPool.find((task) => task.status === "accepted") ||
-    operatorTaskPool.find((task) => task.status === "open")
-  const canShowStartButton = operatorIsWaiting
+  useEffect(() => {
+    const defaultOperatorId = currentUser?.id || factOperatorOptions[0]?.id || ""
+    setFactOperatorId(defaultOperatorId)
+    setFactStage(factStageOptions[0])
+  }, [currentUser?.id, factOperatorOptions, factStageOptions])
 
-  const handleSaveCooperationDueDate = async () => {
-    if (!canEditCooperationDueDate) return
-    setCooperationDueDateError("")
-    setIsSavingCooperationDueDate(true)
-    try {
-      await updatePart({
-        ...part,
-        cooperation_due_date: cooperationDueDateDraft || null,
-      })
-      setIsEditingCooperationDueDate(false)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось сохранить срок от кооператора"
-      setCooperationDueDateError(message)
-    } finally {
-      setIsSavingCooperationDueDate(false)
-    }
-  }
-
-  const handleSetCooperationQc = async (nextStatus: "accepted" | "rejected") => {
-    if (!canEditCooperationDueDate) return
-    setCooperationQcError("")
-    setIsSavingCooperationQc(true)
-    const checkedAt = new Date().toISOString()
-    setCooperationQcOptimistic({ status: nextStatus, checkedAt })
-    try {
-      await updatePart({
-        ...part,
-        cooperation_qc_status: nextStatus,
-        cooperation_qc_checked_at: checkedAt,
-      })
-      try {
-        const journey = await getJourneyForPart(part.id)
-        setJourneySummary(journey)
-      } catch {
-        // Do not block successful QC update on journey refetch failure.
-      }
-    } catch (error) {
-      setCooperationQcOptimistic(null)
-      const message = error instanceof Error ? error.message : "Не удалось сохранить входной контроль"
-      setCooperationQcError(message)
-    } finally {
-      setIsSavingCooperationQc(false)
-    }
-  }
-
-  const handleSaveDrawing = async () => {
-    const trimmed = drawingUrl.trim()
-    if (!trimmed) return
-    if (!isValidDrawingPath(trimmed)) {
-      setDrawingActionError("Некорректный путь: используйте http(s)-ссылку или путь к загруженному файлу")
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back()
       return
     }
-    setDrawingActionError("")
-    setIsSavingDrawing(true)
-    try {
-      await updatePartDrawing(part.id, trimmed)
-      setDrawingUrl(trimmed)
-      setDrawingError(false)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось сохранить ссылку"
-      setDrawingActionError(message)
-    } finally {
-      setIsSavingDrawing(false)
-    }
+    onBack()
   }
 
-  const handleUploadDrawing = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    if (file.size > MAX_DRAWING_FILE_SIZE_BYTES) {
-      setDrawingActionError("Файл слишком большой. Загрузите файл до 9 МБ.")
-      event.target.value = ""
-      return
-    }
-    setDrawingActionError("")
-    setIsUploadingDrawing(true)
-    try {
-      const uploaded = await uploadAttachment(file)
-      setDrawingUrl(uploaded.url)
-      setShowLinkInput(false)
-      await updatePartDrawing(part.id, uploaded.url)
-      setDrawingError(false)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось загрузить файл"
-      setDrawingActionError(message)
-    } finally {
-      setIsUploadingDrawing(false)
-      event.target.value = ""
-    }
-  }
-
-  const handleOpenDrawing = () => {
+  const handleOpenDrawingModal = () => {
     if (!drawingUrlValue) return
-    setDrawingActionError("")
     setIsDrawingModalOpen(true)
   }
 
-  const handleDeleteDrawing = async () => {
-    setDrawingActionError("")
-    setIsSavingDrawing(true)
-    try {
-      await updatePartDrawing(part.id, "")
-      setDrawingUrl("")
-      setDrawingError(false)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось удалить чертёж"
-      setDrawingActionError(message)
-    } finally {
-      setIsSavingDrawing(false)
-    }
+  const handleOpenTransferDialog = (stage: FlowStageKey) => {
+    const available = flowCardByStage.get(stage)?.availableQty || 0
+    setTransferStage(stage)
+    setTransferQty(available > 0 ? String(available) : "")
+    setTransferComment("")
+    setTransferError("")
   }
 
-  const handleDeletePart = async () => {
-    const confirmed = window.confirm(`Удалить деталь ${part.code}? Это действие необратимо.`)
-    if (!confirmed) return
+  const handleConfirmTransfer = async () => {
+    if (!transferStage) return
+    if (!permissions.canEditFacts) {
+      setTransferError("Нет прав для передачи между этапами")
+      return
+    }
 
-    setActionError("")
-    setIsDeleting(true)
+    const available = flowCardByStage.get(transferStage)?.availableQty || 0
+    const qty = parsePositiveInt(transferQty)
+    if (qty === null) {
+      setTransferError("Укажите корректное количество")
+      return
+    }
+    if (qty > available) {
+      setTransferError(`Нельзя передать больше доступного (${available.toLocaleString()} шт.)`)
+      return
+    }
+
+    const dynamicChain: FlowStageKey[] = ["machining", "fitting"]
+    if (usedStages.has("heat_treatment")) {
+      dynamicChain.push("heat_treatment")
+    }
+    if (usedStages.has("galvanic")) {
+      dynamicChain.push("galvanic")
+    }
+
+    const currentIndex = dynamicChain.indexOf(transferStage)
+    const nextStage = currentIndex >= 0 ? dynamicChain[currentIndex + 1] : null
+
+    setIsSubmittingTransfer(true)
+    setTransferError("")
     try {
-      await deletePart(part.id)
-      onBack()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось удалить деталь"
-      setActionError(message)
-    } finally {
-      setIsDeleting(false)
-    }
-  }
+      const updatedStageStatuses = (part.stage_statuses || []).map((status) => {
+        if (status.stage === transferStage) {
+          return {
+            ...status,
+            status: status.status === "pending" ? "in_progress" : status.status,
+            operator_id: currentUser?.id || status.operator_id,
+            started_at: status.started_at || new Date().toISOString(),
+            notes: mergeTransferredOut(status.notes, qty),
+          }
+        }
 
-  useEffect(() => {
-    if (!isOperatorDetail) return
-    if (operatorCurrentFact) {
-      setOperatorQtyGood(String(operatorCurrentFact.qty_good ?? 0))
-      setOperatorQtyScrap(String(operatorCurrentFact.qty_scrap ?? 0))
-      setOperatorDeviationReason(operatorCurrentFact.deviation_reason ?? null)
-      setOperatorComment(operatorCurrentFact.comment || "")
-      setOperatorEditMode(false)
-    } else {
-      setOperatorQtyGood("0")
-      setOperatorQtyScrap("0")
-      setOperatorDeviationReason(null)
-      setOperatorComment("")
-      setOperatorEditMode(true)
-    }
-    setOperatorFactError("")
-    setOperatorFactHint("")
-  }, [isOperatorDetail, operatorCurrentFact?.id, demoDate, operatorCurrentShift])
+        if (nextStage && status.stage === nextStage) {
+          return {
+            ...status,
+            status: status.status === "pending" ? "in_progress" : status.status,
+            operator_id: currentUser?.id || status.operator_id,
+            started_at: status.started_at || new Date().toISOString(),
+          }
+        }
 
-  const handleOperatorStart = async () => {
-    if (!startableTask) {
-      setOperatorStartError("Нет задачи для запуска. Выберите или создайте задачу справа.")
-      return
-    }
-    setOperatorStartError("")
-    setIsStartingOperatorTask(true)
-    try {
-      await startTask(startableTask.id)
-    } catch (error) {
-      setOperatorStartError(error instanceof Error ? error.message : "Не удалось запустить задачу")
-    } finally {
-      setIsStartingOperatorTask(false)
-    }
-  }
+        return status
+      })
 
-  const handleOperatorFactSave = async () => {
-    if (!currentUser?.id) {
-      setOperatorFactError("Оператор не определён")
-      return
-    }
-    if (!part.machine_id) {
-      setOperatorFactError("Станок не назначен в карточке детали")
-      return
-    }
-    if (operatorFormLockedByState) {
-      setOperatorFactError("Ввод данных недоступен в текущем статусе")
-      return
-    }
-    const qtyGoodNumber = Number.parseInt(operatorQtyGood, 10)
-    const qtyScrapNumber = Number.parseInt(operatorQtyScrap, 10) || 0
-    if (!Number.isFinite(qtyGoodNumber) || qtyGoodNumber < 0) {
-      setOperatorFactError("Укажите корректное количество годных")
-      return
-    }
-    if (!Number.isFinite(qtyScrapNumber) || qtyScrapNumber < 0) {
-      setOperatorFactError("Укажите корректное количество брака")
-      return
-    }
-    if (qtyGoodNumber === 0 && qtyScrapNumber === 0) {
-      setOperatorFactError("Укажите количество годных или брака")
-      return
-    }
-
-    setOperatorFactError("")
-    setOperatorFactHint("")
-    setIsSavingOperatorFact(true)
-    try {
-      if (operatorCurrentFact) {
-        await updateStageFact(operatorCurrentFact.id, {
-          operator_id: currentUser.id,
-          machine_id: part.machine_id,
-          qty_good: qtyGoodNumber,
-          qty_scrap: qtyScrapNumber,
-          qty_expected: operatorNormQty || 0,
-          comment: operatorComment,
-          deviation_reason: operatorDeviationReason,
-          attachments: operatorCurrentFact.attachments || [],
-        })
-      } else {
-        await createStageFact({
-          date: demoDate,
-          shift_type: operatorCurrentShift,
-          part_id: part.id,
-          stage: "machining",
-          operator_id: currentUser.id,
-          machine_id: part.machine_id,
-          qty_good: qtyGoodNumber,
-          qty_scrap: qtyScrapNumber,
-          qty_expected: operatorNormQty || 0,
-          comment: operatorComment,
-          deviation_reason: operatorDeviationReason,
-          attachments: [],
-        })
-      }
-      setOperatorFactHint("Данные по смене сохранены")
-      setOperatorEditMode(false)
-    } catch (error) {
-      setOperatorFactError(error instanceof Error ? error.message : "Не удалось сохранить данные")
-    } finally {
-      setIsSavingOperatorFact(false)
-    }
-  }
-
-  const handleSaveMachineAssignment = async () => {
-    if (part.is_cooperation || !permissions.canEditParts) return
-    setMachineAssignError("")
-    setIsSavingMachine(true)
-    try {
       await updatePart({
         ...part,
-        machine_id: machineDraftId || undefined,
+        stage_statuses: updatedStageStatuses,
       })
+
+      setTransferStage(null)
+      setTransferQty("")
+      setTransferComment("")
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось сохранить станок"
-      setMachineAssignError(message)
+      const message = error instanceof Error ? error.message : "Не удалось выполнить передачу"
+      setTransferError(message)
+    } finally {
+      setIsSubmittingTransfer(false)
+    }
+  }
+
+  const handleOpenSendDialog = (stage: FlowStageKey) => {
+    const available = flowCardByStage.get(stage)?.availableQty || 0
+    setSendStage(stage)
+    setSendQty(available > 0 ? String(available) : "")
+    setSendPartner(part.cooperation_partner || "")
+    setSendEta("")
+    setSendTracking("")
+    setSendError("")
+  }
+
+  const handleSubmitSend = async () => {
+    if (!sendStage) return
+
+    if (!permissions.canEditFacts) {
+      setSendError("Нет прав для оформления отправок")
+      return
+    }
+
+    const available = flowCardByStage.get(sendStage)?.availableQty || 0
+    const parsedQty = parsePositiveInt(sendQty)
+    if (parsedQty === null) {
+      setSendError("Укажите корректное количество")
+      return
+    }
+    if (parsedQty > available) {
+      setSendError(`Нельзя отправить больше доступного (${available.toLocaleString()} шт.)`)
+      return
+    }
+    const destinationStage = flowCardByStage.get(sendStage)?.nextStage ?? null
+    if (!destinationStage) {
+      setSendError("Для этого этапа не задан следующий маршрут")
+      return
+    }
+    const isToWarehouse = destinationStage === "fg"
+    const normalizedPartner = sendPartner.trim()
+    if (!isToWarehouse && !normalizedPartner) {
+      setSendError("Укажите получателя/кооператора")
+      return
+    }
+
+    const destinationStatus =
+      destinationStage !== "fg" ? stageStatusByStage.get(destinationStage) : undefined
+    const stageId = destinationStatus?.id ? String(destinationStatus.id) : undefined
+    const fromLabel = STAGE_LABELS[sendStage]
+    const toLabel = flowTargetLabel(destinationStage)
+    const movementType = destinationStage === "fg" ? "shipping_out" : "coop_out"
+
+    setIsSubmittingSend(true)
+    setSendError("")
+    try {
+      await createLogisticsEntry({
+        part_id: part.id,
+        status: "sent",
+        from_location: fromLabel,
+        from_holder: "Производство",
+        to_location: toLabel,
+        to_holder: isToWarehouse ? "Склад ГП" : normalizedPartner,
+        carrier: "",
+        tracking_number: sendTracking.trim() || undefined,
+        planned_eta: sendEta ? new Date(`${sendEta}T00:00:00`).toISOString() : undefined,
+        qty_sent: parsedQty,
+        stage_id: stageId,
+        description: `Отправка: ${fromLabel} -> ${toLabel}`,
+        type: movementType,
+        counterparty: isToWarehouse ? "Склад ГП" : normalizedPartner,
+        notes: undefined,
+        date: localIsoDate(),
+      })
+
+      updatePartStageStatus(part.id, sendStage, "in_progress", currentUser?.id)
+      if (destinationStage !== "fg") {
+        updatePartStageStatus(part.id, destinationStage, "in_progress", currentUser?.id)
+      }
+
+      setSendStage(null)
+      setSendQty("")
+      setSendPartner("")
+      setSendEta("")
+      setSendTracking("")
+      setSendError("")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось оформить отправку"
+      setSendError(message)
+    } finally {
+      setIsSubmittingSend(false)
+    }
+  }
+
+  const handleOpenReceiveDialog = (entry: LogisticsEntry) => {
+    const qty = entry.qty_sent ?? entry.quantity ?? 0
+    setReceivingMovement(entry)
+    setReceivingQty(qty > 0 ? String(qty) : "")
+    setReceivingError("")
+  }
+
+  const handleConfirmReceive = async () => {
+    if (!receivingMovement) return
+
+    if (!permissions.canEditFacts) {
+      setReceivingError("Нет прав для подтверждения приёмки")
+      return
+    }
+
+    const parsedQty = parsePositiveInt(receivingQty)
+    if (parsedQty === null) {
+      setReceivingError("Укажите корректное количество приёмки")
+      return
+    }
+
+    const sentQty = receivingMovement.qty_sent ?? receivingMovement.quantity
+    if (typeof sentQty === "number" && parsedQty > sentQty) {
+      setReceivingError(`Нельзя принять больше отправленного (${sentQty.toLocaleString()} шт.)`)
+      return
+    }
+
+    setIsConfirmingReceive(true)
+    setReceivingError("")
+    try {
+      await updateLogisticsEntry({
+        ...receivingMovement,
+        status: "received",
+        qty_received: parsedQty,
+        received_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+
+      if (receivingMovement.stage_id) {
+        const stage = stageByStatusId.get(String(receivingMovement.stage_id))
+        if (stage) {
+          updatePartStageStatus(part.id, stage, "done", currentUser?.id)
+        }
+      }
+
+      setReceivingMovement(null)
+      setReceivingQty("")
+      setReceivingError("")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось подтвердить приёмку"
+      setReceivingError(message)
+    } finally {
+      setIsConfirmingReceive(false)
+    }
+  }
+
+  const openAddFactModal = () => {
+    setFactDate(localIsoDate())
+    setFactShift("day")
+    setFactStage(factStageOptions[0])
+    setFactOperatorId(currentUser?.id || factOperatorOptions[0]?.id || "")
+    setFactQtyGood("")
+    setFactQtyScrap("0")
+    setFactComment("")
+    setFactError("")
+    setIsAddFactModalOpen(true)
+  }
+
+  const handleCreateFact = async () => {
+    if (!permissions.canEditFacts) {
+      setFactError("Нет прав для добавления фактов")
+      return
+    }
+
+    const qtyGood = parseNonNegativeInt(factQtyGood)
+    const qtyScrap = parseNonNegativeInt(factQtyScrap)
+
+    if (qtyGood === null || qtyScrap === null) {
+      setFactError("Проверьте количества в полях Готово/Брак")
+      return
+    }
+
+    if (qtyGood === 0 && qtyScrap === 0) {
+      setFactError("Укажите хотя бы одно количество больше нуля")
+      return
+    }
+
+    if (!factOperatorId) {
+      setFactError("Выберите оператора")
+      return
+    }
+
+    setIsSavingFact(true)
+    setFactError("")
+    try {
+      await createStageFact({
+        date: factDate,
+        shift_type: factShift,
+        part_id: part.id,
+        stage: factStage,
+        machine_id: factStage === "machining" ? part.machine_id : undefined,
+        operator_id: factOperatorId,
+        qty_good: qtyGood,
+        qty_scrap: qtyScrap,
+        qty_expected:
+          factStage === "machining" && part.machine_id
+            ? getMachineNorm(part.machine_id, part.id, "machining")?.qty_per_shift
+            : undefined,
+        comment: factComment,
+        deviation_reason: qtyScrap > 0 ? "quality" : null,
+        attachments: [],
+      })
+
+      setIsAddFactModalOpen(false)
+      setFactQtyGood("")
+      setFactQtyScrap("0")
+      setFactComment("")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось сохранить факт"
+      setFactError(message)
+    } finally {
+      setIsSavingFact(false)
+    }
+  }
+
+  const openEditFactModal = (fact: StageFact) => {
+    setEditingFact(fact)
+    setEditFactOperatorId(fact.operator_id)
+    setEditFactQtyGood(String(fact.qty_good))
+    setEditFactQtyScrap(String(fact.qty_scrap))
+    setEditFactComment(fact.comment || "")
+    setEditFactError("")
+  }
+
+  const handleUpdateFact = async () => {
+    if (!editingFact) return
+    if (!permissions.canEditFacts) {
+      setEditFactError("Нет прав для изменения фактов")
+      return
+    }
+
+    const qtyGood = parseNonNegativeInt(editFactQtyGood)
+    const qtyScrap = parseNonNegativeInt(editFactQtyScrap)
+
+    if (qtyGood === null || qtyScrap === null) {
+      setEditFactError("Проверьте количества в полях Готово/Брак")
+      return
+    }
+
+    if (qtyGood === 0 && qtyScrap === 0) {
+      setEditFactError("Укажите хотя бы одно количество больше нуля")
+      return
+    }
+
+    if (!editFactOperatorId) {
+      setEditFactError("Выберите оператора")
+      return
+    }
+
+    setIsUpdatingFact(true)
+    setEditFactError("")
+    try {
+      await updateStageFact(editingFact.id, {
+        machine_id: editingFact.stage === "machining" ? part.machine_id : editingFact.machine_id,
+        operator_id: editFactOperatorId,
+        qty_good: qtyGood,
+        qty_scrap: qtyScrap,
+        qty_expected: editingFact.qty_expected,
+        comment: editFactComment,
+        deviation_reason: qtyScrap > 0 ? editingFact.deviation_reason || "quality" : null,
+        attachments: editingFact.attachments || [],
+      })
+      setEditingFact(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось обновить факт"
+      setEditFactError(message)
+    } finally {
+      setIsUpdatingFact(false)
+    }
+  }
+
+  const handleDeleteFact = async () => {
+    if (!editingFact) return
+    if (!permissions.canRollbackFacts) {
+      setEditFactError("Нет прав для удаления фактов")
+      return
+    }
+
+    setIsDeletingFact(true)
+    setEditFactError("")
+    try {
+      await deleteStageFact(editingFact.id)
+      setEditingFact(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось удалить факт"
+      setEditFactError(message)
+    } finally {
+      setIsDeletingFact(false)
+    }
+  }
+
+  const openTaskModal = () => {
+    setTaskTitle("")
+    setTaskDescription("")
+    setTaskPriority("normal")
+    setTaskAssigneePreset("operators")
+    setTaskStage(NO_STAGE_VALUE)
+    setTaskDueDate(part.deadline || localIsoDate())
+    setTaskError("")
+    setIsTaskModalOpen(true)
+  }
+
+  const handleCreateTask = async () => {
+    if (!permissions.canCreateTasks) {
+      setTaskError("Нет прав на создание задач")
+      return
+    }
+
+    if (!currentUser?.id) {
+      setTaskError("Не удалось определить текущего пользователя")
+      return
+    }
+
+    if (!taskTitle.trim()) {
+      setTaskError("Введите название задачи")
+      return
+    }
+
+    if (!taskDueDate) {
+      setTaskError("Укажите срок задачи")
+      return
+    }
+
+    const assignment = taskAssigneeFromPreset(taskAssigneePreset)
+    const selectedStage = taskStage === NO_STAGE_VALUE ? null : taskStage
+
+    setIsCreatingTask(true)
+    setTaskError("")
+    try {
+      await createTask({
+        part_id: part.id,
+        machine_id: selectedStage === "machining" ? part.machine_id : undefined,
+        stage: selectedStage || undefined,
+        title: taskTitle.trim(),
+        description: taskDescription.trim(),
+        creator_id: currentUser.id,
+        assignee_type: assignment.assignee_type,
+        assignee_id: undefined,
+        assignee_role: assignment.assignee_role,
+        accepted_by_id: undefined,
+        accepted_at: undefined,
+        status: "open",
+        is_blocker: taskPriority === "high",
+        due_date: taskDueDate,
+        category: taskCategoryFromInputs(selectedStage, taskPriority),
+        comments: [],
+        review_comment: undefined,
+        reviewed_by_id: undefined,
+        reviewed_at: undefined,
+      })
+
+      setIsTaskModalOpen(false)
+      setTaskTitle("")
+      setTaskDescription("")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось создать задачу"
+      setTaskError(message)
+    } finally {
+      setIsCreatingTask(false)
+    }
+  }
+
+  const handleSaveMachine = async () => {
+    setMachineError("")
+    setIsSavingMachine(true)
+    try {
+      const nextMachineId = machineDraftId === NO_MACHINE_VALUE ? undefined : machineDraftId
+      const normRaw = machineNormDraft.trim()
+      const parsedNorm = normRaw ? Number.parseInt(normRaw, 10) : null
+      const parsedNormIsValid = parsedNorm !== null && Number.isFinite(parsedNorm) && parsedNorm > 0
+      if (normRaw && !parsedNormIsValid) {
+        setMachineError("Норма должна быть числом больше 0")
+        return
+      }
+
+      await updatePart({
+        ...part,
+        machine_id: nextMachineId,
+      })
+
+      if (nextMachineId && parsedNormIsValid) {
+        await setMachineNorm({
+          machine_id: nextMachineId,
+          part_id: part.id,
+          stage: "machining",
+          qty_per_shift: parsedNorm,
+          is_configured: true,
+          configured_by_id: currentUser?.id,
+        })
+      }
+
+      setIsEquipmentModalOpen(false)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось сохранить оборудование"
+      setMachineError(message)
     } finally {
       setIsSavingMachine(false)
     }
   }
 
-  if (isOperatorDetail) {
-    const operatorStatusTitle = operatorIsWaiting ? "В ожидании" : operatorIsDone ? "Готово" : "В работе"
-    const operatorStatusTone = operatorIsWaiting
-      ? "text-blue-600"
-      : operatorIsDone
-        ? "text-emerald-600"
-        : "text-emerald-600"
-    const operatorStatusBadgeTone = operatorIsWaiting
-      ? "bg-blue-500 ring-blue-50"
-      : operatorIsDone
-        ? "bg-emerald-600 ring-emerald-50"
-        : "bg-emerald-500 ring-emerald-50"
-    const operatorDetailDeadlineLabel = hasPartDeadline ? partDeadlineDate.toLocaleDateString("ru-RU") : "Не задан"
-    const operatorDetailDeadlineTone =
-      operatorDaysToDeadline === null
-        ? "text-muted-foreground"
-        : operatorDaysToDeadline < 0
-          ? "text-destructive"
-          : operatorDaysToDeadline <= 2
-            ? "text-amber-600"
-            : "text-emerald-600"
-    const progressCardPercent = operatorIsWaiting ? "--%" : `${operatorProgressPercent}%`
-    const operatorElapsedMs = Math.max(0, operatorNow.getTime() - operatorShiftStart.getTime())
-    const operatorElapsedHours = Math.floor(operatorElapsedMs / 3_600_000)
-    const operatorElapsedMinutes = Math.floor((operatorElapsedMs % 3_600_000) / 60_000)
-    const operatorElapsedSeconds = Math.floor((operatorElapsedMs % 60_000) / 1_000)
-    const operatorElapsedLabel = `${String(operatorElapsedHours).padStart(2, "0")}:${String(operatorElapsedMinutes).padStart(2, "0")}:${String(operatorElapsedSeconds).padStart(2, "0")}`
-    const operatorShiftEndLabel = operatorCurrentShift === "day" ? "Окончание смены в 21:00" : "Окончание смены в 09:00"
-    const planNormQty = operatorNormQty > 0 ? operatorNormQty : null
-    const planDeviationPercent = planNormQty
-      ? Math.round((operatorProducedQty / planNormQty) * 100) - 100
-      : null
-    const planDeviationLabel = operatorIsWaiting
-      ? "Ожидание запуска"
-      : planDeviationPercent === null
-        ? "Норма не задана"
-        : planDeviationPercent >= 0
-          ? `+${planDeviationPercent}% от нормы`
-          : `${planDeviationPercent}% от нормы`
-    const drawingPreviewTitle = drawingUrlValue ? part.code : "--"
+  const sendDestination = sendStage ? flowCardByStage.get(sendStage)?.nextStage ?? null : null
+  const isSendToWarehouse = sendDestination === "fg"
+  const isCooperationPart = true
+  const rootSpacingClass = isCooperationPart ? "space-y-4" : "space-y-6"
+  const topShellClass = isCooperationPart
+    ? "flex items-center gap-4"
+    : "flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+  const contentGridClass = isCooperationPart ? "grid grid-cols-1 gap-4 xl:grid-cols-12" : "grid grid-cols-12 gap-6"
+  const mainColumnClass = isCooperationPart
+    ? "order-2 space-y-4 xl:order-1 xl:col-span-9"
+    : "col-span-12 space-y-6 xl:col-span-9"
+  const sectionClass = isCooperationPart ? "rounded-lg border border-border bg-card p-4" : "rounded-xl border border-slate-200 bg-white p-5"
+  const asideColumnClass = isCooperationPart
+    ? "order-1 space-y-4 xl:order-2 xl:col-span-3"
+    : "col-span-12 space-y-6 xl:col-span-3"
+  const asideCardClass = isCooperationPart
+    ? "rounded-lg border border-border bg-card p-4"
+    : "rounded-xl border border-slate-200 bg-white p-4"
 
-    return (
-      <div className="space-y-5 rounded-xl bg-white p-1">
-        <div className="flex items-center gap-3 rounded-xl border border-[#e5e7eb] bg-white px-3 py-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Назад"
-            className="h-10 w-10 rounded-lg"
-            onClick={onBack}
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="font-mono text-xl font-bold tracking-tight">{part.code}</h1>
-            <div className="text-sm text-muted-foreground">
-              {part.name}
-              {machine && ` | ${machine.name}`}
-              {part.customer && ` | ${part.customer}`}
-            </div>
-          </div>
-        </div>
+  return (
+    <div className={rootSpacingClass}>
+      <div className={topShellClass}>
+        <Button
+          variant="ghost"
+          size={isCooperationPart ? "icon" : "sm"}
+          className={cn(isCooperationPart ? "h-11 w-11" : "h-9 px-2")}
+          onClick={handleBack}
+        >
+          <ArrowLeft className={cn("h-4 w-4", !isCooperationPart && "mr-1")} />
+          {!isCooperationPart && "Назад"}
+        </Button>
+        <h1 className={cn("font-bold", isCooperationPart ? "text-xl" : "text-lg text-slate-900")}>Деталь: {part.code}</h1>
+      </div>
 
-        {actionError && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-destructive" role="status" aria-live="polite">
-            {actionError}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-emerald-50 p-1.5 text-emerald-600">
-                  <CircleDot className="h-4 w-4" />
-                </div>
-                <span className="text-sm font-medium text-muted-foreground">Статус</span>
+      <div className={contentGridClass}>
+        <div className={mainColumnClass}>
+          <section className={sectionClass}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <h2 className="text-xl font-bold text-slate-900">Деталь: {part.code}</h2>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-600">
+                  Клиент: {part.customer || "--"}
+                </span>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600">
+                  Партия: {part.qty_plan.toLocaleString()} шт.
+                </span>
               </div>
-              <span className={cn("h-2.5 w-2.5 rounded-full ring-4", operatorStatusBadgeTone)} />
+              <Button type="button" variant="outline" className="gap-2 text-sm" disabled title="Печать этикетки пока не подключена">
+                <Printer className="h-4 w-4" />
+                Печать этикетки
+              </Button>
             </div>
-            <div className={cn("mt-4 text-4xl font-bold leading-none", operatorStatusTone)}>
-              {operatorStatusTitle}
-            </div>
-            <div className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
-              <Clock className="h-3.5 w-3.5" />
-              {operatorIsWaiting ? "Ожидание запуска" : `Время работы: ${operatorElapsedLabel}`}
-            </div>
-          </div>
 
-          <div className={cn("rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm", operatorIsWaiting && "opacity-70")}>
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-blue-50 p-1.5 text-blue-600">
-                  <TrendingUp className="h-4 w-4" />
-                </div>
-                <span className="text-sm font-medium text-muted-foreground">Прогресс</span>
+            <div className="mb-5 flex flex-wrap items-center gap-6 border-b border-slate-100 pb-5">
+              <div className="flex items-center gap-2 text-sm">
+                <CalendarIcon className="h-4 w-4 text-slate-400" />
+                <span className="text-xs uppercase tracking-wide text-slate-400">Внешний дедлайн</span>
+                <span className="font-semibold text-slate-800">{formatDate(part.deadline)}</span>
               </div>
-              <span className="text-2xl font-bold text-blue-600">{progressCardPercent}</span>
-            </div>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
-              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${operatorIsWaiting ? 0 : operatorProgressPercent}%` }} />
-            </div>
-            <div className="mt-2 text-xs text-muted-foreground">
-              {operatorIsWaiting
-                ? "Нет активной задачи"
-                : `Выполнено ${operatorProducedQty.toLocaleString()} из ${part.qty_plan.toLocaleString()}`}
-            </div>
-          </div>
-
-          <div className={cn("rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm", operatorIsWaiting && "opacity-70")}>
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-amber-50 p-1.5 text-amber-600">
-                  <ListChecks className="h-4 w-4" />
-                </div>
-                <span className="text-sm font-medium text-muted-foreground">План (норма) / Факт</span>
+              <div className="flex items-center gap-2 text-sm">
+                <CalendarIcon className="h-4 w-4 text-slate-400" />
+                <span className="text-xs uppercase tracking-wide text-slate-400">Внутренний</span>
+                <span className="font-semibold text-slate-800">{internalDeadlineLabel}</span>
+              </div>
+              <div className="ml-auto flex items-center gap-3">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium",
+                    scheduleStatus === "успеваем" && "bg-teal-50 text-teal-700",
+                    scheduleStatus === "риск" && "bg-amber-100 text-amber-800",
+                    scheduleStatus === "просрочено" && "bg-red-100 text-red-800",
+                    scheduleStatus === "нет данных" && "bg-slate-200 text-slate-700"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      scheduleStatus === "успеваем" && "bg-teal-500",
+                      scheduleStatus === "риск" && "bg-amber-500",
+                      scheduleStatus === "просрочено" && "bg-red-500",
+                      scheduleStatus === "нет данных" && "bg-slate-500"
+                    )}
+                  />
+                  {scheduleStatus === "успеваем"
+                    ? "Успеваем"
+                    : scheduleStatus === "риск"
+                      ? "Риск"
+                      : scheduleStatus === "просрочено"
+                        ? "Просрочено"
+                        : "Нет данных"}
+                </span>
+                <span className="text-sm text-slate-500">{shiftsReserveLabel}</span>
+                {hasForecastInput && forecast.calendarBasis === "calendar" && (
+                  <span className="text-xs text-slate-400">Календарные дни</span>
+                )}
               </div>
             </div>
-            <div className="mt-4 flex items-baseline gap-1">
-              <span className="text-4xl font-bold leading-none">{operatorIsWaiting ? 0 : operatorProducedQty.toLocaleString()}</span>
-              <span className="text-xl text-muted-foreground">/ {planNormQty?.toLocaleString() || "—"} шт.</span>
-            </div>
-            <div className={cn(
-              "mt-2 text-xs font-semibold",
-              operatorIsWaiting || planDeviationPercent === null
-                ? "text-muted-foreground"
-                : planDeviationPercent < 0
-                  ? "text-amber-600"
-                  : "text-emerald-600"
-            )}>
-              {planDeviationLabel}
-              {operatorNormQty > 0 && !operatorIsWaiting ? ` · Пусконаладочная норма ${operatorNormQty.toLocaleString()} / смена` : ""}
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-2">
-                <div className="rounded-lg bg-violet-50 p-1.5 text-violet-600">
-                  <Clock className="h-4 w-4" />
-                </div>
-                <span className="text-sm font-medium text-muted-foreground">До конца смены</span>
-              </div>
-            </div>
-            <div className="mt-4 font-mono text-4xl font-bold leading-none">{operatorShiftCountdown}</div>
-            <div className="mt-2 text-xs text-muted-foreground">{operatorShiftEndLabel}</div>
-            <div className={cn("mt-1 text-xs font-semibold", operatorDetailDeadlineTone)}>
-              Дедлайн детали: {operatorDetailDeadlineLabel}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
-          <section className="xl:col-span-8">
-            <div className="overflow-hidden rounded-xl border border-[#dfe3e8] bg-white shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5e7eb] bg-gray-50/70 px-5 py-4">
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-sm text-slate-500">Выпуск (финал)</p>
                 <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
-                    <FileText className="h-5 w-5" />
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div className="h-full rounded-full bg-teal-500" style={{ width: `${finalPercent}%` }} />
                   </div>
-                  <h2 className="text-3xl font-bold tracking-tight">
-                    {operatorInputDisabled ? "Ввод данных (Отключено)" : "Ввод данных"}
-                  </h2>
-                </div>
-                <div className="inline-flex rounded-lg bg-gray-200 p-1">
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-md px-4 py-1.5 text-xs font-bold",
-                      operatorCurrentShift === "day" ? "bg-white text-primary shadow-sm ring-1 ring-black/5" : "text-muted-foreground"
-                    )}
-                  >
-                    Смена 1 (Д)
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "rounded-md px-4 py-1.5 text-xs font-bold",
-                      operatorCurrentShift === "night" ? "bg-white text-primary shadow-sm ring-1 ring-black/5" : "text-muted-foreground"
-                    )}
-                  >
-                    Смена 2 (Н)
-                  </button>
+                  <span className="whitespace-nowrap text-sm font-semibold tabular-nums text-slate-800">
+                    {finalQty.toLocaleString()} / {part.qty_plan.toLocaleString()}
+                  </span>
                 </div>
               </div>
+              <div className="flex items-center gap-4 border-slate-200 sm:border-l sm:pl-6">
+                <div>
+                  <p className="mb-0.5 text-sm text-slate-500">НЗП (в производстве)</p>
+                  <p className="text-xs text-slate-400">включая внешние этапы</p>
+                </div>
+                <span className="ml-auto text-4xl font-bold tabular-nums text-slate-900">{wipQty.toLocaleString()}</span>
+              </div>
+            </div>
+          </section>
 
-              <div className="p-5">
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                  <div className="space-y-4">
-                    <div>
-                      <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Оператор</Label>
-                      <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
-                          {currentUser?.initials?.slice(0, 2) || "ОП"}
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-sm font-semibold text-foreground">{currentUser?.name || currentUser?.initials || "Оператор"}</div>
-                          <div className="text-xs text-muted-foreground">ID: {currentUser?.id?.slice(0, 8) || "не задан"}</div>
-                        </div>
-                        <CheckCircle className="h-5 w-5 text-emerald-500" />
-                      </div>
-                    </div>
+          <section className={sectionClass}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Factory className="h-4 w-4 text-slate-400" />
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-800">Производственный поток</h2>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-slate-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-slate-400" />В работе
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-teal-500" />Доступно
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-amber-400" />Внешний
+                </span>
+              </div>
+            </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <div>
-                        <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Станок</Label>
-                        <Input value={machine?.name || "Не выбран"} readOnly className="h-11 bg-gray-100" />
-                      </div>
-                      <div>
-                        <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Код детали</Label>
-                        <Input value={part.code} readOnly className="h-11 bg-gray-50 font-mono" />
-                      </div>
-                    </div>
-
-                    {canShowStartButton && (
-                      <Button
-                        type="button"
-                        className="h-14 w-full rounded-xl bg-primary text-base font-bold uppercase tracking-wide hover:bg-primary/90"
-                        onClick={() => void handleOperatorStart()}
-                        disabled={isStartingOperatorTask}
-                      >
-                        <PlayCircle className="mr-2 h-5 w-5" />
-                        {isStartingOperatorTask ? "Запуск..." : "Начать работу"}
-                      </Button>
-                    )}
-                    {operatorStartError && <div className="text-xs text-destructive">{operatorStartError}</div>}
-
-                    <div className="grid grid-cols-1 gap-3 rounded-xl border border-gray-100 bg-gray-50 p-3 sm:grid-cols-2">
-                      <div>
-                        <Label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-emerald-600">Годные (шт)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={operatorQtyGood}
-                          onChange={(event) => setOperatorQtyGood(event.target.value)}
-                          disabled={operatorFormReadOnly}
-                          className={cn(
-                            "h-11 bg-white text-center text-2xl font-bold",
-                            operatorFormReadOnly && "border-zinc-300 bg-zinc-200 text-zinc-900"
-                          )}
-                        />
-                      </div>
-                      <div>
-                        <Label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-red-600">Брак (шт)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={operatorQtyScrap}
-                          onChange={(event) => setOperatorQtyScrap(event.target.value)}
-                          disabled={operatorFormReadOnly}
-                          className={cn(
-                            "h-11 bg-white text-center text-2xl font-bold",
-                            operatorFormReadOnly && "border-zinc-300 bg-zinc-200 text-zinc-900"
-                          )}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Причина брака</Label>
-                      <Select
-                        value={operatorDeviationReason || "none"}
-                        onValueChange={(value) => setOperatorDeviationReason(value === "none" ? null : value as DeviationReason)}
-                        disabled={operatorFormReadOnly}
-                      >
-                        <SelectTrigger className="h-11 w-full bg-white">
-                          <SelectValue placeholder="-- Не выбрано --" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">-- Не выбрано --</SelectItem>
-                          {Object.entries(DEVIATION_REASON_LABELS).map(([key, label]) => (
-                            <SelectItem key={key} value={key}>{label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div>
-                      <Label className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Примечание</Label>
-                      <textarea
-                        value={operatorComment}
-                        onChange={(event) => setOperatorComment(event.target.value)}
-                        disabled={operatorFormReadOnly}
-                        placeholder="Доп. информация..."
-                        rows={2}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-foreground outline-none ring-offset-background transition focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </div>
-
-                    {canEditExistingFact && !operatorEditMode ? (
-                      <Button
-                        type="button"
-                        className="h-14 w-full rounded-xl bg-zinc-900 text-base font-bold uppercase tracking-wide hover:bg-zinc-800"
-                        onClick={() => setOperatorEditMode(true)}
-                      >
-                        Редактировать
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        className="h-14 w-full rounded-xl bg-primary text-base font-bold uppercase tracking-wide hover:bg-primary/90"
-                        onClick={() => void handleOperatorFactSave()}
-                        disabled={operatorFormLockedByState || isSavingOperatorFact}
-                      >
-                        {isSavingOperatorFact ? "Сохраняем..." : operatorCurrentFact ? "Сохранить изменения" : "Сохранить данные"}
-                      </Button>
-                    )}
-
-                    {operatorFactError && (
-                      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-destructive">{operatorFactError}</div>
-                    )}
-                    {operatorFactHint && (
-                      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{operatorFactHint}</div>
-                    )}
-                    {operatorInputDisabledReason && (
-                      <div className="text-xs text-muted-foreground">{operatorInputDisabledReason}</div>
-                    )}
-                  </div>
-
-                  <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[#dfe3e8] bg-white">
-                    <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-gray-50 px-4 py-2.5">
-                      <h3 className="flex items-center gap-2 text-base font-bold text-foreground">
-                        <FileImage className="h-4 w-4 text-primary" />
-                        Чертеж: {drawingPreviewTitle}
-                      </h3>
-                      {drawingUrlValue ? (
-                        <Button variant="ghost" size="sm" className="text-xs text-primary hover:text-primary" onClick={() => void handleOpenDrawing()}>
-                          <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                          На весь экран
-                        </Button>
-                      ) : null}
-                    </div>
-                    <div
-                      className="relative flex min-h-[480px] flex-1 items-center justify-center bg-white p-4"
-                      style={{
-                        backgroundImage:
-                          "linear-gradient(#e5e7eb 1px, transparent 1px), linear-gradient(90deg, #e5e7eb 1px, transparent 1px)",
-                        backgroundSize: "20px 20px",
-                      }}
-                    >
-                      {drawingUrlValue && isImageDrawing && !drawingError ? (
-                        <img
-                          src={drawingImageSrc || "/placeholder.svg"}
-                          alt={`Чертёж ${part.code}`}
-                          className="h-full max-h-[430px] w-full object-contain drop-shadow-sm"
-                          onError={() => setDrawingError(true)}
-                        />
-                      ) : (
-                        <div className="rounded-lg border border-dashed border-gray-300 bg-white/80 px-6 py-8 text-center text-muted-foreground backdrop-blur-sm">
-                          <AlertCircle className="mx-auto mb-2 h-10 w-10 opacity-60" />
-                          <p className="text-sm">
-                            {drawingUrlValue
-                              ? "Не удалось открыть чертеж"
-                              : "Чертеж не загружен"}
-                          </p>
-                        </div>
+            <div className="mb-6 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-4">
+              <span className="mr-1 text-sm text-slate-400">Маршрут:</span>
+              {activeChain.map((stageKey) => {
+                const stage = FLOW_STAGE_BY_KEY.get(stageKey)
+                if (!stage) return null
+                return (
+                  <React.Fragment key={`chip_${stage.key}`}>
+                    <span
+                      className={cn(
+                        "rounded px-2.5 py-1 text-xs font-medium",
+                        stage.external
+                          ? "border border-dashed border-amber-300 bg-amber-50 text-amber-600"
+                          : "bg-slate-100 text-slate-600"
                       )}
+                    >
+                      {stage.shortLabel}
+                      {stage.external ? " (внешн.)" : ""}
+                    </span>
+                    <ArrowRight className="h-3 w-3 flex-shrink-0 text-slate-300" />
+                  </React.Fragment>
+                )
+              })}
+              <span className="rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">Склад ГП</span>
+            </div>
+
+            <div className="-mx-1 flex items-start gap-3 overflow-x-auto px-1 pb-2">
+              {flowCards.map((flowCard, index) => {
+                const nextStage = flowCard.nextStage
+                const nextStageIsExternal =
+                  !!nextStage && nextStage !== "fg" ? Boolean(flowCardByStage.get(nextStage)?.external) : false
+                const requiresShippingAction = flowCard.external || nextStageIsExternal
+                const canInternalTransfer =
+                  !requiresShippingAction &&
+                  !flowCard.external &&
+                  flowCard.state !== "done" &&
+                  flowCard.availableQty > 0 &&
+                  permissions.canEditFacts
+                const canShip =
+                  requiresShippingAction &&
+                  flowCard.availableQty > 0 &&
+                  permissions.canEditFacts &&
+                  !!nextStage
+                const shippingButtonLabel = flowShipButtonLabel(flowCard.key, nextStage)
+                const inWork = flowCard.inWorkQty
+                const showInWork = flowCard.key !== "machining"
+
+                return (
+                  <React.Fragment key={flowCard.key}>
+                    <div
+                      className={cn(
+                        "relative min-w-[220px] max-w-[240px] flex-shrink-0 rounded-xl border bg-white p-4",
+                        flowCard.external ? "border-amber-300 border-dashed" : "border-slate-200"
+                      )}
+                    >
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={cn(flowCard.external ? "text-amber-500" : "text-teal-500")}>{stageIcon(flowCard.key)}</span>
+                          <span className="text-sm font-semibold text-slate-800">{flowCard.shortLabel}</span>
+                        </div>
+                        <span
+                          className={cn(
+                            "rounded-full px-2 py-0.5 text-xs",
+                            flowCard.external ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"
+                          )}
+                        >
+                          {flowCard.external ? "Внешн." : "Внутр."}
+                        </span>
+                      </div>
+
+                      <div className="mb-3 space-y-1.5">
+                        {showInWork ? (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-slate-500">В работе:</span>
+                            <span className={cn("font-semibold", flowCard.external ? "text-amber-600" : "text-slate-800")}>
+                              {inWork.toLocaleString()}
+                            </span>
+                          </div>
+                        ) : null}
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-500">Доступно:</span>
+                          <span
+                            className={cn(
+                              "rounded px-2 py-0.5 font-semibold",
+                              flowCard.availableQty > 0 ? "bg-teal-50 text-teal-600" : "bg-slate-50 text-slate-400"
+                            )}
+                          >
+                            {flowCard.availableQty.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mb-4">
+                        <div className="mb-1 flex justify-between text-xs text-slate-400">
+                          <span>Сделано</span>
+                          <span className="tabular-nums">
+                            {flowCard.doneQty.toLocaleString()} / {part.qty_plan.toLocaleString()}
+                          </span>
+                        </div>
+                        <Progress value={flowCard.percent} className="h-1.5" />
+                      </div>
+
+                      <div className="space-y-2 border-t border-slate-100 pt-3">
+                        {requiresShippingAction ? (
+                          <>
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                              <ArrowRight className="h-3 w-3" />
+                              <span>→ {flowTargetLabel(nextStage)}</span>
+                            </div>
+                            <Button
+                              type="button"
+                              onClick={() => handleOpenSendDialog(flowCard.key)}
+                              disabled={!canShip}
+                              className={cn(
+                                "h-8 w-full gap-1.5 text-sm",
+                                canShip
+                                  ? "bg-amber-500 text-white hover:bg-amber-600"
+                                  : "cursor-not-allowed bg-slate-100 text-slate-400"
+                              )}
+                            >
+                              <Truck className="h-3.5 w-3.5" />
+                              {shippingButtonLabel}
+                            </Button>
+                            <p className="text-center text-xs text-slate-400">
+                              Приёмка через блок «Отправки в пути».
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                              <ArrowRight className="h-3 w-3" />
+                              <span>
+                                →{" "}
+                                {flowCard.nextStage === "fg"
+                                  ? "Склад ГП"
+                                  : flowCard.nextStage
+                                    ? STAGE_LABELS[flowCard.nextStage]
+                                    : "—"}
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              onClick={() => handleOpenTransferDialog(flowCard.key)}
+                              disabled={!canInternalTransfer}
+                              className={cn(
+                                "h-8 w-full text-sm",
+                                canInternalTransfer
+                                  ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                  : "cursor-not-allowed bg-slate-100 text-slate-400"
+                              )}
+                              variant="outline"
+                            >
+                              Передать
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
+
+                    {index < flowCards.length - 1 ? (
+                      <div className="flex flex-shrink-0 items-center self-center pt-6">
+                        <ArrowRight className={cn("h-5 w-5", flowCards[index + 1].external ? "text-amber-300" : "text-slate-300")} />
+                      </div>
+                    ) : null}
+                  </React.Fragment>
+                )
+              })}
+
+              <div className="flex flex-shrink-0 items-center self-center pt-6">
+                <ArrowRight className="h-5 w-5 text-slate-300" />
+              </div>
+
+              <div
+                className={cn(
+                  "min-w-[180px] flex-shrink-0 p-4",
+                  isCooperationPart ? "rounded-lg border border-border bg-card" : "rounded-xl border border-slate-200 bg-white"
+                )}
+                data-stage="fg"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-5 w-5 text-slate-400" />
+                    <span className="text-sm font-semibold text-slate-800">Склад ГП</span>
                   </div>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">Финал</span>
+                </div>
+                <div className="py-4 text-center">
+                  <p className="text-4xl font-bold tabular-nums text-slate-900">{finalQty.toLocaleString()}</p>
+                  <p className="mt-1 text-sm text-slate-500">готово к отгрузке</p>
+                </div>
+                <div className="mt-2">
+                  <div className="mb-1 flex justify-between text-xs text-slate-400">
+                    <span>Прогресс</span>
+                    <span className="tabular-nums">
+                      {finalQty.toLocaleString()} / {part.qty_plan.toLocaleString()}
+                    </span>
+                  </div>
+                  <Progress value={finalPercent} className="h-1.5" />
                 </div>
               </div>
             </div>
           </section>
 
-          <aside className="space-y-6 xl:col-span-4">
-            <div className="overflow-hidden rounded-xl border border-[#dfe3e8] bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-gray-50/60 px-4 py-3">
-                <h2 className="text-sm font-bold uppercase tracking-wide">Задачи на смену</h2>
-                <Badge className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary hover:bg-primary/10">
-                  {activePartTasks.length}
-                </Badge>
+          <section className={sectionClass}>
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-slate-400" />
+                <h3 className="font-semibold text-slate-800">Производственные факты</h3>
               </div>
-              <div className="divide-y divide-gray-100">
-                {activePartTasks.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">Нет активных задач</div>
-                ) : (
-                  activePartTasks.slice(0, 4).map((task) => {
-                    const isCurrent = task.status === "in_progress"
-                    const isPriority = task.status === "accepted"
-                    return (
-                      <div
-                        key={task.id}
-                        className={cn(
-                          "px-4 py-3",
-                          isCurrent && "border-l-4 border-blue-500",
-                          isPriority && !isCurrent && "border-l-4 border-amber-500 bg-amber-50/30",
-                          !isCurrent && !isPriority && "border-l-4 border-gray-300 opacity-80"
-                        )}
-                      >
-                        <div className="mb-1 flex items-start justify-between gap-2">
-                          <div className={cn(
-                            "text-xs font-bold uppercase",
-                            isCurrent ? "text-blue-600" : isPriority ? "text-amber-600" : "text-muted-foreground"
-                          )}>
-                            {isCurrent ? "В процессе" : isPriority ? "Высокий приоритет" : "Ожидание"}
-                          </div>
-                          <div className="text-xs text-muted-foreground">{new Date(task.due_date).toLocaleDateString("ru-RU")}</div>
-                        </div>
-                        <div className="text-2xl font-semibold leading-tight">{task.title}</div>
-                        <div className="mt-1 text-sm text-muted-foreground">{task.description || "Без описания"}</div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-[#dfe3e8] bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-[#e5e7eb] bg-gray-50/60 px-4 py-3">
-                <h2 className="text-sm font-bold uppercase tracking-wide">История смен</h2>
-                <span className="text-xs font-medium text-primary">См. все</span>
-              </div>
-              <div className="max-h-[430px] divide-y divide-gray-100 overflow-y-auto">
-                {recentShiftFacts.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-muted-foreground">Записей пока нет</div>
-                ) : (
-                  recentShiftFacts.map((fact) => {
-                    const factEfficiency = fact.qty_expected && fact.qty_expected > 0
-                      ? Math.min(100, Math.round((fact.qty_good / fact.qty_expected) * 100))
-                      : 100
-                    const factRangeLabel = fact.shift_type === "day" ? "09:00 - 21:00" : "21:00 - 09:00"
-                    return (
-                      <div key={fact.id} className="px-4 py-3">
-                        <div className="mb-2 flex items-center justify-between">
-                          <div className="text-xl font-semibold">
-                            {new Date(fact.date).toLocaleDateString("ru-RU")}, {fact.shift_type === "day" ? "Смена 1" : "Смена 2"}
-                          </div>
-                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {factRangeLabel}
-                          </span>
-                        </div>
-                        <div className="mb-1 grid grid-cols-2 gap-3">
-                          <div>
-                            <div className="text-xs text-muted-foreground">Годные</div>
-                            <div className="text-2xl font-bold text-emerald-600">{fact.qty_good.toLocaleString()} шт</div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-xs text-muted-foreground">Брак</div>
-                            <div className="text-2xl font-bold text-red-600">{fact.qty_scrap.toLocaleString()} шт</div>
-                          </div>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
-                          <div
-                            className={cn("h-full rounded-full", factEfficiency >= 95 ? "bg-emerald-500" : factEfficiency >= 85 ? "bg-amber-500" : "bg-red-500")}
-                            style={{ width: `${factEfficiency}%` }}
-                          />
-                        </div>
-                        <div className="mt-1 text-[11px] text-muted-foreground">Эффективность: {factEfficiency}%</div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-          </aside>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Назад"
-          className="h-11 w-11"
-          onClick={onBack}
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div className="flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold font-mono">{part.code}</h1>
-            {part.is_cooperation && (
-              <Building2 className="h-5 w-5 text-blue-500" />
-            )}
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {part.name}
-            {machine && ` | ${machine.name}`}
-            {part.customer && ` | ${part.customer}`}
-          </div>
-        </div>
-        {canDeletePart && (
-          <Button variant="destructive" onClick={handleDeletePart} disabled={isDeleting}>
-            <Trash2 className="h-4 w-4 mr-2" />
-            {isDeleting ? "Удаляем..." : "Удалить"}
-          </Button>
-        )}
-      </div>
-      {actionError && (
-        <div className="text-sm text-destructive" role="status" aria-live="polite">{actionError}</div>
-      )}
-
-      {!part.is_cooperation && permissions.canEditParts && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
-              <div className="space-y-2">
-                <Label>Станок для детали</Label>
-                <Select
-                  value={machineDraftId || "__none__"}
-                  onValueChange={(value) => setMachineDraftId(value === "__none__" ? "" : value)}
+              {permissions.canEditFacts ? (
+                <Button
+                  type="button"
+                  onClick={openAddFactModal}
+                  className="inline-flex items-center gap-2 bg-teal-500 text-sm text-white hover:bg-teal-600"
                 >
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Можно выбрать позже" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Без станка (назначу позже)</SelectItem>
-                    {machiningMachines.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="text-xs text-muted-foreground">
-                  Пока станок не назначен, ввод фактов недоступен.
-                </div>
-                {machineAssignError && (
-                  <div className="text-xs text-destructive">{machineAssignError}</div>
-                )}
-              </div>
-              <Button
-                type="button"
-                className="h-10"
-                variant="outline"
-                onClick={() => void handleSaveMachineAssignment()}
-                disabled={isSavingMachine || machineDraftId === (part.machine_id || "")}
-              >
-                {isSavingMachine ? "Сохраняем..." : "Сохранить станок"}
-              </Button>
+                  <Plus className="h-4 w-4" />
+                  Добавить факт
+                </Button>
+              ) : null}
             </div>
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* Cooperation info */}
-      {part.is_cooperation && (
-        <Card className="border-blue-200 bg-blue-50/50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-blue-700">
-              <Building2 className="h-5 w-5" />
-              <span className="font-medium">Кооперация</span>
-            </div>
-            <p className="text-sm text-blue-600 mt-1">
-              Партнёр: {part.cooperation_partner || "Не указан"}
-            </p>
-            <p className="text-xs text-blue-500 mt-1">
-              Деталь изготавливается внешним партнёром
-            </p>
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* Progress Summary */}
-      {isOperatorDetail ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Card className={cn(
-            "border",
-            operatorIsWaiting && "border-blue-200 bg-blue-50/50",
-            operatorIsDone && "border-green-200 bg-green-50/50",
-            !operatorIsWaiting && !operatorIsDone && "border-emerald-200 bg-emerald-50/40"
-          )}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <CircleDot className={cn(
-                    "h-4 w-4",
-                    operatorIsWaiting && "text-blue-500",
-                    operatorIsDone && "text-green-600",
-                    !operatorIsWaiting && !operatorIsDone && "text-emerald-600"
-                  )} />
-                  <span className="text-sm">Статус</span>
-                </div>
-                <div className={cn(
-                  "h-2.5 w-2.5 rounded-full",
-                  operatorIsWaiting && "bg-blue-500",
-                  operatorIsDone && "bg-green-600",
-                  !operatorIsWaiting && !operatorIsDone && "bg-emerald-500"
-                )} />
-              </div>
-              <div className="mt-3 text-3xl font-semibold leading-none">{operatorStatusLabel}</div>
-              <div className="mt-2 text-xs text-muted-foreground">{operatorStatusHint}</div>
-            </CardContent>
-          </Card>
 
-          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">Прогресс</div>
-                <div className="text-xl font-semibold">{operatorIsWaiting ? "--%" : `${operatorProgressPercent}%`}</div>
-              </div>
-              <Progress value={operatorIsWaiting ? 0 : operatorProgressPercent} className="mt-4 h-2" />
-              <div className="mt-2 text-sm text-muted-foreground">{operatorProgressHint}</div>
-            </CardContent>
-          </Card>
-
-          <Card className={cn(operatorIsWaiting && "opacity-70 grayscale")}>
-            <CardContent className="p-4">
-              <div className="text-sm text-muted-foreground">План / Факт</div>
-              <div className="mt-3 text-4xl font-semibold leading-none">
-                {operatorIsWaiting ? 0 : operatorProducedQty.toLocaleString()}
-                <span className="text-2xl text-muted-foreground font-medium"> / {part.qty_plan.toLocaleString()} шт.</span>
-              </div>
-              <div className={cn(
-                "mt-2 text-sm font-medium",
-                operatorIsWaiting && "text-muted-foreground",
-                operatorIsDone && "text-green-700",
-                !operatorIsWaiting && !operatorIsDone && "text-amber-600"
-              )}>
-                {operatorIsWaiting
-                  ? "Ожидание запуска"
-                  : operatorIsDone
-                    ? "Маршрут завершён"
-                    : `Осталось ${Math.max(part.qty_plan - operatorProducedQty, 0).toLocaleString()} шт`}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-sm text-muted-foreground">Дедлайн смены</div>
-              <div className="mt-3 text-4xl font-mono font-semibold leading-none">
-                {operatorDaysToDeadline === null
-                  ? "--:--"
-                  : operatorDaysToDeadline >= 0
-                    ? `${String(Math.max(operatorDaysToDeadline, 0)).padStart(2, "0")}:00`
-                    : "00:00"}
-              </div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                {hasPartDeadline
-                  ? `Дедлайн: ${partDeadlineDate.toLocaleDateString("ru-RU")}`
-                  : "Окончание смены не задано"}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      ) : !part.is_cooperation ? (
-        <>
-          <Card>
-            <CardContent className="p-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Общая готовность</div>
-                  <div className="text-2xl font-bold">
-                    {overallProgressPercent}%
-                  </div>
-                  <Progress value={overallProgressPercent} className="h-2 mt-2" />
-                  <div className="text-xs text-muted-foreground mt-1">
-                    План: {part.qty_plan.toLocaleString()} шт
-                  </div>
-                </div>
-                <div className={cn(
-                  "p-3 rounded-lg",
-                  !hasForecastInput
-                    ? "bg-muted/50"
-                    : forecastStatus === "on_track"
-                      ? "bg-green-500/10"
-                      : forecastStatus === "overdue"
-                        ? "bg-red-500/10"
-                        : "bg-amber-500/10"
-                )}>
-                  <div className="flex items-center gap-2 mb-1">
-                    {!hasForecastInput ? (
-                      <>
-                        <Clock className="h-5 w-5 text-muted-foreground" />
-                        <span className="font-medium text-foreground">
-                          {forecastReason || "Прогноз появится после 1-го факта или установки нормы"}
-                        </span>
-                      </>
-                    ) : forecastStatus === "on_track" ? (
-                      <>
-                        <TrendingUp className="h-5 w-5 text-green-600" />
-                        <span className="font-medium text-green-700">Успеваем</span>
-                      </>
-                    ) : forecastStatus === "overdue" ? (
-                      <>
-                        <AlertCircle className="h-5 w-5 text-red-600" />
-                        <span className="font-medium text-red-700">Просрочено</span>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDown className="h-5 w-5 text-amber-600" />
-                        <span className="font-medium text-amber-700">Риск срыва</span>
-                      </>
-                    )}
-                  </div>
-                  {hasForecastInput && (
-                    <div className="text-sm text-muted-foreground space-y-0.5">
-                      <div>Нужно смен (все этапы): {forecast.shiftsNeeded}</div>
-                      <div>Есть смен до дедлайна: {forecast.shiftsRemaining}</div>
-                      {forecast.stageForecasts && forecast.stageForecasts.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-dashed">
-                          {forecast.stageForecasts.filter(sf => sf.qtyRemaining > 0).map(sf => (
-                            <div key={sf.stage} className="flex justify-between text-xs">
-                              <span>{STAGE_LABELS[sf.stage]}:</span>
-                              <span className={sf.willFinishOnTime ? "text-green-600" : "text-amber-600"}>
-                                {sf.qtyRemaining.toLocaleString()} шт ({sf.shiftsNeeded} смен)
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="mt-3 pt-3 border-t flex justify-between text-sm">
-                <span className="text-muted-foreground">Дедлайн</span>
-                <span className="font-medium">{new Date(part.deadline).toLocaleDateString("ru-RU")}</span>
-              </div>
-              <div className="mt-2 flex justify-between text-sm">
-                <span className="text-muted-foreground">Внутренний дедлайн</span>
-                {!hasInternalDeadline ? (
-                  <span className="text-muted-foreground">
-                    {forecastReason || "Появится после нормы или факта"}
-                  </span>
-                ) : (
-                  <span
-                    className={cn(
-                      "font-medium",
-                      forecastStatus === "overdue"
-                        ? "text-red-700"
-                        : internalDeltaDays !== null && internalDeltaDays < 0
-                          ? "text-amber-700"
-                          : "text-green-700"
-                    )}
-                  >
-                    {internalDeadlineDate.toLocaleDateString("ru-RU")}
-                    {internalDeltaDays !== null && (
-                      <span className="ml-2 text-xs font-normal">
-                        {internalDeltaDays > 0
-                          ? `(запас ${internalDeltaDays} дн.)`
-                          : internalDeltaDays < 0
-                            ? `(опоздание ${Math.abs(internalDeltaDays)} дн.)`
-                            : "(в срок)"}
-                      </span>
-                    )}
-                  </span>
-                )}
-              </div>
-              {hasForecastInput && forecast.calendarBasis === "calendar" && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Расчёт по календарным дням (рабочий календарь не задан)
-                </div>
-              )}
-              {progress.qtyScrap > 0 && (
-                <div className="mt-2 flex justify-between text-sm">
-                  <span className="text-muted-foreground">Брак всего</span>
-                  <span className="text-destructive font-medium">{progress.qtyScrap} шт</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Stages Progress */}
-          <StageProgressSummary part={part} />
-        </>
-      ) : (
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="rounded-md bg-muted/50 p-3">
-                <div className="text-xs text-muted-foreground">Дедлайн детали</div>
-                <div className="text-sm font-medium mt-1">{partDeadlineDate.toLocaleDateString("ru-RU")}</div>
-              </div>
-              <div className="rounded-md bg-muted/50 p-3">
-                <div className="text-xs text-muted-foreground">Срок от кооператора</div>
-                <div className="text-sm font-medium mt-1">
-                  {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "Не задан"}
-                </div>
-              </div>
-              <div className="rounded-md bg-muted/50 p-3">
-                <div className="text-xs text-muted-foreground">Отклонение по сроку</div>
-                <div className="text-sm font-medium mt-1">
-                  {cooperationDeltaDays !== null
-                    ? cooperationDeltaDays > 0
-                      ? `Запас ${cooperationDeltaDays} дн.`
-                      : cooperationDeltaDays < 0
-                        ? `Отставание ${Math.abs(cooperationDeltaDays)} дн.`
-                        : "В срок"
-                    : `До дедлайна ${Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))} дн.`}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      
-      {/* Tabs */}
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => {
-          setActiveTab(value)
-          onTabChange?.(value)
-        }}
-      >
-        <div className="overflow-x-auto overflow-y-hidden py-1">
-          <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
-            <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>
-            {!isCooperationRouteOnly && (
-              <TabsTrigger value="facts" className="flex-none shrink-0">Факт</TabsTrigger>
-            )}
-            {!isCooperationRouteOnly && (
-              <TabsTrigger value="journal" className="flex-none shrink-0">Журнал</TabsTrigger>
-            )}
-            <TabsTrigger value="logistics" className="flex-none shrink-0">Логистика</TabsTrigger>
-            <TabsTrigger value="tasks" className="flex-none shrink-0">Задачи</TabsTrigger>
-            {permissions.canViewAudit ? <TabsTrigger value="audit" className="flex-none shrink-0">События</TabsTrigger> : null}
-            <TabsTrigger value="drawing" className="flex-none shrink-0">Чертёж</TabsTrigger>
-          </TabsList>
-        </div>
-        
-        <TabsContent value="overview" className="space-y-4">
-          {isOperatorDetail ? (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-              <Card className="xl:col-span-8 overflow-hidden">
-                <CardHeader className="border-b bg-muted/20 pb-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <CardTitle className="flex items-center gap-2 text-2xl font-bold">
-                      <Package className="h-5 w-5 text-primary" />
-                      {operatorInputDisabled ? "Ввод данных (Отключено)" : "Ввод данных"}
-                    </CardTitle>
-                    <div className="inline-flex items-center rounded-lg bg-muted p-1">
-                      <button
-                        type="button"
-                        className={cn(
-                          "rounded-md px-3 py-1.5 text-sm font-semibold",
-                          operatorCurrentShift === "day"
-                            ? "bg-background text-primary shadow-sm"
-                            : "text-muted-foreground"
-                        )}
-                        disabled
-                      >
-                        Смена 1 (Д)
-                      </button>
-                      <button
-                        type="button"
-                        className={cn(
-                          "rounded-md px-3 py-1.5 text-sm font-semibold",
-                          operatorCurrentShift === "night"
-                            ? "bg-background text-primary shadow-sm"
-                            : "text-muted-foreground"
-                        )}
-                        disabled
-                      >
-                        Смена 2 (Н)
-                      </button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                    <div className={cn(operatorInputDisabled && "opacity-60 grayscale pointer-events-none select-none")}>
-                      {operatorInputDisabled ? (
-                        <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
-                          <div className="space-y-1">
-                            <Label>Оператор</Label>
-                            <Input value={currentUser?.initials || "—"} disabled />
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <Label>Станок</Label>
-                              <Input value={machine?.name || "Не выбран"} disabled />
-                            </div>
-                            <div className="space-y-1">
-                              <Label>Код детали</Label>
-                              <Input value={part.code} disabled />
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <div className="space-y-1">
-                              <Label>Годные (шт)</Label>
-                              <Input value="0" disabled />
-                            </div>
-                            <div className="space-y-1">
-                              <Label>Брак (шт)</Label>
-                              <Input value="0" disabled />
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <Label>Причина брака</Label>
-                            <Input value="-- Не выбрано --" disabled />
-                          </div>
-                          <div className="space-y-1">
-                            <Label>Примечание</Label>
-                            <Input value="Нет активной задачи..." disabled />
-                          </div>
-                          <Button disabled className="h-11 w-full">
-                            Сохранить данные
-                          </Button>
-                          {operatorInputDisabledReason && (
-                            <div className="text-xs text-muted-foreground">{operatorInputDisabledReason}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <StageFactForm part={part} />
-                      )}
-                    </div>
-
-                    <div className={cn("rounded-xl border", operatorInputDisabled && "opacity-70 grayscale")}>
-                      <div className="flex items-center justify-between border-b bg-muted/20 px-3 py-2">
-                        <div className="font-medium">
-                          Чертёж: {drawingUrlValue ? part.code : "--"}
-                        </div>
-                        {drawingUrlValue && (
-                          <Button variant="ghost" size="sm" onClick={() => void handleOpenDrawing()}>
-                            На весь экран
-                          </Button>
-                        )}
-                      </div>
-                      <div className="min-h-[420px] bg-muted/30 p-4">
-                        {drawingUrlValue && isImageDrawing && !drawingError ? (
-                          <div className="h-full w-full rounded-md border bg-background p-3">
-                            <img
-                              src={drawingImageSrc || "/placeholder.svg"}
-                              alt={`Чертёж ${part.code}`}
-                              className="h-full max-h-[380px] w-full object-contain"
-                              onError={() => setDrawingError(true)}
-                            />
-                          </div>
-                        ) : drawingUrlValue && isPdfDrawing ? (
-                          <div className="flex h-full min-h-[380px] items-center justify-center rounded-md border bg-background">
-                            <div className="text-center text-muted-foreground">
-                              <FileText className="mx-auto mb-2 h-10 w-10" />
-                              <p>PDF-чертёж</p>
-                              <p className="text-xs mt-1">Откройте «На весь экран»</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex h-full min-h-[380px] items-center justify-center rounded-md border bg-background">
-                            <div className="text-center text-muted-foreground">
-                              <FileImage className="mx-auto mb-2 h-12 w-12 opacity-50" />
-                              <p>Чертёж не загружен</p>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="space-y-4 xl:col-span-4">
-                <Card>
-                  <CardHeader className="border-b bg-muted/20 py-3">
-                    <CardTitle className="flex items-center justify-between text-lg">
-                      <span className="flex items-center gap-2">
-                        <ListChecks className="h-5 w-5 text-primary" />
-                        Задачи на смену
-                      </span>
-                      <Badge variant="secondary">{activePartTasks.length}</Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    {activePartTasks.length === 0 ? (
-                      <div className="px-4 py-6 text-sm text-muted-foreground">Нет активных задач</div>
-                    ) : (
-                      <div className="divide-y">
-                        {activePartTasks.slice(0, 4).map((task) => (
-                          <div key={task.id} className="px-4 py-3">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                {task.status === "in_progress" ? "В процессе" : task.status === "accepted" ? "Текущее" : "Ожидание"}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wider text-slate-400">
+                    <th className="pb-3 pr-4 font-medium">Дата/Смена</th>
+                    <th className="pb-3 pr-4 font-medium">Операция</th>
+                    <th className="pb-3 pr-4 font-medium">Оператор</th>
+                    <th className="pb-3 pr-4 text-right font-medium">Готово</th>
+                    <th className="pb-3 pr-4 text-right font-medium">Брак</th>
+                    <th className="pb-3 text-right font-medium">Действия</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {sortedFacts.length === 0 ? (
+                    <tr>
+                      <td className="py-6 text-center text-slate-500" colSpan={6}>
+                        Фактов пока нет
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedFacts.slice(0, 20).map((fact, index) => {
+                      const operator = getUserById(fact.operator_id)
+                      const rowTone = index % 2 === 1 ? "bg-slate-50/50" : "bg-white"
+                      return (
+                        <tr key={fact.id} className={cn("border-b border-slate-50", rowTone)}>
+                          <td className="py-3 pr-4">
+                            <span className="text-slate-700">{new Date(fact.date).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}</span>
+                            <span className="ml-1.5 text-slate-400">{fact.shift_type === "day" ? "☀" : fact.shift_type === "night" ? "☾" : "-"}</span>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <span className="inline-flex items-center gap-2">
+                              <span className="h-1.5 w-1.5 rounded-full bg-teal-500" />
+                              {STAGE_LABELS[fact.stage]}
+                            </span>
+                          </td>
+                          <td className="py-3 pr-4">
+                            <div className="inline-flex items-center gap-2">
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200 text-xs font-medium text-slate-600">
+                                {operator?.initials?.slice(0, 1) || "—"}
                               </div>
-                              <div className="text-xs text-muted-foreground">{new Date(task.due_date).toLocaleDateString("ru-RU")}</div>
+                              {operator?.initials || "--"}
                             </div>
-                            <div className="mt-1 text-xl font-semibold">{task.title}</div>
-                            <div className="mt-1 text-sm text-muted-foreground">{task.description || "Без описания"}</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="border-b bg-muted/20 py-3">
-                    <CardTitle className="flex items-center justify-between text-lg">
-                      <span className="flex items-center gap-2">
-                        <History className="h-5 w-5 text-primary" />
-                        История смен
-                      </span>
-                      <span className="text-sm font-medium text-primary">{recentShiftFacts.length > 0 ? "См. все" : ""}</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3 p-4">
-                    {recentShiftFacts.length === 0 ? (
-                      <div className="text-sm text-muted-foreground">Записей пока нет</div>
-                    ) : (
-                      recentShiftFacts.map((fact) => (
-                        <div key={fact.id} className="rounded-lg border p-3">
-                          <div className="flex items-center justify-between">
-                            <div className="font-medium">
-                              {new Date(fact.date).toLocaleDateString("ru-RU")}, {fact.shift_type === "day" ? "Смена 1" : fact.shift_type === "night" ? "Смена 2" : "Без смены"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">{STAGE_LABELS[fact.stage]}</div>
-                          </div>
-                          <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                            <div>
-                              <div className="text-muted-foreground">Годные</div>
-                              <div className="font-semibold text-green-600">{fact.qty_good.toLocaleString()} шт</div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-muted-foreground">Брак</div>
-                              <div className="font-semibold text-destructive">{fact.qty_scrap.toLocaleString()} шт</div>
-                            </div>
-                          </div>
-                          <Progress
-                            className="mt-2 h-2"
-                            value={fact.qty_expected && fact.qty_expected > 0 ? Math.min(100, Math.round((fact.qty_good / fact.qty_expected) * 100)) : 100}
-                          />
-                        </div>
-                      ))
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
+                          </td>
+                          <td className="py-3 pr-4 text-right font-semibold tabular-nums">{fact.qty_good.toLocaleString()}</td>
+                          <td className={cn("py-3 pr-4 text-right tabular-nums", fact.qty_scrap > 0 ? "font-semibold text-red-500" : "text-slate-400")}>
+                            {fact.qty_scrap.toLocaleString()}
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openEditFactModal(fact)}
+                              className="inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-slate-700"
+                              disabled={!permissions.canEditFacts}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Изменить
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
-          ) : (
-          <>
-          {/* Description */}
-          {part.description && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Описание</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{part.description}</p>
-              </CardContent>
-            </Card>
-          )}
+          </section>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Маршрут</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">Текущее местоположение / держатель</div>
-                  <div className="text-sm font-medium mt-1">
-                    {routeCurrentLocation} / {routeCurrentHolder}
-                  </div>
-                </div>
-                <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">{routeNextStageTitle}</div>
-                  <div className="text-sm font-medium mt-1">
-                    {routeNextStageLabel}
-                  </div>
-                </div>
-                <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">{routeStatusTitle}</div>
-                  <div className="text-sm font-medium mt-1">
-                    {routeStatusDescription}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {routeStatusAt ? new Date(routeStatusAt).toLocaleString("ru-RU") : "Дата события пока не отмечена"}
-                  </div>
-                </div>
-                <div className="rounded-md bg-muted/50 p-3">
-                  <div className="text-xs text-muted-foreground">Ориентир поступления</div>
-                  <div className="text-sm font-medium mt-1">
-                    {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "Не задан"}
-                  </div>
-                </div>
-                {shouldShowCooperationControl && (
-                  <div
+          <section className={sectionClass}>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-slate-400" />
+                <h3 className="font-semibold text-slate-800">Журнал событий</h3>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {([
+                  { key: "all", label: "Все" },
+                  { key: "movement", label: "Перемещения" },
+                  { key: "receipt", label: "Приёмка" },
+                  { key: "fact", label: "Факты" },
+                  { key: "task", label: "Задачи" },
+                ] as const).map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => setJournalFilter(item.key)}
                     className={cn(
-                      "rounded-md border p-3 md:col-span-2",
-                      cooperationControlTone === "ok" && "border-green-200 bg-green-50/60",
-                      cooperationControlTone === "risk" && "border-amber-200 bg-amber-50/60",
-                      cooperationControlTone === "neutral" && "border-muted bg-muted/40"
+                      "rounded-full px-3 py-1.5 text-sm transition-colors",
+                      journalFilter === item.key
+                        ? "bg-slate-800 text-white"
+                        : "text-slate-500 hover:bg-slate-100"
                     )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs text-muted-foreground">Кооперация</div>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          cooperationControlTone === "ok" && "border-green-600 text-green-700",
-                          cooperationControlTone === "risk" && "border-amber-600 text-amber-700",
-                          cooperationControlTone === "neutral" && "border-muted-foreground/40 text-muted-foreground"
-                        )}
-                      >
-                        {!hasCooperationEta
-                          ? "Срок не задан"
-                          : cooperationControlTone === "risk"
-                            ? "Риск"
-                            : "В срок"}
-                      </Badge>
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-                      <span>Срок от кооператора: {hasCooperationEta ? cooperationEtaDate?.toLocaleDateString("ru-RU") : "—"}</span>
-                      <span>Дедлайн: {partDeadlineDate.toLocaleDateString("ru-RU")}</span>
-                      <span>
-                        {cooperationDeltaDays !== null
-                          ? cooperationDeltaDays > 0
-                            ? `запас ${cooperationDeltaDays} дн.`
-                            : cooperationDeltaDays < 0
-                              ? `отставание ${Math.abs(cooperationDeltaDays)} дн.`
-                              : "в срок"
-                          : `до дедлайна ${Math.ceil((partDeadlineDate.getTime() - new Date(demoDate).getTime()) / (1000 * 60 * 60 * 24))} дн.`}
-                      </span>
-                      {journeySummary?.last_movement?.tracking_number && (
-                        <span>
-                          Трекинг: {journeySummary.last_movement.tracking_number}
-                          {journeySummary.last_movement.last_tracking_status
-                            ? ` (${journeySummary.last_movement.last_tracking_status})`
-                            : ""}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-2 text-sm text-muted-foreground">
-                      План после кооперации: {cooperationRouteText}
-                    </div>
-                    <div className="mt-3 rounded-md border bg-background/70 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs text-muted-foreground">Входной контроль после поступления</div>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            cooperationQcTone === "ok" && "border-green-600 text-green-700",
-                            cooperationQcTone === "risk" && "border-destructive text-destructive",
-                            cooperationQcTone === "neutral" && "border-muted-foreground/40 text-muted-foreground"
-                          )}
-                        >
-                          {cooperationQcLabel}
-                        </Badge>
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {cooperationQcCheckedAt ? `Проверено: ${cooperationQcCheckedAt}` : "Проверка пока не отмечена"}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {cooperationQcStatus === "accepted"
-                          ? isCooperationReadyToClose || part.status === "done"
-                            ? "ОТК принят. Деталь закрыта."
-                            : "ОТК принят. Ожидается финализация карточки."
-                          : cooperationQcStatus === "rejected"
-                            ? "ОТК не принят. Деталь остаётся в работе."
-                            : "После полного поступления нажмите «Принято» или «Не принято»."}
-                      </div>
-                      {canEditCooperationDueDate && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            variant={cooperationQcStatus === "accepted" ? "default" : "outline"}
-                            className={cn(
-                              "h-8",
-                              cooperationQcStatus === "accepted" && "border-green-600 bg-green-600 text-white hover:bg-green-600"
-                            )}
-                            onClick={() => void handleSetCooperationQc("accepted")}
-                            disabled={isSavingCooperationQc || !canRunCooperationQcDecision}
-                          >
-                            Принято
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            className={cn(
-                              "h-8",
-                              cooperationQcStatus === "rejected" && "ring-2 ring-destructive/30"
-                            )}
-                            onClick={() => void handleSetCooperationQc("rejected")}
-                            disabled={isSavingCooperationQc || !canRunCooperationQcDecision}
-                          >
-                            Не принято
-                          </Button>
-                        </div>
-                      )}
-                      {canEditCooperationDueDate && !canRunCooperationQcDecision && (
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          Входной контроль доступен после полного поступления и завершения внешних этапов.
-                        </div>
-                      )}
-                      {cooperationQcError && (
-                        <div className="mt-2 text-xs text-destructive">{cooperationQcError}</div>
-                      )}
-                    </div>
-                    {canEditCooperationDueDate && !isEditingCooperationDueDate && (
-                      <div className="mt-3">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9"
-                          onClick={() => {
-                            setCooperationDueDateError("")
-                            setIsEditingCooperationDueDate(true)
-                          }}
-                        >
-                          Изменить срок кооператора
-                        </Button>
-                      </div>
-                    )}
-                    {canEditCooperationDueDate && isEditingCooperationDueDate && (
-                      <div className="mt-3 flex flex-wrap items-end gap-2">
-                        <div className="space-y-1">
-                          <Label htmlFor="cooperation-due-date" className="text-xs text-muted-foreground">
-                            Срок от кооператора (ориентир)
-                          </Label>
-                          <Input
-                            id="cooperation-due-date"
-                            type="date"
-                            className="h-9 w-[220px]"
-                            value={cooperationDueDateDraft}
-                            onChange={(event) => setCooperationDueDateDraft(event.target.value)}
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9"
-                          onClick={() => void handleSaveCooperationDueDate()}
-                          disabled={isSavingCooperationDueDate}
-                        >
-                          {isSavingCooperationDueDate ? "Сохраняем..." : "Сохранить"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="h-9"
-                          onClick={() => {
-                            setCooperationDueDateError("")
-                            setIsEditingCooperationDueDate(false)
-                          }}
-                          disabled={isSavingCooperationDueDate}
-                        >
-                          Отмена
-                        </Button>
-                        {cooperationDueDateError && (
-                          <div className="w-full text-xs text-destructive">{cooperationDueDateError}</div>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-50">
+              {filteredJournalEvents.length === 0 ? (
+                <div className="py-4 text-sm text-slate-500">Событий по выбранному фильтру нет</div>
+              ) : (
+                filteredJournalEvents.slice(0, 30).map((event) => {
+                  const toneClass =
+                    event.type === "receipt"
+                      ? "bg-amber-50 text-amber-600"
+                      : event.type === "movement"
+                        ? "bg-blue-50 text-blue-600"
+                        : event.type === "fact"
+                          ? "bg-emerald-50 text-emerald-600"
+                          : "bg-slate-100 text-slate-500"
+
+                  return (
+                    <div key={event.id} className="flex items-start gap-3 py-3">
+                      <div className={cn("rounded-lg p-2", toneClass)}>
+                        {event.type === "receipt" ? (
+                          <Package className="h-4 w-4" />
+                        ) : event.type === "movement" ? (
+                          <Truck className="h-4 w-4" />
+                        ) : event.type === "fact" ? (
+                          <CheckCircle2 className="h-4 w-4" />
+                        ) : (
+                          <Check className="h-4 w-4" />
                         )}
                       </div>
-                    )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-slate-800">{event.title}</p>
+                        {event.subtitle ? <p className="mt-0.5 text-xs text-slate-400">{event.subtitle}</p> : null}
+                      </div>
+                      <span className="flex-shrink-0 text-xs text-slate-400">{formatTime(event.at)}</span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </section>
+
+        </div>
+
+        <aside className={asideColumnClass}>
+          <div className={asideCardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileImage className="h-4 w-4 text-slate-400" />
+                <h3 className={cn("font-semibold text-slate-800", isCooperationPart ? "text-sm" : "text-xs uppercase tracking-wider")}>Чертёж</h3>
+              </div>
+              {drawingUrlValue ? (
+                isCooperationPart ? (
+                  <Button type="button" variant="ghost" size="sm" className="h-8 gap-1.5 px-2" onClick={handleOpenDrawingModal}>
+                    <Maximize2 className="h-3 w-3" />
+                    На весь экран
+                  </Button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleOpenDrawingModal}
+                    className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                    На весь экран
+                  </button>
+                )
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenDrawingModal}
+              disabled={!drawingUrlValue}
+              className={cn(
+                "block w-full overflow-hidden rounded-lg border p-0 text-left",
+                isCooperationPart ? "border-border bg-muted/30" : "border-slate-100 bg-slate-100",
+                drawingUrlValue
+                  ? isCooperationPart
+                    ? "cursor-pointer transition-colors hover:border-muted-foreground/40"
+                    : "cursor-pointer transition-colors hover:border-slate-300"
+                  : "cursor-default"
+              )}
+            >
+              <div className={cn("flex h-48 items-center justify-center", isCooperationPart ? "bg-muted/30" : "bg-slate-100")}>
+                {isLoadingDrawingFile ? (
+                  <span className="text-sm text-slate-500">Загрузка...</span>
+                ) : drawingUrlValue && isImageDrawing && !drawingError ? (
+                  <img
+                    src={resolvedDrawingUrl || "/placeholder.svg"}
+                    alt={`Чертёж ${part.code}`}
+                    className="h-full w-full object-contain"
+                    onError={() => setDrawingError(true)}
+                  />
+                ) : drawingUrlValue && isPdfDrawing ? (
+                  <div className="text-center text-slate-500">
+                    <FileText className="mx-auto mb-2 h-8 w-8 opacity-70" />
+                    <p className="text-sm">PDF-чертёж</p>
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-500">
+                    <FileImage className="mx-auto mb-2 h-8 w-8 opacity-60" />
+                    <p className="text-sm">Чертёж не загружен</p>
                   </div>
                 )}
               </div>
-            </CardContent>
-          </Card>
-          
-          {!isCooperationRouteOnly && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Последние записи</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {sortedFacts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Нет записей</p>
-                ) : (
-                  <div className="space-y-2">
-                    {sortedFacts.slice(0, 5).map(fact => (
-                      <div key={fact.id} className="flex items-center justify-between p-2 rounded-md bg-muted/50">
-                        <div className="flex items-center gap-2">
-                          {fact.shift_type === "day" ? (
-                            <Sun className="h-4 w-4 text-amber-500" />
+            </button>
+            <p className="mt-2 text-xs text-slate-400">
+              {drawingUrlValue ? part.code : "Добавьте файл в карточке детали"}
+            </p>
+          </div>
+
+          <div className={asideCardClass}>
+            <div className="mb-4 flex items-center gap-2">
+              <Truck className="h-4 w-4 text-slate-400" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-800">Отправки в пути</h3>
+            </div>
+            <div className="space-y-3">
+              {inTransitShipments.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">Активных отправок нет</div>
+              ) : (
+                inTransitShipments.map((entry) => {
+                  const status = movementStatus(entry)
+                  const isArrived = status === "in_transit"
+                  const from = entry.from_location || entry.from_holder || "Источник"
+                  const to = entry.to_location || entry.to_holder || "Назначение"
+                  const qty = entry.qty_sent ?? entry.quantity ?? 0
+                  return (
+                    <div
+                      key={entry.id}
+                      className={cn(
+                        "rounded-lg border p-3",
+                        isArrived ? "border-amber-300 bg-amber-50/30" : "border-slate-200 bg-white"
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-start gap-2">
+                          {isArrived ? (
+                            <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
                           ) : (
-                            <Moon className="h-4 w-4 text-indigo-500" />
+                            <Truck className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />
                           )}
                           <div>
-                            <span className="text-sm">{new Date(fact.date).toLocaleDateString("ru-RU")}</span>
-                            <span className="text-xs text-muted-foreground ml-2">{STAGE_LABELS[fact.stage]}</span>
+                            <p className="text-sm font-medium text-slate-800">
+                              {from} → {to}
+                            </p>
+                            <p className="text-xs text-slate-500">{qty.toLocaleString()} шт.</p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 text-sm">
-                          <span className="text-green-600">+{fact.qty_good}</span>
-                          {fact.qty_scrap > 0 && (
-                            <span className="text-destructive">-{fact.qty_scrap}</span>
-                          )}
-                          {fact.deviation_reason && (
-                            <Badge variant="outline" className="text-xs">
-                              {DEVIATION_REASON_LABELS[fact.deviation_reason]}
-                            </Badge>
-                          )}
-                        </div>
+                        <span className="flex-shrink-0 text-xs text-slate-400">
+                          {formatRelativeTime(entry.updated_at || entry.sent_at || entry.created_at)}
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-          </>
-          )}
-        </TabsContent>
-        
-        {!isCooperationRouteOnly && (
-          <TabsContent value="facts" className="space-y-4">
-          {permissions.canEditFacts && (
-            <StageFactForm part={part} />
-          )}
-          
-          {/* History */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">История по сменам</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {sortedFacts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Нет записей</p>
-              ) : (
-                <div className="space-y-2">
-                  {sortedFacts.map(fact => {
-                    const operator = getUserById(fact.operator_id)
-                    return (
-                      <div key={fact.id} className="p-3 rounded-md border">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            {/* Show shift icon only for machining */}
-                            {fact.stage === "machining" && (
-                              fact.shift_type === "day" ? (
-                                <Sun className="h-4 w-4 text-amber-500" />
-                              ) : (
-                                <Moon className="h-4 w-4 text-indigo-500" />
-                              )
-                            )}
-                            <span className="font-medium">
-                              {new Date(fact.date).toLocaleDateString("ru-RU")}
-                              {fact.stage === "machining" && ` — ${SHIFT_LABELS[fact.shift_type]}`}
-                            </span>
-                            <Badge variant="outline" className="text-xs">
-                              {STAGE_LABELS[fact.stage]}
-                            </Badge>
-                          </div>
-                          {fact.deviation_reason && (
-                            <Badge variant="outline">
-                              {DEVIATION_REASON_LABELS[fact.deviation_reason]}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex gap-4 text-sm">
-                          <span className="text-green-600">Годные: {fact.qty_good}</span>
-                          <span className="text-destructive">Брак: {fact.qty_scrap}</span>
-                          {operator && (
-                            <span className="text-muted-foreground">{operator.initials}</span>
-                          )}
-                        </div>
-                        {fact.comment && (
-                          <p className="mt-2 text-sm text-muted-foreground">{fact.comment}</p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          </TabsContent>
-        )}
-        
-        {!isCooperationRouteOnly && (
-          <TabsContent value="journal">
-            <FactJournal part={part} />
-          </TabsContent>
-        )}
-        
-        <TabsContent value="logistics">
-          <LogisticsList part={part} />
-        </TabsContent>
-        
-        <TabsContent value="tasks">
-          <TasksList
-            partId={part.id}
-            machineId={part.machine_id}
-            selectedTaskId={selectedTaskId}
-            onSelectTask={onTaskSelect}
-            onBack={onTaskBack}
-          />
-        </TabsContent>
-        
-        <TabsContent value="audit">
-          {permissions.canViewAudit ? <AuditLogView partId={part.id} /> : null}
-        </TabsContent>
-        
-        <TabsContent value="drawing" className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Чертёж детали</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {drawingUrlValue ? (
-                <div className="space-y-3">
-                  <div className="aspect-video bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-                    {isImageDrawing && !drawingError ? (
-                      isLoadingDrawingBlob ? (
-                        <div className="text-center text-muted-foreground p-6">
-                          <Loader2 className="h-10 w-10 mx-auto mb-2 animate-spin opacity-60" />
-                          <p>Загружаем файл...</p>
-                        </div>
-                      ) : (
-                        <img
-                          src={drawingImageSrc || "/placeholder.svg"}
-                          alt={`Чертёж ${part.code}`}
-                          className="max-w-full max-h-full object-contain"
-                          onError={() => setDrawingError(true)}
-                        />
-                      )
-                    ) : (
-                      <div className="text-center text-muted-foreground p-6">
-                        {isPdfDrawing ? (
-                          <FileText className="h-10 w-10 mx-auto mb-2 opacity-60" />
-                        ) : (
-                          <FileImage className="h-10 w-10 mx-auto mb-2 opacity-60" />
-                        )}
-                        <p>
-                          {isPdfDrawing
-                            ? "PDF-чертёж"
-                            : drawingError
-                            ? "Не удалось загрузить изображение"
-                            : "Неподдерживаемый формат или некорректный путь"}
-                        </p>
-                        {!isKnownDrawingType && !drawingError && (
-                          <p className="text-xs mt-1">Поддерживаются PDF и изображения</p>
-                        )}
-                        {drawingError && (
-                          <p className="text-xs mt-1 break-all">Путь: {drawingUrlValue}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Button variant="outline" className="w-full bg-transparent" onClick={handleOpenDrawing}>
-                      <ExternalLink className="h-4 w-4 mr-2" />
-                      На весь экран
-                    </Button>
-                    {permissions.canEditFacts && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="destructive" className="w-full" disabled={isSavingDrawing}>
-                            Удалить чертёж
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Удалить чертёж?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Ссылка и файл будут отвязаны от детали. Это действие можно отменить, загрузив новый файл.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Отмена</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDeleteDrawing}>
-                              Удалить
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <FileImage className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                    <p>Чертёж не добавлен</p>
-                  </div>
-                </div>
-              )}
 
-              {permissions.canEditFacts && (
-                <div className="space-y-3 pt-3 border-t">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="drawing-file" className="text-sm">
-                      Загрузка файла
-                    </Label>
-                    {isUploadingDrawing && (
-                      <span className="text-xs text-muted-foreground">Загрузка...</span>
-                    )}
-                  </div>
-                  <Input
-                    id="drawing-file"
-                    ref={drawingInputRef}
-                    type="file"
-                    accept="image/*,application/pdf"
-                    className="sr-only"
-                    onChange={handleUploadDrawing}
-                  />
-                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                    <Button
-                      type="button"
-                      onClick={() => drawingInputRef.current?.click()}
-                      disabled={isUploadingDrawing}
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      {isUploadingDrawing ? "Загрузка..." : "Загрузить файл"}
-                    </Button>
-                    <span className="text-xs text-muted-foreground">
-                      PDF или изображение (PNG, JPG, WebP).
-                    </span>
-                  </div>
+                      {isArrived ? (
+                        <span className="mt-2 inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-600">Прибыл</span>
+                      ) : null}
 
-                  {drawingActionError && (
-                    <div className="text-sm text-destructive" role="status" aria-live="polite">
-                      {drawingActionError}
+                      <button
+                        type="button"
+                        onClick={() => handleOpenReceiveDialog(entry)}
+                        className={cn(
+                          "mt-3 w-full rounded-lg py-2 text-sm font-medium transition-colors",
+                          isArrived
+                            ? "bg-teal-500 text-white hover:bg-teal-600"
+                            : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                        )}
+                      >
+                        Отметить прибытие
+                      </button>
                     </div>
-                  )}
-
-                  <div className="rounded-lg border bg-muted/40 p-3 space-y-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-auto px-2 py-1 text-sm"
-                      onClick={() => setShowLinkInput((prev) => !prev)}
-                    >
-                      <Link className="h-4 w-4 mr-2" />
-                      {showLinkInput ? "Скрыть ссылку" : "Ссылка (резервный вариант)"}
-                    </Button>
-                    {showLinkInput && (
-                      <div className="space-y-2">
-                        <Label htmlFor="drawing-url">Ссылка на чертёж</Label>
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <Input
-                            id="drawing-url"
-                            placeholder="https://example.com/drawing.pdf"
-                            value={drawingUrl}
-                            onChange={(e) => setDrawingUrl(e.target.value)}
-                          />
-                          <Button onClick={handleSaveDrawing} disabled={!drawingUrl || isSavingDrawing}>
-                            {isSavingDrawing ? "Сохраняем..." : "Сохранить"}
-                          </Button>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Вставьте ссылку на изображение или PDF-файл чертежа.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  )
+                })
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            </div>
+          </div>
+
+          <div className={asideCardClass}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-800">Задачи</h3>
+              {permissions.canCreateTasks ? (
+                <button
+                  type="button"
+                  onClick={openTaskModal}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-500 text-white transition-colors hover:bg-teal-600"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
+            <div className="space-y-2.5">
+              {tasksForPanel.length === 0 ? (
+                <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Нет активных задач</div>
+              ) : (
+                tasksForPanel.map((task) => {
+                  const priority = normalizeTaskPriority(task)
+                  return (
+                    <div key={task.id} className="flex items-start gap-3 rounded-lg bg-slate-50 p-3">
+                      <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-teal-500" disabled />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm leading-snug text-slate-800">{task.title}</p>
+                        <span
+                          className={cn(
+                            "mt-1.5 inline-block rounded px-2 py-0.5 text-xs font-medium",
+                            priority === "high" && "bg-red-50 text-red-600",
+                            priority === "normal" && "bg-slate-200 text-slate-500",
+                            priority === "low" && "bg-slate-100 text-slate-400"
+                          )}
+                        >
+                          {priority === "high" ? "Срочно" : priority === "normal" ? "Норм" : "Низкий"}
+                        </span>
+                      </div>
+                      <span className="flex-shrink-0 text-xs text-slate-400">{TASK_STATUS_LABELS[task.status]}</span>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          <div className={asideCardClass}>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cog className="h-5 w-5 text-slate-400" />
+                <h3 className="text-sm font-semibold text-slate-800">Текущее оборудование</h3>
+              </div>
+              {permissions.canEditParts ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMachineDraftId(part.machine_id || NO_MACHINE_VALUE)
+                    setMachineNormDraft(machineNorm?.qty_per_shift ? String(machineNorm.qty_per_shift) : "")
+                    setMachineError("")
+                    setIsEquipmentModalOpen(true)
+                  }}
+                  className="text-xs font-medium text-slate-500 transition-colors hover:text-slate-700"
+                >
+                  Редактировать
+                </button>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-500">Станок</span>
+                <span
+                  className={cn(
+                    "rounded px-2 py-0.5 text-xs font-medium",
+                    machine ? "bg-teal-50 text-teal-600" : "bg-slate-100 text-slate-500"
+                  )}
+                >
+                  {machine ? "Активен" : "Не назначен"}
+                </span>
+              </div>
+              <p className="text-sm font-semibold text-slate-800">{machine?.name || "Не назначено"}</p>
+              <div className="mt-1 border-t border-slate-100 pt-3">
+                <p className="mb-1 text-xs text-slate-400">Норма выработки</p>
+                <p className="text-3xl font-bold tabular-nums text-slate-900">
+                  {machineNorm?.qty_per_shift?.toLocaleString() || "--"}{" "}
+                  <span className="text-sm font-normal text-slate-500">шт/смену</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       <Dialog open={isDrawingModalOpen} onOpenChange={setIsDrawingModalOpen}>
-        <DialogContent className="h-[95vh] max-h-[95vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden p-0 sm:h-[94vh] sm:w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]">
-          <DialogHeader className="border-b border-border px-4 py-3 sm:px-5 sm:py-4">
-            <DialogTitle className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
-              <FileImage className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <DialogContent
+          className={cn(
+            "overflow-hidden p-0",
+            isCooperationPart
+              ? "h-[95vh] max-h-[95vh] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] sm:h-[94vh] sm:w-[calc(100vw-2rem)] sm:max-w-[calc(100vw-2rem)]"
+              : "max-h-[90vh] max-w-[calc(100%-1.5rem)] sm:max-w-5xl"
+          )}
+        >
+          <DialogHeader className={cn("px-4 py-3 sm:px-5 sm:py-4", isCooperationPart ? "border-b border-border" : "border-b border-slate-100")}>
+            <DialogTitle className={cn("flex min-w-0 items-center gap-2 text-sm font-semibold", isCooperationPart ? "text-foreground" : "text-slate-800")}>
+              <FileImage className={cn("h-4 w-4 flex-shrink-0", isCooperationPart ? "text-muted-foreground" : "text-slate-400")} />
               <span className="truncate">Чертеж: {part.code}</span>
             </DialogTitle>
-            <DialogDescription className="sr-only">Полноэкранный просмотр чертежа</DialogDescription>
+            <DialogDescription className="sr-only">Просмотр чертежа детали</DialogDescription>
           </DialogHeader>
-          <div className="h-[calc(95vh-4.5rem)] overflow-auto bg-muted/30 p-2 sm:p-4">
-            <div className="flex h-full items-center justify-center">
-              {isLoadingDrawingBlob ? (
-                <span className="text-sm text-muted-foreground">Загрузка...</span>
-              ) : drawingUrlValue && isImageDrawing && !drawingError ? (
-                <img
-                  src={drawingImageSrc || "/placeholder.svg"}
-                  alt={`Чертёж ${part.code}`}
-                  className="max-h-full w-full rounded bg-white object-contain"
-                  onError={() => setDrawingError(true)}
-                />
-              ) : drawingUrlValue && isPdfDrawing ? (
-                <iframe
-                  src={drawingUrlValue}
-                  title={`Чертёж ${part.code}`}
-                  className="h-full min-h-[60vh] w-full rounded border border-slate-200 bg-white"
-                />
-              ) : (
-                <div className="text-center text-muted-foreground">
-                  <p className="text-sm">Не удалось открыть чертеж</p>
-                </div>
-              )}
-            </div>
+          <div
+            className={cn(
+              "flex items-center justify-center p-4 sm:p-8",
+              isCooperationPart ? "h-[calc(95vh-4.5rem)] overflow-auto bg-muted/30 p-2 sm:p-4" : "min-h-[60vh] bg-slate-100"
+            )}
+          >
+            {isLoadingDrawingFile ? (
+              <span className="text-sm text-slate-500">Загрузка...</span>
+            ) : drawingUrlValue && isImageDrawing && !drawingError ? (
+              <img
+                src={resolvedDrawingUrl || "/placeholder.svg"}
+                alt={`Чертёж ${part.code}`}
+                className={cn("w-full rounded bg-white object-contain", isCooperationPart ? "max-h-full" : "max-h-[75vh]")}
+                onError={() => setDrawingError(true)}
+              />
+            ) : drawingUrlValue && isPdfDrawing ? (
+              <iframe
+                src={resolvedDrawingUrl || drawingUrlValue || undefined}
+                title={`Чертёж ${part.code}`}
+                className={cn(
+                  "w-full rounded border border-slate-200 bg-white",
+                  isCooperationPart ? "h-full min-h-[60vh]" : "h-[75vh]"
+                )}
+              />
+            ) : (
+              <div className="text-center text-slate-500">
+                <FileImage className="mx-auto mb-2 h-10 w-10 opacity-60" />
+                <p>Чертёж не загружен</p>
+              </div>
+            )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(transferStage)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTransferStage(null)
+            setTransferError("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {transferStage
+                ? `Передача в ${(flowCardByStage.get(transferStage)?.nextStage === "fg"
+                    ? "склад гп"
+                    : flowCardByStage.get(transferStage)?.nextStage
+                      ? STAGE_LABELS[flowCardByStage.get(transferStage)!.nextStage as FlowStageKey].toLowerCase()
+                      : "следующий этап")}`
+                : "Передача"}
+            </DialogTitle>
+            <DialogDescription>Внутреннее перемещение по производственному маршруту.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Откуда</Label>
+                <Input value={transferStage ? STAGE_LABELS[transferStage] : "--"} disabled className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label>Куда</Label>
+                <Input
+                  value={
+                    transferStage
+                      ? flowCardByStage.get(transferStage)?.nextStage === "fg"
+                        ? "Склад ГП"
+                        : flowCardByStage.get(transferStage)?.nextStage
+                          ? STAGE_LABELS[flowCardByStage.get(transferStage)!.nextStage as FlowStageKey]
+                          : "--"
+                      : "--"
+                  }
+                  disabled
+                  className="h-9"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Количество</Label>
+              <Input type="number" className="h-9" value={transferQty} onChange={(event) => setTransferQty(event.target.value)} />
+              <div className="text-xs text-slate-500">
+                Доступно: {(transferStage ? flowCardByStage.get(transferStage)?.availableQty || 0 : 0).toLocaleString()} шт.
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Комментарий</Label>
+              <Textarea rows={2} value={transferComment} onChange={(event) => setTransferComment(event.target.value)} placeholder="Опционально" />
+            </div>
+
+            {transferError ? <div className="text-sm text-destructive">{transferError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setTransferStage(null)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleConfirmTransfer()} disabled={isSubmittingTransfer}>
+              {isSubmittingTransfer ? "Передаём..." : "Передать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(sendStage)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSendStage(null)
+            setSendError("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Оформить отправку</DialogTitle>
+            <DialogDescription>
+              Внешняя логистика. Запись появится в блоке «Отправки в пути».
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Откуда</Label>
+                <Input
+                  className="h-9"
+                  value={sendStage ? STAGE_LABELS[sendStage] : "--"}
+                  disabled
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>Куда</Label>
+                <Input
+                  className="h-9"
+                  value={sendStage ? flowTargetLabel(flowCardByStage.get(sendStage)?.nextStage ?? null) : "--"}
+                  disabled
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="send-partner">{isSendToWarehouse ? "Получатель" : "Получатель / кооператор"}</Label>
+                <Input
+                  id="send-partner"
+                  className="h-9"
+                  value={isSendToWarehouse ? "Склад ГП" : sendPartner}
+                  onChange={(event) => setSendPartner(event.target.value)}
+                  placeholder={isSendToWarehouse ? "Склад ГП" : "Например: Кооператор-1"}
+                  disabled={isSendToWarehouse}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="send-qty">Количество</Label>
+                <Input
+                  id="send-qty"
+                  className="h-9"
+                  type="number"
+                  value={sendQty}
+                  onChange={(event) => setSendQty(event.target.value)}
+                />
+                <div className="text-xs text-slate-500">
+                  Доступно: {(sendStage ? flowCardByStage.get(sendStage)?.availableQty || 0 : 0).toLocaleString()} шт.
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label htmlFor="send-eta">Ориентир поступления</Label>
+                <Input
+                  id="send-eta"
+                  className="h-9"
+                  type="date"
+                  value={sendEta}
+                  onChange={(event) => setSendEta(event.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="send-tracking">Трек / накладная</Label>
+                <Input
+                  id="send-tracking"
+                  className="h-9"
+                  value={sendTracking}
+                  onChange={(event) => setSendTracking(event.target.value)}
+                  placeholder="Опционально"
+                />
+              </div>
+            </div>
+
+            {sendError ? <div className="text-sm text-destructive">{sendError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setSendStage(null)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleSubmitSend()} disabled={isSubmittingSend}>
+              {isSubmittingSend ? "Оформляем..." : "Оформить отправку"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(receivingMovement)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReceivingMovement(null)
+            setReceivingQty("")
+            setReceivingError("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Приёмка партии</DialogTitle>
+            <DialogDescription>Подтвердите фактически принятое количество.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              <p>
+                Отправка: <span className="font-medium text-slate-800">{receivingMovement?.from_location || receivingMovement?.from_holder || "Источник"} → {receivingMovement?.to_location || receivingMovement?.to_holder || "Назначение"}</span>
+              </p>
+              <p className="mt-0.5">
+                Ожидается: <span className="font-medium text-slate-800">{(receivingMovement?.qty_sent ?? receivingMovement?.quantity ?? 0).toLocaleString()} шт.</span>
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Ожидаемое количество</Label>
+                <Input className="h-9" value={String(receivingMovement?.qty_sent ?? receivingMovement?.quantity ?? 0)} disabled />
+              </div>
+              <div className="space-y-1">
+                <Label>Принято</Label>
+                <Input className="h-9" type="number" value={receivingQty} onChange={(event) => setReceivingQty(event.target.value)} />
+              </div>
+            </div>
+
+            {receivingError ? <div className="text-sm text-destructive">{receivingError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setReceivingMovement(null)
+                setReceivingQty("")
+                setReceivingError("")
+              }}
+            >
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleConfirmReceive()} disabled={isConfirmingReceive}>
+              {isConfirmingReceive ? "Сохраняем..." : "Подтвердить приёмку"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isTaskModalOpen}
+        onOpenChange={(open) => {
+          setIsTaskModalOpen(open)
+          if (!open) setTaskError("")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Новая задача</DialogTitle>
+            <DialogDescription>Добавление задачи по детали.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="task-title">Название задачи</Label>
+              <Input
+                id="task-title"
+                className="h-9"
+                value={taskTitle}
+                onChange={(event) => setTaskTitle(event.target.value)}
+                placeholder="Например: Подготовить паллеты"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Этап</Label>
+              <Select value={taskStage} onValueChange={(value) => setTaskStage(value as ProductionStage | typeof NO_STAGE_VALUE)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Не задан" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_STAGE_VALUE}>Не задан</SelectItem>
+                  {factStageOptions.map((stage) => (
+                    <SelectItem key={`task_stage_${stage}`} value={stage}>
+                      {STAGE_LABELS[stage]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Приоритет</Label>
+                <Select value={taskPriority} onValueChange={(value) => setTaskPriority(value as TaskPriority)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">Срочно</SelectItem>
+                    <SelectItem value="normal">Норм</SelectItem>
+                    <SelectItem value="low">Низкий</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1">
+                <Label>Исполнитель</Label>
+                <Select value={taskAssigneePreset} onValueChange={(value) => setTaskAssigneePreset(value as TaskAssigneePreset)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="operators">Операторам</SelectItem>
+                    <SelectItem value="masters">Мастерам</SelectItem>
+                    <SelectItem value="logistics">Снабжению</SelectItem>
+                    <SelectItem value="all">Всем</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Срок</Label>
+              <Input type="date" className="h-9" value={taskDueDate} onChange={(event) => setTaskDueDate(event.target.value)} />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Описание</Label>
+              <Textarea rows={2} value={taskDescription} onChange={(event) => setTaskDescription(event.target.value)} placeholder="Опционально" />
+            </div>
+
+            {taskError ? <div className="text-sm text-destructive">{taskError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsTaskModalOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleCreateTask()} disabled={isCreatingTask}>
+              {isCreatingTask ? "Создаём..." : "Создать задачу"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isAddFactModalOpen}
+        onOpenChange={(open) => {
+          setIsAddFactModalOpen(open)
+          if (!open) setFactError("")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Добавить факт выпуска</DialogTitle>
+            <DialogDescription>Новая запись производственного факта.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Дата</Label>
+                <Input type="date" className="h-9" value={factDate} onChange={(event) => setFactDate(event.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Смена</Label>
+                <Select value={factShift} onValueChange={(value) => setFactShift(value as ShiftType)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">{SHIFT_LABELS.day}</SelectItem>
+                    <SelectItem value="night">{SHIFT_LABELS.night}</SelectItem>
+                    <SelectItem value="none">{SHIFT_LABELS.none}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Операция</Label>
+              <Select value={factStage} onValueChange={(value) => setFactStage(value as ProductionStage)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {factStageOptions.map((stage) => (
+                    <SelectItem key={`fact_stage_${stage}`} value={stage}>
+                      {STAGE_LABELS[stage]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Оператор</Label>
+              <Select value={factOperatorId} onValueChange={setFactOperatorId}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Выберите оператора" />
+                </SelectTrigger>
+                <SelectContent>
+                  {factOperatorOptions.map((user) => (
+                    <SelectItem key={`fact_operator_${user.id}`} value={user.id}>
+                      {user.initials}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Готово (шт.)</Label>
+                <Input type="number" className="h-9" value={factQtyGood} onChange={(event) => setFactQtyGood(event.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Брак (шт.)</Label>
+                <Input type="number" className="h-9" value={factQtyScrap} onChange={(event) => setFactQtyScrap(event.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Комментарий</Label>
+              <Textarea rows={2} value={factComment} onChange={(event) => setFactComment(event.target.value)} placeholder="Опционально" />
+            </div>
+
+            {factError ? <div className="text-sm text-destructive">{factError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsAddFactModalOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleCreateFact()} disabled={isSavingFact}>
+              {isSavingFact ? "Сохраняем..." : "Сохранить факт"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editingFact)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingFact(null)
+            setEditFactError("")
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Изменить факт</DialogTitle>
+            <DialogDescription>
+              {editingFact
+                ? `ID: ${editingFact.id} · ${new Date(editingFact.date).toLocaleDateString("ru-RU")} · ${SHIFT_LABELS[editingFact.shift_type]}`
+                : "Редактирование факта"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+              {editingFact ? (
+                <>
+                  Текущие значения: {STAGE_LABELS[editingFact.stage]} · {getUserById(editingFact.operator_id)?.initials || "--"} · {editingFact.qty_good.toLocaleString()} готово · {editingFact.qty_scrap.toLocaleString()} брак
+                </>
+              ) : null}
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Дата</Label>
+                <Input value={editingFact ? formatDate(editingFact.date) : "--"} disabled className="h-9" />
+              </div>
+              <div className="space-y-1">
+                <Label>Смена</Label>
+                <Input value={editingFact ? SHIFT_LABELS[editingFact.shift_type] : "--"} disabled className="h-9" />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Операция</Label>
+              <Input value={editingFact ? STAGE_LABELS[editingFact.stage] : "--"} disabled className="h-9" />
+            </div>
+
+            <div className="space-y-1">
+              <Label>Оператор</Label>
+              <Select value={editFactOperatorId} onValueChange={setEditFactOperatorId}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Выберите оператора" />
+                </SelectTrigger>
+                <SelectContent>
+                  {factOperatorOptions.map((user) => (
+                    <SelectItem key={`edit_fact_operator_${user.id}`} value={user.id}>
+                      {user.initials}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>Готово (шт.)</Label>
+                <Input type="number" className="h-9" value={editFactQtyGood} onChange={(event) => setEditFactQtyGood(event.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label>Брак (шт.)</Label>
+                <Input type="number" className="h-9" value={editFactQtyScrap} onChange={(event) => setEditFactQtyScrap(event.target.value)} />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Комментарий</Label>
+              <Textarea rows={2} value={editFactComment} onChange={(event) => setEditFactComment(event.target.value)} placeholder="Опционально" />
+            </div>
+
+            {editFactError ? <div className="text-sm text-destructive">{editFactError}</div> : null}
+          </div>
+
+          <DialogFooter className="sm:justify-between">
+            <Button type="button" variant="destructive" onClick={() => void handleDeleteFact()} disabled={!permissions.canRollbackFacts || isDeletingFact || isUpdatingFact}>
+              {isDeletingFact ? "Удаляем..." : "Удалить факт"}
+            </Button>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditingFact(null)} disabled={isUpdatingFact || isDeletingFact}>
+                Отмена
+              </Button>
+              <Button type="button" onClick={() => void handleUpdateFact()} disabled={isUpdatingFact || isDeletingFact}>
+                {isUpdatingFact ? "Сохраняем..." : "Сохранить"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isEquipmentModalOpen}
+        onOpenChange={(open) => {
+          setIsEquipmentModalOpen(open)
+          if (!open) setMachineError("")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Редактирование оборудования</DialogTitle>
+            <DialogDescription>Назначение станка для детали.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Станок</Label>
+              <Select
+                value={machineDraftId}
+                onValueChange={(value) => {
+                  setMachineDraftId(value)
+                  if (value === NO_MACHINE_VALUE) {
+                    setMachineNormDraft("")
+                    return
+                  }
+                  const normForMachine = getMachineNorm(value, part.id, "machining")
+                  setMachineNormDraft(normForMachine?.qty_per_shift ? String(normForMachine.qty_per_shift) : "")
+                }}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Можно выбрать позже" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_MACHINE_VALUE}>Без станка</SelectItem>
+                  {machiningMachines.map((machineCandidate) => (
+                    <SelectItem key={machineCandidate.id} value={machineCandidate.id}>
+                      {machineCandidate.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Норма выработки</Label>
+              <Input
+                type="number"
+                className="h-9"
+                value={machineNormDraft}
+                onChange={(event) => setMachineNormDraft(event.target.value)}
+                placeholder={machineDraftId === NO_MACHINE_VALUE ? "Сначала выберите станок" : "Например 120"}
+                disabled={machineDraftId === NO_MACHINE_VALUE}
+              />
+            </div>
+
+            {machineError ? <div className="text-sm text-destructive">{machineError}</div> : null}
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setIsEquipmentModalOpen(false)}>
+              Отмена
+            </Button>
+            <Button type="button" onClick={() => void handleSaveMachine()} disabled={isSavingMachine}>
+              {isSavingMachine ? "Сохраняем..." : "Сохранить"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
