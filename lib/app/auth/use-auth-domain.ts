@@ -1,7 +1,7 @@
 import { useCallback, useEffect, type Dispatch, type SetStateAction } from "react"
 import type { User } from "../../types"
 import * as dataProvider from "../../data-provider-adapter"
-import { ApiClientError } from "../../api-client"
+import { apiClient, ApiClientError } from "../../api-client"
 import { awaitCriticalRefresh } from "../shared/refresh-invariants"
 
 interface Params {
@@ -116,13 +116,38 @@ export function useAuthDomain({
     await awaitCriticalRefresh(refreshData, "auth:completePasswordChange")
   }, [refreshData, setCurrentUser, setPasswordChangeRequiredUser])
 
-  const logout = useCallback(async () => {
-    if (dataProvider.logout) {
-      await dataProvider.logout()
+  const logout = useCallback(() => {
+    const debug = process.env.NODE_ENV !== "production"
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+
+    if (dataProvider.isUsingApi()) {
+      apiClient.abortAll()
+      const logoutPromise = dataProvider.logout ? dataProvider.logout() : Promise.resolve()
+      apiClient.setAccessToken(null)
+      void logoutPromise
+        .catch((error) => {
+          console.error("Failed to logout", error)
+        })
+        .finally(() => {
+          if (debug) {
+            const elapsed = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+            console.info(`[perf] logout api in ${elapsed.toFixed(0)}ms`)
+          }
+        })
+    } else if (dataProvider.logout) {
+      void dataProvider.logout().catch((error) => {
+        console.error("Failed to logout", error)
+      })
     }
+
     dataProvider.setCurrentUser(null)
     setPasswordChangeRequiredUser(null)
     setCurrentUser(null)
+
+    if (debug) {
+      const elapsed = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+      console.info(`[perf] logout ui in ${elapsed.toFixed(0)}ms`)
+    }
   }, [setCurrentUser, setPasswordChangeRequiredUser])
 
   const setDemoDate = useCallback((date: string) => {

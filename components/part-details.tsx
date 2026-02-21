@@ -62,6 +62,11 @@ import { apiClient } from "@/lib/api-client"
 interface PartDetailsProps {
   part: Part
   onBack: () => void
+  initialTab?: string
+  onTabChange?: (tab: string) => void
+  selectedTaskId?: string | null
+  onTaskSelect?: (taskId: string) => void
+  onTaskBack?: () => void
 }
 
 type OperatorDetailUiState = "waiting" | "in_work" | "done"
@@ -72,7 +77,15 @@ const OPERATOR_UI_STATE_BY_PART_STATUS: Record<PartStatus, OperatorDetailUiState
   done: "done",
 }
 
-export function PartDetails({ part, onBack }: PartDetailsProps) {
+export function PartDetails({
+  part,
+  onBack,
+  initialTab,
+  onTabChange,
+  selectedTaskId,
+  onTaskSelect,
+  onTaskBack,
+}: PartDetailsProps) {
   const { 
     getPartProgress, 
     getPartForecast, 
@@ -97,7 +110,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     deletePart
   } = useApp()
   
-  const [activeTab, setActiveTab] = useState("overview")
+  const [activeTab, setActiveTab] = useState(initialTab || "overview")
   const [drawingUrl, setDrawingUrl] = useState(part.drawing_url || "")
   const [isDeleting, setIsDeleting] = useState(false)
   const [actionError, setActionError] = useState("")
@@ -170,6 +183,10 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   }, [part.id, part.drawing_url])
 
   useEffect(() => {
+    setActiveTab(initialTab || "overview")
+  }, [initialTab, part.id])
+
+  useEffect(() => {
     setDrawingError(false)
   }, [drawingUrl])
 
@@ -214,6 +231,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     }
     return false
   }
+
+  const isProtectedDrawing = drawingUrlValue ? isProtectedAttachmentUrl(drawingUrlValue) : false
+  const drawingImageSrc = isProtectedDrawing ? drawingBlobUrl : drawingUrlValue
 
   useEffect(() => {
     let cancelled = false
@@ -287,8 +307,9 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     if (!isCooperationRouteOnly) return
     if (activeTab === "facts" || activeTab === "journal") {
       setActiveTab("overview")
+      onTabChange?.("overview")
     }
-  }, [activeTab, isCooperationRouteOnly])
+  }, [activeTab, isCooperationRouteOnly, onTabChange])
   
   // Calculate stages progress with null safety
   const stageStatuses = part.stage_statuses || []
@@ -304,8 +325,8 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
     if (dateCompare !== 0) return dateCompare
     return a.shift_type === "night" ? -1 : 1
   })
-  const hasFacts = stageFacts.length > 0
-  const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
+  const forecastStatus = forecast.status || (forecast.willFinishOnTime ? "on_track" : "risk")
+  const hasForecastInput = forecastStatus !== "unknown"
   const partDeadlineDate = new Date(part.deadline)
   const hasPartDeadline = !Number.isNaN(partDeadlineDate.getTime())
   const isOperatorDetail = currentUser?.role === "operator"
@@ -315,8 +336,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
   const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
   const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
   const internalDeltaDays = hasInternalDeadline
-    ? Math.ceil((partDeadlineDate.getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
+    ? (typeof forecast.bufferDays === "number"
+      ? forecast.bufferDays
+      : Math.ceil((partDeadlineDate.getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24)))
     : null
+  const forecastReason = forecast.reason
   const cooperationEtaRaw = journeySummary?.eta || (part.cooperation_due_date ? `${part.cooperation_due_date}T00:00:00` : null)
   const cooperationEtaDate = cooperationEtaRaw ? new Date(cooperationEtaRaw) : null
   const hasCooperationEta = Boolean(cooperationEtaDate && !Number.isNaN(cooperationEtaDate.getTime()))
@@ -1130,7 +1154,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                     >
                       {drawingUrlValue && isImageDrawing && !drawingError ? (
                         <img
-                          src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
+                          src={drawingImageSrc || "/placeholder.svg"}
                           alt={`Чертёж ${part.code}`}
                           className="h-full max-h-[430px] w-full object-contain drop-shadow-sm"
                           onError={() => setDrawingError(true)}
@@ -1448,18 +1472,31 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                 </div>
                 <div className={cn(
                   "p-3 rounded-lg",
-                  !hasForecastInput ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
+                  !hasForecastInput
+                    ? "bg-muted/50"
+                    : forecastStatus === "on_track"
+                      ? "bg-green-500/10"
+                      : forecastStatus === "overdue"
+                        ? "bg-red-500/10"
+                        : "bg-amber-500/10"
                 )}>
                   <div className="flex items-center gap-2 mb-1">
                     {!hasForecastInput ? (
                       <>
                         <Clock className="h-5 w-5 text-muted-foreground" />
-                        <span className="font-medium text-foreground">Прогноз появится после 1-го факта или установки нормы</span>
+                        <span className="font-medium text-foreground">
+                          {forecastReason || "Прогноз появится после 1-го факта или установки нормы"}
+                        </span>
                       </>
-                    ) : forecast.willFinishOnTime ? (
+                    ) : forecastStatus === "on_track" ? (
                       <>
                         <TrendingUp className="h-5 w-5 text-green-600" />
                         <span className="font-medium text-green-700">Успеваем</span>
+                      </>
+                    ) : forecastStatus === "overdue" ? (
+                      <>
+                        <AlertCircle className="h-5 w-5 text-red-600" />
+                        <span className="font-medium text-red-700">Просрочено</span>
                       </>
                     ) : (
                       <>
@@ -1495,9 +1532,20 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
               <div className="mt-2 flex justify-between text-sm">
                 <span className="text-muted-foreground">Внутренний дедлайн</span>
                 {!hasInternalDeadline ? (
-                  <span className="text-muted-foreground">Появится после нормы или факта</span>
+                  <span className="text-muted-foreground">
+                    {forecastReason || "Появится после нормы или факта"}
+                  </span>
                 ) : (
-                  <span className={cn("font-medium", internalDeltaDays !== null && internalDeltaDays < 0 ? "text-amber-700" : "text-green-700")}>
+                  <span
+                    className={cn(
+                      "font-medium",
+                      forecastStatus === "overdue"
+                        ? "text-red-700"
+                        : internalDeltaDays !== null && internalDeltaDays < 0
+                          ? "text-amber-700"
+                          : "text-green-700"
+                    )}
+                  >
                     {internalDeadlineDate.toLocaleDateString("ru-RU")}
                     {internalDeltaDays !== null && (
                       <span className="ml-2 text-xs font-normal">
@@ -1511,6 +1559,11 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                   </span>
                 )}
               </div>
+              {hasForecastInput && forecast.calendarBasis === "calendar" && (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Расчёт по календарным дням (рабочий календарь не задан)
+                </div>
+              )}
               {progress.qtyScrap > 0 && (
                 <div className="mt-2 flex justify-between text-sm">
                   <span className="text-muted-foreground">Брак всего</span>
@@ -1555,7 +1608,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
       )}
       
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value)
+          onTabChange?.(value)
+        }}
+      >
         <div className="overflow-x-auto overflow-y-hidden py-1">
           <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
             <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>
@@ -1674,7 +1733,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         {drawingUrlValue && isImageDrawing && !drawingError ? (
                           <div className="h-full w-full rounded-md border bg-background p-3">
                             <img
-                              src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
+                              src={drawingImageSrc || "/placeholder.svg"}
                               alt={`Чертёж ${part.code}`}
                               className="h-full max-h-[380px] w-full object-contain"
                               onError={() => setDrawingError(true)}
@@ -2119,7 +2178,13 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
         </TabsContent>
         
         <TabsContent value="tasks">
-          <TasksList partId={part.id} machineId={part.machine_id} />
+          <TasksList
+            partId={part.id}
+            machineId={part.machine_id}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={onTaskSelect}
+            onBack={onTaskBack}
+          />
         </TabsContent>
         
         <TabsContent value="audit">
@@ -2143,7 +2208,7 @@ export function PartDetails({ part, onBack }: PartDetailsProps) {
                         </div>
                       ) : (
                         <img
-                          src={drawingBlobUrl || drawingUrlValue || "/placeholder.svg"}
+                          src={drawingImageSrc || "/placeholder.svg"}
                           alt={`Чертёж ${part.code}`}
                           className="max-w-full max-h-full object-contain"
                           onError={() => setDrawingError(true)}

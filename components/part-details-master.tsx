@@ -529,19 +529,30 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
     return Math.max(sumAcrossStages - finalQty, 0)
   }, [stageQtyByStage, finalQty])
 
-  const hasForecastInput = stageFacts.length > 0 || forecast.shiftsNeeded > 0
+  const forecastStatus = forecast.status || (forecast.willFinishOnTime ? "on_track" : "risk")
+  const hasForecastInput = forecastStatus !== "unknown"
   const internalDeadlineLabel = hasForecastInput ? formatDate(forecast.estimatedFinishDate) : "--"
-  const shiftsReserve = hasForecastInput ? forecast.shiftsRemaining - forecast.shiftsNeeded : null
+  const bufferDays = hasForecastInput
+    ? (typeof forecast.bufferDays === "number"
+      ? forecast.bufferDays
+      : Math.ceil((new Date(part.deadline).getTime() - new Date(forecast.estimatedFinishDate).getTime()) / (1000 * 60 * 60 * 24)))
+    : null
+  const forecastReason = forecast.reason
 
-  const scheduleStatus =
-    shiftsReserve === null ? "нет данных" : shiftsReserve >= 0 ? "успеваем" : "риск"
+  const scheduleStatus = !hasForecastInput
+    ? "нет данных"
+    : forecastStatus === "overdue"
+      ? "просрочено"
+      : forecastStatus === "risk"
+        ? "риск"
+        : "успеваем"
 
   const shiftsReserveLabel =
-    shiftsReserve === null
-      ? "Запас: --"
-      : shiftsReserve >= 0
-        ? `Запас: +${shiftsReserve} смен`
-        : `Дефицит: ${Math.abs(shiftsReserve)} смен`
+    bufferDays === null
+      ? (forecastReason || "Запас: --")
+      : bufferDays >= 0
+        ? `Запас: +${bufferDays} дн.`
+        : `Отставание: ${Math.abs(bufferDays)} дн.`
 
   const tasksForPanel = useMemo(
     () =>
@@ -709,7 +720,20 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
     drawingUrlLower.startsWith("data:image/") ||
     /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
   const isKnownDrawingType = isPdfDrawing || isImageDrawing
-  const resolvedDrawingUrl = drawingObjectUrl || drawingUrlValue
+  const isProtectedAttachmentUrl = (value: string) => {
+    if (value.startsWith("/uploads/") || value.startsWith("/api/v1/attachments/serve/")) return true
+    if (value.startsWith("http://") || value.startsWith("https://")) {
+      try {
+        const parsed = new URL(value)
+        return parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/v1/attachments/serve/")
+      } catch {
+        return false
+      }
+    }
+    return false
+  }
+  const isProtectedDrawing = drawingUrlValue ? isProtectedAttachmentUrl(drawingUrlValue) : false
+  const resolvedDrawingUrl = isProtectedDrawing ? drawingObjectUrl : drawingUrlValue
 
   const factStageOptions = useMemo<ProductionStage[]>(() => {
     const ordered: ProductionStage[] = ["machining", "fitting", "heat_treatment", "galvanic", "grinding", "qc"]
@@ -743,19 +767,6 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
         }
         return null
       })
-    }
-
-    const isProtectedAttachmentUrl = (value: string) => {
-      if (value.startsWith("/uploads/") || value.startsWith("/api/v1/attachments/serve/")) return true
-      if (value.startsWith("http://") || value.startsWith("https://")) {
-        try {
-          const parsed = new URL(value)
-          return parsed.pathname.startsWith("/uploads/") || parsed.pathname.startsWith("/api/v1/attachments/serve/")
-        } catch {
-          return false
-        }
-      }
-      return false
     }
 
     if (!drawingUrlValue || !isKnownDrawingType) {
@@ -1360,6 +1371,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                     "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium",
                     scheduleStatus === "успеваем" && "bg-teal-50 text-teal-700",
                     scheduleStatus === "риск" && "bg-amber-100 text-amber-800",
+                    scheduleStatus === "просрочено" && "bg-red-100 text-red-800",
                     scheduleStatus === "нет данных" && "bg-slate-200 text-slate-700"
                   )}
                 >
@@ -1368,6 +1380,7 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                       "h-2 w-2 rounded-full",
                       scheduleStatus === "успеваем" && "bg-teal-500",
                       scheduleStatus === "риск" && "bg-amber-500",
+                      scheduleStatus === "просрочено" && "bg-red-500",
                       scheduleStatus === "нет данных" && "bg-slate-500"
                     )}
                   />
@@ -1375,9 +1388,14 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
                     ? "Успеваем"
                     : scheduleStatus === "риск"
                       ? "Риск"
-                      : "Нет данных"}
+                      : scheduleStatus === "просрочено"
+                        ? "Просрочено"
+                        : "Нет данных"}
                 </span>
                 <span className="text-sm text-slate-500">{shiftsReserveLabel}</span>
+                {hasForecastInput && forecast.calendarBasis === "calendar" && (
+                  <span className="text-xs text-slate-400">Календарные дни</span>
+                )}
               </div>
             </div>
 

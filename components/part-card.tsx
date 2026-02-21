@@ -36,16 +36,18 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
   const blockers = getBlockersForPart(part.id)
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const currentStage = getCurrentStage(part.id)
-  const hasFacts = getStageFactsForPart(part.id).length > 0
-  const hasForecastInput = hasFacts || forecast.shiftsNeeded > 0
+  const forecastStatus = forecast.status || (forecast.willFinishOnTime ? "on_track" : "risk")
+  const hasForecastInput = forecastStatus !== "unknown"
   const internalDeadlineDate = new Date(forecast.estimatedFinishDate)
   const hasInternalDeadline = hasForecastInput && !Number.isNaN(internalDeadlineDate.getTime())
   const internalDeltaDays = hasInternalDeadline
-    ? Math.ceil((new Date(part.deadline).getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24))
+    ? (typeof forecast.bufferDays === "number"
+      ? forecast.bufferDays
+      : Math.ceil((new Date(part.deadline).getTime() - internalDeadlineDate.getTime()) / (1000 * 60 * 60 * 24)))
     : null
   
-  const isOverdue = new Date(part.deadline) < new Date(demoDate) && part.status !== "done"
-  const isAtRisk = hasForecastInput && !forecast.willFinishOnTime && part.status !== "done"
+  const isOverdue = forecastStatus === "overdue" && part.status !== "done"
+  const isAtRisk = hasForecastInput && forecastStatus === "risk" && part.status !== "done"
   const isOperator = currentUser?.role === "operator"
 
   // Calculate stages progress with null safety
@@ -252,18 +254,31 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
         {!isOperator && !part.is_cooperation && part.status !== "done" && (
           <div className={cn(
             "p-2 rounded-md text-sm",
-            !hasForecastInput ? "bg-muted/50" : forecast.willFinishOnTime ? "bg-green-500/10" : "bg-amber-500/10"
+            !hasForecastInput
+              ? "bg-muted/50"
+              : forecastStatus === "on_track"
+                ? "bg-green-500/10"
+                : forecastStatus === "overdue"
+                  ? "bg-red-500/10"
+                  : "bg-amber-500/10"
           )}>
             <div className="flex items-center gap-2">
               {!hasForecastInput ? (
                 <>
                   <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-muted-foreground">Прогноз появится после 1-го факта или установки нормы</span>
+                  <span className="text-muted-foreground">
+                    {forecast.reason || "Прогноз появится после 1-го факта или установки нормы"}
+                  </span>
                 </>
-              ) : forecast.willFinishOnTime ? (
+              ) : forecastStatus === "on_track" ? (
                 <>
                   <TrendingUp className="h-4 w-4 text-green-600" />
                   <span className="text-green-700">Успеваем</span>
+                </>
+              ) : forecastStatus === "overdue" ? (
+                <>
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  <span className="text-red-700">Просрочено</span>
                 </>
               ) : (
                 <>
@@ -284,9 +299,11 @@ export function PartCard({ part, onClick, isSelected }: PartCardProps) {
                   className={cn(
                     internalDeltaDays === null
                       ? "text-muted-foreground"
-                      : internalDeltaDays >= 0
-                        ? "text-green-700"
-                        : "text-amber-700"
+                      : forecastStatus === "overdue"
+                        ? "text-red-700"
+                        : internalDeltaDays >= 0
+                          ? "text-green-700"
+                          : "text-amber-700"
                   )}
                 >
                   {internalDeltaDays === null

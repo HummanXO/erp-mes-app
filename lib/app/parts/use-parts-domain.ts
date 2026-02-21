@@ -170,6 +170,10 @@ export function usePartsDomain({
         estimatedFinishDate: demoDate,
         shiftsNeeded: 0,
         stageForecasts: [],
+        bufferDays: null,
+        status: "unknown",
+        reason: "Деталь не найдена",
+        calendarBasis: "calendar",
       }
     }
 
@@ -181,7 +185,7 @@ export function usePartsDomain({
           (n) => n.machine_id === part.machine_id && n.part_id === part.id && n.stage === "machining"
         )
       : undefined
-    const hasForecastInput = facts.length > 0 || !!machiningNorm?.is_configured
+    const hasNorm = Boolean(machiningNorm?.is_configured && machiningNorm.qty_per_shift > 0)
 
     const deadline = new Date(part.deadline)
     const today = new Date(demoDate)
@@ -217,33 +221,61 @@ export function usePartsDomain({
       }
     })
 
-    if (!hasForecastInput) {
-      return {
-        daysRemaining,
-        shiftsRemaining,
-        qtyRemaining: part.qty_plan,
-        avgPerShift: machiningNorm?.qty_per_shift || machine?.rate_per_shift || 0,
-        willFinishOnTime: true,
-        estimatedFinishDate: part.deadline,
-        shiftsNeeded: 0,
-        stageForecasts,
-      }
+    const factsByStage = new Map<ProductionStage, StageFact[]>()
+    for (const fact of facts) {
+      const list = factsByStage.get(fact.stage) || []
+      list.push(fact)
+      factsByStage.set(fact.stage, list)
     }
 
-    const totalShiftsNeeded = stageForecasts.reduce((sum, sf) => sum + sf.shiftsNeeded, 0)
-    const machiningFacts = facts.filter((f) => f.stage === "machining")
-    const avgPerShift = machiningFacts.length > 0
-      ? machiningFacts.reduce((sum, f) => sum + f.qty_good, 0) / machiningFacts.length
-      : (machiningNorm?.qty_per_shift || machine?.rate_per_shift || 100)
+    const inProgressStage = activeStages.find((s) => s.status === "in_progress")?.stage
+    const primaryStage = (inProgressStage && (factsByStage.get(inProgressStage)?.length || 0) > 0)
+      ? inProgressStage
+      : (factsByStage.get("machining")?.length ? "machining" : (factsByStage.keys().next().value as ProductionStage | undefined))
+    const primaryFacts = primaryStage ? factsByStage.get(primaryStage) || [] : []
 
-    const currentStage = activeStages.find((s) => s.status === "in_progress") || activeStages[0]
-    const currentStageForecast = stageForecasts.find((sf) => sf.stage === currentStage?.stage)
-    const qtyRemaining = currentStageForecast?.qtyRemaining || 0
+    const dailyTotals = new Map<string, number>()
+    for (const fact of primaryFacts) {
+      dailyTotals.set(fact.date, (dailyTotals.get(fact.date) || 0) + fact.qty_good)
+    }
+    const dailyValues = Array.from(dailyTotals.values())
+    const avgPerDayFromFacts = dailyValues.length > 0
+      ? dailyValues.reduce((sum, value) => sum + value, 0) / dailyValues.length
+      : null
 
-    const daysNeeded = Math.ceil(totalShiftsNeeded / 2)
+    const avgPerShiftFromFacts = primaryFacts.length > 0
+      ? primaryFacts.reduce((sum, f) => sum + f.qty_good, 0) / primaryFacts.length
+      : null
+    const avgPerShift = avgPerShiftFromFacts ?? (hasNorm ? machiningNorm?.qty_per_shift || 0 : 0)
+    const avgPerDay = avgPerDayFromFacts ?? (avgPerShift > 0 ? avgPerShift * 2 : 0)
+
+    const progress = getPartProgress(part.id)
+    const qtyRemaining = Math.max(0, part.qty_plan - progress.qtyDone)
+    const hasForecast = avgPerDay > 0 && (facts.length > 0 || hasNorm)
+    const reason = hasForecast
+      ? null
+      : (facts.length === 0 && !hasNorm)
+        ? "Нет нормы и фактических данных"
+        : "Недостаточно данных для прогноза"
+
     const estimatedFinish = new Date(today)
+    const daysNeeded = hasForecast && qtyRemaining > 0 ? Math.ceil(qtyRemaining / avgPerDay) : 0
     estimatedFinish.setDate(estimatedFinish.getDate() + daysNeeded)
-    const willFinishOnTime = totalShiftsNeeded <= shiftsRemaining
+    const bufferDays = hasForecast
+      ? Math.ceil((deadline.getTime() - estimatedFinish.getTime()) / (1000 * 60 * 60 * 24))
+      : null
+
+    const isOverdue = hasForecast && qtyRemaining > 0 && deadline.getTime() < today.getTime()
+    const status = !hasForecast
+      ? "unknown"
+      : isOverdue
+        ? "overdue"
+        : bufferDays !== null && bufferDays < 0
+          ? "risk"
+          : "on_track"
+
+    const shiftsNeeded = avgPerShift > 0 ? Math.ceil(qtyRemaining / avgPerShift) : 0
+    const willFinishOnTime = hasForecast ? (bufferDays !== null && bufferDays >= 0) : false
 
     return {
       daysRemaining,
@@ -252,10 +284,14 @@ export function usePartsDomain({
       avgPerShift: Math.round(avgPerShift),
       willFinishOnTime,
       estimatedFinishDate: estimatedFinish.toISOString().split("T")[0],
-      shiftsNeeded: totalShiftsNeeded,
+      shiftsNeeded,
       stageForecasts,
+      bufferDays,
+      status,
+      reason,
+      calendarBasis: "calendar",
     }
-  }, [visibleParts, machines, stageFacts, machineNorms, demoDate])
+  }, [visibleParts, machines, stageFacts, machineNorms, demoDate, getPartProgress])
 
   const getMachineTodayProgress = useCallback((machineId: string) => {
     const machine = machines.find((m) => m.id === machineId)

@@ -96,6 +96,10 @@ class ApiClient {
   private baseUrl: string
   private accessToken: string | null = null
   private refreshInFlight: Promise<boolean> | null = null
+  private inflightControllers = new Set<AbortController>()
+  private blobCache = new Map<string, Blob>()
+  private blobInFlight = new Map<string, Promise<Blob>>()
+  private readonly blobCacheMax = 24
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl
@@ -107,6 +111,15 @@ class ApiClient {
 
   getAccessToken(): string | null {
     return this.accessToken
+  }
+
+  abortAll() {
+    for (const controller of this.inflightControllers) {
+      controller.abort()
+    }
+    this.inflightControllers.clear()
+    this.blobInFlight.clear()
+    this.blobCache.clear()
   }
 
   private shouldAttemptRefresh(endpoint: string): boolean {
@@ -192,12 +205,18 @@ class ApiClient {
       headers["Authorization"] = `Bearer ${this.accessToken}`
     }
 
+    const controller = options.signal ? null : new AbortController()
+    if (controller) {
+      this.inflightControllers.add(controller)
+    }
+
     try {
       const doFetch = () =>
         fetch(url, {
           ...options,
           headers,
           credentials: "include",
+          signal: controller?.signal ?? options.signal,
         })
 
       let response = await doFetch()
@@ -254,6 +273,10 @@ class ApiClient {
         code: "NETWORK_ERROR",
         message: error instanceof Error ? error.message : "Network error",
       })
+    } finally {
+      if (controller) {
+        this.inflightControllers.delete(controller)
+      }
     }
   }
 
@@ -317,36 +340,80 @@ class ApiClient {
     const url = this.resolveResourceUrl(rawUrl)
     if (!url) throw new ApiClientError(0, { code: "INVALID_URL", message: "Invalid attachment URL" })
 
+    const debug = process.env.NODE_ENV !== "production"
+    const cacheKey = url
+    const cached = this.blobCache.get(cacheKey)
+    if (cached) {
+      if (debug) {
+        console.info(`[perf] blob cache hit: ${cacheKey}`)
+      }
+      return cached
+    }
+
+    const inflight = this.blobInFlight.get(cacheKey)
+    if (inflight) {
+      if (debug) {
+        console.info(`[perf] blob dedupe: ${cacheKey}`)
+      }
+      return inflight
+    }
+
     const headers: Record<string, string> = {}
     if (this.accessToken) headers["Authorization"] = `Bearer ${this.accessToken}`
 
-    const doFetch = () =>
-      fetch(url, {
-        method: "GET",
-        headers,
-        credentials: "include",
-      })
+    const controller = new AbortController()
+    this.inflightControllers.add(controller)
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
 
-    let response = await doFetch()
+    const fetchPromise = (async () => {
+      const doFetch = () =>
+        fetch(url, {
+          method: "GET",
+          headers,
+          credentials: "include",
+          signal: controller.signal,
+        })
 
-    if (response.status === 401) {
-      const refreshed = await this.refresh()
-      if (refreshed && this.accessToken) {
-        headers["Authorization"] = `Bearer ${this.accessToken}`
-        response = await doFetch()
+      let response = await doFetch()
+
+      if (response.status === 401) {
+        const refreshed = await this.refresh()
+        if (refreshed && this.accessToken) {
+          headers["Authorization"] = `Bearer ${this.accessToken}`
+          response = await doFetch()
+        }
       }
-    }
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "")
-      throw new ApiClientError(response.status, {
-        code: `HTTP_${response.status}`,
-        message: text || response.statusText || "Failed to fetch attachment",
-        details: { url },
-      })
-    }
+      if (!response.ok) {
+        const text = await response.text().catch(() => "")
+        throw new ApiClientError(response.status, {
+          code: `HTTP_${response.status}`,
+          message: text || response.statusText || "Failed to fetch attachment",
+          details: { url },
+        })
+      }
 
-    return await response.blob()
+      return await response.blob()
+    })()
+
+    this.blobInFlight.set(cacheKey, fetchPromise)
+
+    try {
+      const blob = await fetchPromise
+      this.blobCache.set(cacheKey, blob)
+      if (this.blobCache.size > this.blobCacheMax) {
+        const oldestKey = this.blobCache.keys().next().value
+        if (oldestKey) this.blobCache.delete(oldestKey)
+      }
+      if (debug) {
+        const elapsed = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt
+        console.info(`[perf] blob fetch ${cacheKey} in ${elapsed.toFixed(0)}ms`)
+      }
+      return blob
+    } finally {
+      this.blobInFlight.delete(cacheKey)
+      this.inflightControllers.delete(controller)
+    }
   }
 
   // Auth

@@ -6,10 +6,12 @@ import logging
 import mimetypes
 import re
 import uuid
+import time
+from email.utils import formatdate
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -158,10 +160,12 @@ def _attachment_url_matches_filename(url: str | None, filename: str) -> bool:
 @router.get("/serve/{filename}")
 def serve_file(
     filename: str,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Serve an uploaded file with strict authz (multi-tenant + entity-level checks)."""
+    start = time.perf_counter()
     filename = _sanitize_filename(filename)
 
     file_path = _org_upload_dir(current_user) / filename
@@ -175,11 +179,30 @@ def serve_file(
     except OSError:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Authorization: file must be attached to an entity the user can access.
+    stat = file_path.stat()
+    etag = f'W/"{stat.st_mtime_ns}-{stat.st_size}"'
     response_headers = {
-        "Cache-Control": "no-store",
-        "Pragma": "no-cache",
+        "Cache-Control": "private, max-age=3600, must-revalidate",
+        "ETag": etag,
+        "Last-Modified": formatdate(stat.st_mtime, usegmt=True),
     }
+
+    def _finalize_response(scope: str):
+        if request.headers.get("if-none-match") == etag:
+            response = Response(status_code=304, headers=response_headers)
+        else:
+            mime, _ = mimetypes.guess_type(str(file_path))
+            response = FileResponse(
+                path=str(file_path),
+                media_type=mime or "application/octet-stream",
+                headers=response_headers,
+            )
+        if settings.DEBUG:
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            logger.info("attachments.serve filename=%s scope=%s ms=%.0f size=%s", filename, scope, elapsed_ms, stat.st_size)
+        return response
+
+    # Authorization: file must be attached to an entity the user can access.
     # 1) Task attachments (direct task attachments)
     task_attachment = (
         db.query(TaskAttachment, Task)
@@ -197,12 +220,7 @@ def serve_file(
         _attachment, task = task_attachment
         if not can_view_task(task, current_user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-        mime, _ = mimetypes.guess_type(str(file_path))
-        return FileResponse(
-            path=str(file_path),
-            media_type=mime or "application/octet-stream",
-            headers=response_headers,
-        )
+        return _finalize_response("task_attachment")
 
     # 2) Task attachments (comment attachments -> task)
     comment_attachment = (
@@ -222,12 +240,7 @@ def serve_file(
         _attachment, task = comment_attachment
         if not can_view_task(task, current_user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-        mime, _ = mimetypes.guess_type(str(file_path))
-        return FileResponse(
-            path=str(file_path),
-            media_type=mime or "application/octet-stream",
-            headers=response_headers,
-        )
+        return _finalize_response("task_comment_attachment")
 
     # 3) Stage fact attachments -> part
     fact_attachment = (
@@ -247,12 +260,7 @@ def serve_file(
         _attachment, _fact, part = fact_attachment
         if not can_access_part(db, part, current_user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-        mime, _ = mimetypes.guess_type(str(file_path))
-        return FileResponse(
-            path=str(file_path),
-            media_type=mime or "application/octet-stream",
-            headers=response_headers,
-        )
+        return _finalize_response("stage_fact_attachment")
 
     # 4) Part drawing_url points to this filename
     part = (
@@ -266,11 +274,6 @@ def serve_file(
     if part and _attachment_url_matches_filename(part.drawing_url, filename):
         if not can_access_part(db, part, current_user):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-        mime, _ = mimetypes.guess_type(str(file_path))
-        return FileResponse(
-            path=str(file_path),
-            media_type=mime or "application/octet-stream",
-            headers=response_headers,
-        )
+        return _finalize_response("part_drawing")
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")

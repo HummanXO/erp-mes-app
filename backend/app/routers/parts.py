@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from uuid import UUID
 from typing import Optional
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import math
 from urllib.parse import urlparse
 from ..database import get_db
 from ..models import (
@@ -245,51 +246,101 @@ def calculate_part_progress(db: Session, part: Part) -> tuple[PartProgressRespon
 
 def calculate_part_forecast(db: Session, part: Part, current_date: date) -> PartForecastResponse:
     """Calculate part forecast."""
-    # Days until deadline
     deadline = part.deadline
     days_remaining = max(0, (deadline - current_date).days)
     shifts_remaining = days_remaining * 2  # 2 shifts per day
-    
-    # Get facts for machining stage (primary indicator)
-    machining_facts = db.query(StageFact).filter(
-        StageFact.part_id == part.id,
-        StageFact.stage == 'machining'
-    ).all()
-    
-    # Calculate average per shift
-    if machining_facts:
-        total_good = sum(f.qty_good for f in machining_facts)
-        avg_per_shift = int(total_good / len(machining_facts))
-    else:
-        # Use machine rate or default
-        if part.machine:
-            avg_per_shift = part.machine.rate_per_shift
-        else:
-            avg_per_shift = 100
-    
-    # Calculate remaining qty
+
     progress, _ = calculate_part_progress(db, part)
     qty_remaining = max(0, part.qty_plan - progress.overall_qty_done)
-    
-    # Shifts needed
-    shifts_needed = int(qty_remaining / avg_per_shift) if avg_per_shift > 0 else 999
-    
-    # Will finish on time?
-    will_finish_on_time = shifts_needed <= shifts_remaining
-    
-    # Estimated finish date
-    days_needed = (shifts_needed + 1) // 2  # Round up
-    from datetime import timedelta
+
+    machining_norm = None
+    if part.machine_id:
+        machining_norm = (
+            db.query(MachineNorm)
+            .filter(
+                MachineNorm.machine_id == part.machine_id,
+                MachineNorm.part_id == part.id,
+                MachineNorm.stage == "machining",
+            )
+            .first()
+        )
+    has_norm = bool(machining_norm and machining_norm.is_configured and machining_norm.qty_per_shift > 0)
+
+    stage_facts = (
+        db.query(StageFact)
+        .filter(
+            StageFact.part_id == part.id,
+            StageFact.org_id == part.org_id,
+        )
+        .all()
+    )
+    facts_by_stage: dict[str, list[StageFact]] = {}
+    for fact in stage_facts:
+        facts_by_stage.setdefault(fact.stage, []).append(fact)
+
+    in_progress_stage = None
+    for stage_status in (part.stage_statuses or []):
+        if stage_status.status == "in_progress":
+            in_progress_stage = stage_status.stage
+            break
+
+    primary_facts: list[StageFact] = []
+    if in_progress_stage and facts_by_stage.get(in_progress_stage):
+        primary_facts = facts_by_stage[in_progress_stage]
+    elif facts_by_stage.get("machining"):
+        primary_facts = facts_by_stage["machining"]
+    elif facts_by_stage:
+        primary_facts = next(iter(facts_by_stage.values()))
+
+    daily_totals: dict[date, int] = {}
+    for fact in primary_facts:
+        daily_totals[fact.date] = daily_totals.get(fact.date, 0) + int(fact.qty_good or 0)
+    daily_values = list(daily_totals.values())
+    avg_per_day_from_facts = sum(daily_values) / len(daily_values) if daily_values else None
+
+    avg_per_shift_from_facts = (
+        sum(int(f.qty_good or 0) for f in primary_facts) / len(primary_facts)
+        if primary_facts
+        else None
+    )
+    avg_per_shift = avg_per_shift_from_facts or (machining_norm.qty_per_shift if has_norm else 0)
+    avg_per_day = avg_per_day_from_facts or (avg_per_shift * 2 if avg_per_shift > 0 else 0)
+
+    has_forecast = avg_per_day > 0 and (bool(stage_facts) or has_norm)
+    reason = None
+    if not has_forecast:
+        reason = "Нет нормы и фактических данных" if not stage_facts and not has_norm else "Недостаточно данных для прогноза"
+
+    days_needed = math.ceil(qty_remaining / avg_per_day) if has_forecast and qty_remaining > 0 else 0
     estimated_finish = current_date + timedelta(days=days_needed)
-    
+    buffer_days = int((deadline - estimated_finish).days) if has_forecast else None
+
+    is_overdue = has_forecast and qty_remaining > 0 and deadline < current_date
+    status = (
+        "unknown"
+        if not has_forecast
+        else "overdue"
+        if is_overdue
+        else "risk"
+        if buffer_days is not None and buffer_days < 0
+        else "on_track"
+    )
+
+    shifts_needed = math.ceil(qty_remaining / avg_per_shift) if avg_per_shift > 0 else 0
+    will_finish_on_time = bool(has_forecast and buffer_days is not None and buffer_days >= 0)
+
     return PartForecastResponse(
         days_remaining=days_remaining,
         shifts_remaining=shifts_remaining,
         qty_remaining=qty_remaining,
-        avg_per_shift=avg_per_shift,
+        avg_per_shift=int(avg_per_shift) if avg_per_shift else 0,
         will_finish_on_time=will_finish_on_time,
         estimated_finish_date=estimated_finish.isoformat(),
-        shifts_needed=shifts_needed
+        shifts_needed=shifts_needed,
+        buffer_days=buffer_days,
+        status=status,
+        reason=reason,
+        calendar_basis="calendar",
     )
 
 

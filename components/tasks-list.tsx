@@ -36,9 +36,18 @@ import * as dataProvider from "@/lib/data-provider-adapter"
 interface TasksListProps {
   partId?: string
   machineId?: string
+  selectedTaskId?: string | null
+  onSelectTask?: (taskId: string) => void
+  onBack?: () => void
 }
 
-export function TasksList({ partId, machineId }: TasksListProps) {
+export function TasksList({
+  partId,
+  machineId,
+  selectedTaskId: controlledSelectedTaskId,
+  onSelectTask,
+  onBack,
+}: TasksListProps) {
   const { 
     tasks, 
     createTask, 
@@ -53,7 +62,9 @@ export function TasksList({ partId, machineId }: TasksListProps) {
   } = useApp()
   
   const [showForm, setShowForm] = useState(false)
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [internalSelectedTaskId, setInternalSelectedTaskId] = useState<string | null>(null)
+  const isControlled = controlledSelectedTaskId !== undefined
+  const selectedTaskId = isControlled ? controlledSelectedTaskId : internalSelectedTaskId
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
   const [isBlocker, setIsBlocker] = useState(false)
@@ -101,8 +112,26 @@ export function TasksList({ partId, machineId }: TasksListProps) {
     : 0
   
   // If a task is selected, show task details
+  const handleSelectTask = (taskId: string) => {
+    if (onSelectTask) {
+      onSelectTask(taskId)
+      return
+    }
+    setInternalSelectedTaskId(taskId)
+  }
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack()
+      return
+    }
+    if (!isControlled) {
+      setInternalSelectedTaskId(null)
+    }
+  }
+
   if (selectedTask) {
-    return <TaskDetails task={selectedTask} onBack={() => setSelectedTaskId(null)} />
+    return <TaskDetails task={selectedTask} onBack={handleBack} />
   }
   
   const handleCreateTask = () => {
@@ -413,7 +442,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
               const isUnread = currentUser && !task.read_by.includes(currentUser.id)
               const isGroupTask = task.assignee_type === "role" || task.assignee_type === "all"
               
-              const openTask = () => setSelectedTaskId(task.id)
+              const openTask = () => handleSelectTask(task.id)
               const handleKeyOpen = (e: React.KeyboardEvent<HTMLButtonElement>) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault()
@@ -587,7 +616,7 @@ export function TasksList({ partId, machineId }: TasksListProps) {
                 <button
                   key={task.id}
                   type="button"
-                  onClick={() => setSelectedTaskId(task.id)}
+                  onClick={() => handleSelectTask(task.id)}
                   aria-label={`Открыть задачу ${task.title}`}
                   className="w-full text-left p-3 rounded-md border border-amber-200 bg-amber-50/50 hover:bg-amber-100/50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
                 >

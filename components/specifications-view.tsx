@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/lib/app-context"
-import type { AccessPermission, SpecificationStatus } from "@/lib/types"
+import type { SpecificationStatus } from "@/lib/types"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -19,7 +19,17 @@ import { HowItWorksSheet } from "@/components/specifications/how-it-works-sheet"
 import type { HowItWorksTopic } from "@/components/specifications/how-it-works-sheet"
 import { Plus } from "lucide-react"
 
-export function SpecificationsView() {
+interface SpecificationsViewProps {
+  selectedSpecificationId?: string | null
+  onSelectSpecification?: (id: string) => void
+  onOpenPart?: (partId: string) => void
+}
+
+export function SpecificationsView({
+  selectedSpecificationId: controlledSelectedSpecificationId,
+  onSelectSpecification,
+  onOpenPart,
+}: SpecificationsViewProps = {}) {
   const {
     currentUser,
     permissions,
@@ -39,7 +49,9 @@ export function SpecificationsView() {
 
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<SpecificationStatus | "all">("all")
-  const [selectedSpecificationId, setSelectedSpecificationId] = useState<string | null>(null)
+  const [internalSelectedSpecificationId, setInternalSelectedSpecificationId] = useState<string | null>(null)
+  const isControlled = controlledSelectedSpecificationId !== undefined
+  const selectedSpecificationId = isControlled ? controlledSelectedSpecificationId : internalSelectedSpecificationId
   const [isLoading, setIsLoading] = useState(true)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -95,13 +107,22 @@ export function SpecificationsView() {
 
   useEffect(() => {
     if (filteredSpecifications.length === 0) {
-      setSelectedSpecificationId(null)
+      if (!isControlled) {
+        setInternalSelectedSpecificationId(null)
+      }
       return
     }
     if (!selectedSpecificationId || !filteredSpecifications.some((specification) => specification.id === selectedSpecificationId)) {
-      setSelectedSpecificationId(filteredSpecifications[0].id)
+      const nextId = filteredSpecifications[0].id
+      if (isControlled) {
+        if (onSelectSpecification) {
+          onSelectSpecification(nextId)
+        }
+      } else {
+        setInternalSelectedSpecificationId(nextId)
+      }
     }
-  }, [filteredSpecifications, selectedSpecificationId])
+  }, [filteredSpecifications, selectedSpecificationId, isControlled, onSelectSpecification])
 
   const selectedSpecification = useMemo(
     () => filteredSpecifications.find((specification) => specification.id === selectedSpecificationId) ?? null,
@@ -131,7 +152,25 @@ export function SpecificationsView() {
   const canManageSpecifications = permissions.canManageSpecifications
   const canGrantSpecificationAccess = permissions.canGrantSpecificationAccess
 
+  const handleSelectSpecification = (id: string | null) => {
+    if (!id) {
+      if (!isControlled) {
+        setInternalSelectedSpecificationId(null)
+      }
+      return
+    }
+    if (onSelectSpecification) {
+      onSelectSpecification(id)
+      return
+    }
+    setInternalSelectedSpecificationId(id)
+  }
+
   const openPartDetails = (partId: string) => {
+    if (onOpenPart) {
+      onOpenPart(partId)
+      return
+    }
     sessionStorage.setItem("pc.navigate.partId", partId)
     sessionStorage.setItem("pc.navigate.sourceView", "specifications")
     window.dispatchEvent(new CustomEvent("pc-open-part", { detail: { partId, sourceView: "specifications" } }))
@@ -157,7 +196,7 @@ export function SpecificationsView() {
         items: [],
       })
 
-      setSelectedSpecificationId(created.id)
+      handleSelectSpecification(created.id)
       setCreateOpen(false)
       setNewSpecNumber("")
       setNewSpecCustomer("")
@@ -181,7 +220,7 @@ export function SpecificationsView() {
       setDeleteOpen(false)
       setDeleteLinkedParts(false)
       const next = filteredSpecifications.find((specification) => specification.id !== targetId)
-      setSelectedSpecificationId(next?.id ?? null)
+      handleSelectSpecification(next?.id ?? null)
     })
   }
 
@@ -227,7 +266,7 @@ export function SpecificationsView() {
         <SpecListPane
           specifications={filteredSpecifications}
           selectedId={selectedSpecificationId}
-          onSelect={setSelectedSpecificationId}
+          onSelect={handleSelectSpecification}
           showFilters={!isOperator}
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}

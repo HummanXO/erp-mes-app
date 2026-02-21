@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useApp } from "@/lib/app-context"
+import type { DocAllianceView } from "@/lib/docalliance-paths"
 import { ROLE_LABELS } from "@/lib/types"
 import { LoginPage } from "@/components/login-page"
 import { LoginPageApi } from "@/components/login-page-api"
@@ -16,61 +17,26 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import * as dataProvider from "@/lib/data-provider-adapter"
 
-type View = "parts" | "tasks" | "inventory" | "specifications" | "adminUsers"
+export type View = DocAllianceView
 
-export function Dashboard() {
+interface DashboardShellProps {
+  activeView: View
+  onViewChange: (view: View) => void
+  children: React.ReactNode
+}
+
+export function DashboardShell({ activeView, onViewChange, children }: DashboardShellProps) {
   const { currentUser, getUnreadTasksCount, permissions } = useApp()
-  
-  const [activeView, setActiveView] = useState<View>("parts")
-  const [defaultViewUserId, setDefaultViewUserId] = useState<string | null>(null)
   const unreadCount = getUnreadTasksCount()
 
   useEffect(() => {
-    if (!currentUser) {
-      setDefaultViewUserId(null)
-      setActiveView("parts")
-      return
-    }
-    if (defaultViewUserId === currentUser.id) return
-    setActiveView(permissions.canViewSpecifications ? "specifications" : "parts")
-    setDefaultViewUserId(currentUser.id)
-  }, [currentUser, permissions.canViewSpecifications, defaultViewUserId])
-
-  useEffect(() => {
     if (activeView === "inventory" && !permissions.canViewInventory) {
-      setActiveView("parts")
+      onViewChange("parts")
     }
     if (activeView === "specifications" && !permissions.canViewSpecifications) {
-      setActiveView("parts")
+      onViewChange("parts")
     }
-  }, [activeView, permissions.canViewInventory, permissions.canViewSpecifications])
-
-  useEffect(() => {
-    const openPartListener = () => {
-      setActiveView("parts")
-    }
-
-    window.addEventListener("pc-open-part", openPartListener)
-    return () => {
-      window.removeEventListener("pc-open-part", openPartListener)
-    }
-  }, [])
-
-  useEffect(() => {
-    const switchViewListener = (event: Event) => {
-      const customEvent = event as CustomEvent<{ view?: View }>
-      const targetView = customEvent.detail?.view
-      if (!targetView) return
-      if (targetView === "inventory" && !permissions.canViewInventory) return
-      if (targetView === "specifications" && !permissions.canViewSpecifications) return
-      setActiveView(targetView)
-    }
-
-    window.addEventListener("pc-switch-view", switchViewListener)
-    return () => {
-      window.removeEventListener("pc-switch-view", switchViewListener)
-    }
-  }, [permissions.canViewInventory, permissions.canViewSpecifications])
+  }, [activeView, permissions.canViewInventory, permissions.canViewSpecifications, onViewChange])
 
   // Not logged in
   if (!currentUser) {
@@ -80,7 +46,7 @@ export function Dashboard() {
 
   return (
     <SidebarProvider>
-      <AppSidebar activeView={activeView} onViewChange={setActiveView} />
+      <AppSidebar activeView={activeView} onViewChange={onViewChange} />
       <SidebarInset className="flex flex-col">
         <header className="flex h-14 items-center gap-2 border-b px-4 lg:px-6">
           <SidebarTrigger className="-ml-2" />
@@ -110,21 +76,71 @@ export function Dashboard() {
           </div>
         </header>
         <main className="flex-1 overflow-auto p-4 lg:p-6">
-          {activeView === "parts" ? (
-            <PartsView />
-          ) : activeView === "tasks" ? (
-            <AllTasksView />
-          ) : activeView === "inventory" && permissions.canViewInventory ? (
-            <InventoryView />
-          ) : activeView === "adminUsers" ? (
-            <AdminUsersView />
-          ) : activeView === "specifications" && permissions.canViewSpecifications ? (
-            <SpecificationsView />
-          ) : (
-            <PartsView />
-          )}
+          {children}
         </main>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+export function Dashboard() {
+  const { currentUser, permissions } = useApp()
+  
+  const [activeView, setActiveView] = useState<View>("parts")
+  const [defaultViewUserId, setDefaultViewUserId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!currentUser) {
+      setDefaultViewUserId(null)
+      setActiveView("parts")
+      return
+    }
+    if (defaultViewUserId === currentUser.id) return
+    setActiveView(permissions.canViewSpecifications ? "specifications" : "parts")
+    setDefaultViewUserId(currentUser.id)
+  }, [currentUser, permissions.canViewSpecifications, defaultViewUserId])
+
+  useEffect(() => {
+    const openPartListener = () => {
+      setActiveView("parts")
+    }
+
+    window.addEventListener("pc-open-part", openPartListener)
+    return () => {
+      window.removeEventListener("pc-open-part", openPartListener)
+    }
+  }, [])
+
+  useEffect(() => {
+    const switchViewListener = (event: Event) => {
+      const customEvent = event as CustomEvent<{ view?: View }>
+      const targetView = customEvent.detail?.view
+      if (!targetView) return
+      if (targetView === "inventory" && !permissions.canViewInventory) return
+      if (targetView === "specifications" && !permissions.canViewSpecifications) return
+      setActiveView(targetView)
+    }
+
+    window.addEventListener("pc-switch-view", switchViewListener)
+    return () => {
+      window.removeEventListener("pc-switch-view", switchViewListener)
+    }
+  }, [permissions.canViewInventory, permissions.canViewSpecifications])
+
+  return (
+    <DashboardShell activeView={activeView} onViewChange={setActiveView}>
+      {activeView === "parts" ? (
+        <PartsView />
+      ) : activeView === "tasks" ? (
+        <AllTasksView />
+      ) : activeView === "inventory" && permissions.canViewInventory ? (
+        <InventoryView />
+      ) : activeView === "adminUsers" ? (
+        <AdminUsersView />
+      ) : activeView === "specifications" && permissions.canViewSpecifications ? (
+        <SpecificationsView />
+      ) : (
+        <PartsView />
+      )}
+    </DashboardShell>
   )
 }

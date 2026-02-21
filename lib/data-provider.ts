@@ -1694,6 +1694,8 @@ export function getPartProgress(partId: string): {
   // Calculate progress for each active stage
   const stageStatuses = part.stage_statuses || []
   const activeStages = stageStatuses.filter(s => s.status !== "skipped")
+  const machiningNorm = part.machine_id ? getMachineNorm(part.machine_id, part.id, "machining") : undefined
+  const hasNorm = Boolean(machiningNorm?.is_configured && machiningNorm.qty_per_shift > 0)
   
   const stageProgress = activeStages.map(stageStatus => {
     const stageFacts = facts.filter(f => f.stage === stageStatus.stage)
@@ -1740,6 +1742,10 @@ export function getPartForecast(partId: string, demoDate: string): {
     shiftsNeeded: number
     willFinishOnTime: boolean
   }>
+  bufferDays: number | null
+  status: "on_track" | "risk" | "overdue" | "unknown"
+  reason: string | null
+  calendarBasis: "calendar"
 } {
   const part = getPartById(partId)
   const machine = part?.machine_id ? getMachineById(part.machine_id) : undefined
@@ -1754,6 +1760,10 @@ export function getPartForecast(partId: string, demoDate: string): {
       estimatedFinishDate: demoDate,
       shiftsNeeded: 0,
       stageForecasts: [],
+      bufferDays: null,
+      status: "unknown",
+      reason: "Деталь не найдена",
+      calendarBasis: "calendar",
     }
   }
   
@@ -1775,7 +1785,7 @@ export function getPartForecast(partId: string, demoDate: string): {
     
     // Default rates per shift for different stages (can be customized)
     const defaultRates: Record<ProductionStage, number> = {
-      machining: machine?.rate_per_shift || 400,
+      machining: machiningNorm?.qty_per_shift || machine?.rate_per_shift || 400,
       fitting: 500,    // Slesar faster
       galvanic: 800,   // Batch processing
       heat_treatment: 600,
@@ -1799,27 +1809,61 @@ export function getPartForecast(partId: string, demoDate: string): {
     }
   })
   
-  // Calculate total shifts needed across all stages (they run sequentially)
-  const totalShiftsNeeded = stageForecasts.reduce((sum, sf) => sum + sf.shiftsNeeded, 0)
-  
-  // Overall average per shift (use machining as primary indicator)
-  const machiningFacts = facts.filter(f => f.stage === "machining")
-  const avgPerShift = machiningFacts.length > 0
-    ? machiningFacts.reduce((sum, f) => sum + f.qty_good, 0) / machiningFacts.length
-    : (machine?.rate_per_shift || 100)
-  
-  // Total remaining across current stage (for display)
-  const currentStage = activeStages.find(s => s.status === "in_progress") || activeStages[0]
-  const currentStageForecast = stageForecasts.find(sf => sf.stage === currentStage?.stage)
-  const qtyRemaining = currentStageForecast?.qtyRemaining || 0
-  
-  // Estimated finish date considering all stages
-  const daysNeeded = Math.ceil(totalShiftsNeeded / 2)
+  const factsByStage = new Map<ProductionStage, StageFact[]>()
+  for (const fact of facts) {
+    const list = factsByStage.get(fact.stage) || []
+    list.push(fact)
+    factsByStage.set(fact.stage, list)
+  }
+
+  const inProgressStage = activeStages.find((s) => s.status === "in_progress")?.stage
+  const primaryStage = (inProgressStage && (factsByStage.get(inProgressStage)?.length || 0) > 0)
+    ? inProgressStage
+    : (factsByStage.get("machining")?.length ? "machining" : (factsByStage.keys().next().value as ProductionStage | undefined))
+  const primaryFacts = primaryStage ? factsByStage.get(primaryStage) || [] : []
+
+  const dailyTotals = new Map<string, number>()
+  for (const fact of primaryFacts) {
+    dailyTotals.set(fact.date, (dailyTotals.get(fact.date) || 0) + fact.qty_good)
+  }
+  const dailyValues = Array.from(dailyTotals.values())
+  const avgPerDayFromFacts = dailyValues.length > 0
+    ? dailyValues.reduce((sum, value) => sum + value, 0) / dailyValues.length
+    : null
+
+  const avgPerShiftFromFacts = primaryFacts.length > 0
+    ? primaryFacts.reduce((sum, f) => sum + f.qty_good, 0) / primaryFacts.length
+    : null
+  const avgPerShift = avgPerShiftFromFacts ?? (hasNorm ? machiningNorm?.qty_per_shift || 0 : 0)
+  const avgPerDay = avgPerDayFromFacts ?? (avgPerShift > 0 ? avgPerShift * 2 : 0)
+
+  const progress = getPartProgress(partId)
+  const qtyRemaining = Math.max(0, part.qty_plan - progress.qtyDone)
+  const hasForecast = avgPerDay > 0 && (facts.length > 0 || hasNorm)
+  const reason = hasForecast
+    ? null
+    : (facts.length === 0 && !hasNorm)
+      ? "Нет нормы и фактических данных"
+      : "Недостаточно данных для прогноза"
+
   const estimatedFinish = new Date(today)
+  const daysNeeded = hasForecast && qtyRemaining > 0 ? Math.ceil(qtyRemaining / avgPerDay) : 0
   estimatedFinish.setDate(estimatedFinish.getDate() + daysNeeded)
-  
-  // Will finish on time only if ALL stages can complete in time
-  const willFinishOnTime = totalShiftsNeeded <= shiftsRemaining
+  const bufferDays = hasForecast
+    ? Math.ceil((deadline.getTime() - estimatedFinish.getTime()) / (1000 * 60 * 60 * 24))
+    : null
+
+  const isOverdue = hasForecast && qtyRemaining > 0 && deadline.getTime() < today.getTime()
+  const status = !hasForecast
+    ? "unknown"
+    : isOverdue
+      ? "overdue"
+      : bufferDays !== null && bufferDays < 0
+        ? "risk"
+        : "on_track"
+
+  const shiftsNeeded = avgPerShift > 0 ? Math.ceil(qtyRemaining / avgPerShift) : 0
+  const willFinishOnTime = hasForecast ? (bufferDays !== null && bufferDays >= 0) : false
   
   return {
     daysRemaining,
@@ -1828,8 +1872,12 @@ export function getPartForecast(partId: string, demoDate: string): {
     avgPerShift: Math.round(avgPerShift),
     willFinishOnTime,
     estimatedFinishDate: estimatedFinish.toISOString().split("T")[0],
-    shiftsNeeded: totalShiftsNeeded,
+    shiftsNeeded,
     stageForecasts,
+    bufferDays,
+    status,
+    reason,
+    calendarBasis: "calendar",
   }
 }
 

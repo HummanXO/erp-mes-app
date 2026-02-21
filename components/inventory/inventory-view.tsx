@@ -10,18 +10,29 @@ import { useApp } from "@/lib/app-context"
 import * as dataProvider from "@/lib/data-provider-adapter"
 import { Card, CardContent } from "@/components/ui/card"
 
-export function InventoryView() {
+interface InventoryViewProps {
+  initialTab?: string
+  onTabChange?: (tab: string) => void
+}
+
+export function InventoryView({ initialTab, onTabChange }: InventoryViewProps = {}) {
   const { permissions } = useApp()
   const inventorySupported = dataProvider.isCapabilitySupported("inventory")
   const usingApi = dataProvider.isUsingApi()
   const fullInventoryTabs = !usingApi
-  const [tab, setTab] = useState(fullInventoryTabs ? "overview" : "movements")
+  const allowedTabs = fullInventoryTabs
+    ? ["overview", "metal", "tooling", "movements"]
+    : ["movements"]
+  const defaultTab = fullInventoryTabs ? "overview" : "movements"
+  const sanitizedInitialTab =
+    initialTab && allowedTabs.includes(initialTab) ? initialTab : defaultTab
+  const [tab, setTab] = useState(sanitizedInitialTab)
 
   useEffect(() => {
-    if (!fullInventoryTabs && tab !== "movements") {
-      setTab("movements")
+    if (sanitizedInitialTab !== tab) {
+      setTab(sanitizedInitialTab)
     }
-  }, [fullInventoryTabs, tab])
+  }, [sanitizedInitialTab, tab])
 
   if (!inventorySupported) {
     return (
@@ -54,7 +65,14 @@ export function InventoryView() {
         </p>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          setTab(value)
+          onTabChange?.(value)
+        }}
+        className="space-y-4"
+      >
         <div className="overflow-x-auto overflow-y-hidden py-1">
           <TabsList className="h-10 md:h-9 w-max min-w-full justify-start">
             {fullInventoryTabs && <TabsTrigger value="overview" className="flex-none shrink-0">Обзор</TabsTrigger>}

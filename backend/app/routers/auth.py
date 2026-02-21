@@ -1,5 +1,6 @@
 """Auth endpoints."""
 import logging
+import time
 import ipaddress
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -613,6 +614,7 @@ def logout(
     db: Session = Depends(get_db),
 ):
     """Logout by revoking currently issued tokens (token_version bump) + audit."""
+    start = time.perf_counter()
     _set_no_store(response)
     _enforce_csrf_origin(request)
 
@@ -636,7 +638,11 @@ def logout(
         raise HTTPException(status_code=500, detail="Failed to logout")
 
     _clear_refresh_cookie(response, request=request)
-    
+
+    if settings.DEBUG:
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        logger.info("auth.logout user=%s ms=%.0f", current_user.id, elapsed_ms)
+
     return {"message": "Logged out successfully"}
 
 

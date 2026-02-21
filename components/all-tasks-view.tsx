@@ -33,7 +33,17 @@ import {
 import { cn } from "@/lib/utils"
 import * as dataProvider from "@/lib/data-provider-adapter"
 
-export function AllTasksView() {
+interface AllTasksViewProps {
+  selectedTaskId?: string | null
+  onSelectTask?: (taskId: string) => void
+  onBack?: () => void
+}
+
+export function AllTasksView({
+  selectedTaskId: controlledSelectedTaskId,
+  onSelectTask,
+  onBack,
+}: AllTasksViewProps = {}) {
   const { 
     tasks, 
     updateTask, 
@@ -59,7 +69,9 @@ export function AllTasksView() {
   const [assigneeTypeFilter, setAssigneeTypeFilter] = useState<TaskAssigneeType | "all_types">("all_types")
   
   // Selected task for detail view
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [internalSelectedTaskId, setInternalSelectedTaskId] = useState<string | null>(null)
+  const isControlled = controlledSelectedTaskId !== undefined
+  const selectedTaskId = isControlled ? controlledSelectedTaskId : internalSelectedTaskId
   
   // Create task form
   const [showForm, setShowForm] = useState(false)
@@ -234,14 +246,32 @@ const getStatusIcon = (status: TaskStatus) => {
     return "Не назначено"
   }
 
+  const selectedTask = selectedTaskId ? tasks.find(t => t.id === selectedTaskId) ?? null : null
+
+  const handleSelectTask = (taskId: string) => {
+    if (onSelectTask) {
+      onSelectTask(taskId)
+      return
+    }
+    setInternalSelectedTaskId(taskId)
+  }
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack()
+      return
+    }
+    if (!isControlled) {
+      setInternalSelectedTaskId(null)
+    }
+  }
+
   // If a task is selected, show TaskDetails
   if (selectedTask) {
-    // Find the latest version of the task from the tasks array
-    const currentTask = tasks.find(t => t.id === selectedTask.id) || selectedTask
     return (
       <TaskDetails 
-        task={currentTask} 
-        onBack={() => setSelectedTask(null)} 
+        task={selectedTask} 
+        onBack={handleBack} 
       />
     )
   }
@@ -604,7 +634,7 @@ const getStatusIcon = (status: TaskStatus) => {
               const mine = isMyTask(task)
               const isGroupTask = task.assignee_type === "role" || task.assignee_type === "all"
               
-              const openTask = () => setSelectedTask(task)
+              const openTask = () => handleSelectTask(task.id)
               const handleKeyOpen = (e: React.KeyboardEvent<HTMLButtonElement>) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault()
@@ -767,7 +797,7 @@ const getStatusIcon = (status: TaskStatus) => {
               <button
                 key={task.id}
                 type="button"
-                onClick={() => setSelectedTask(task)}
+                onClick={() => handleSelectTask(task.id)}
                 aria-label={`Открыть выполненную задачу ${task.title}`}
                 className="w-full text-left p-2 rounded-md bg-muted/50 flex items-center gap-3 hover:bg-muted transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
               >

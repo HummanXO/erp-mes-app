@@ -171,6 +171,10 @@ class PartForecastResponse(BaseModel):
     will_finish_on_time: bool
     estimated_finish_date: str
     shifts_needed: int
+    buffer_days: Optional[int] = None
+    status: Optional[str] = None
+    reason: Optional[str] = None
+    calendar_basis: Optional[str] = None
 
 
 class PartResponse(BaseModel):
