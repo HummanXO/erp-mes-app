@@ -690,6 +690,12 @@ class ApiClient {
     })
   }
 
+  async deleteSpecItem(specificationId: string, specItemId: string) {
+    return this.request<void>(`/specifications/${specificationId}/items/${specItemId}`, {
+      method: "DELETE",
+    })
+  }
+
   async updateSpecItemProgress(specItemId: string, qtyDone: number, statusOverride?: string) {
     return this.request<any>(`/spec-items/${specItemId}/progress`, {
       method: "PATCH",

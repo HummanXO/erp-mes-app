@@ -216,6 +216,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     createSpecification: specsDomain.createSpecification,
     createSpecItem: specsDomain.createSpecItem,
+    deleteSpecItem: specsDomain.deleteSpecItem,
     updateSpecification: specsDomain.updateSpecification,
     setSpecificationPublished: specsDomain.setSpecificationPublished,
     deleteSpecification: specsDomain.deleteSpecification,

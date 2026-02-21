@@ -870,6 +870,69 @@ export function createSpecItem(
   return newItem
 }
 
+export function deleteSpecItem(specificationId: string, specItemId: string): void {
+  const specification = getSpecificationById(specificationId)
+  if (!specification) {
+    throw new Error("Спецификация не найдена")
+  }
+
+  const allSpecItems = getSpecItems()
+  const targetItem = allSpecItems.find(
+    item => item.id === specItemId && item.specification_id === specificationId
+  )
+  if (!targetItem) {
+    throw new Error("Позиция спецификации не найдена")
+  }
+
+  if (targetItem.part_id) {
+    const hasOtherSpecReferences = allSpecItems.some(
+      item => item.id !== targetItem.id && item.part_id === targetItem.part_id
+    )
+
+    if (!hasOtherSpecReferences) {
+      const part = getPartById(targetItem.part_id)
+      if (part) {
+        const hasDependencies =
+          part.qty_done > 0 ||
+          part.status !== "not_started" ||
+          getStageFactsForPart(part.id).length > 0 ||
+          getTasks().some(task => task.part_id === part.id) ||
+          getLogisticsForPart(part.id).length > 0 ||
+          getMachineNormsForPart(part.id).length > 0 ||
+          part.stage_statuses.some(stage => stage.status !== "pending")
+
+        if (hasDependencies) {
+          throw new Error("Нельзя удалить позицию: по детали уже есть производственные данные")
+        }
+      }
+    }
+  }
+
+  const nextSpecItems = allSpecItems.filter(item => item.id !== targetItem.id)
+  saveToStorage(STORAGE_KEYS.specItems, nextSpecItems)
+
+  const allWorkOrders = getWorkOrders()
+  const removedWorkOrderIds = new Set(
+    allWorkOrders
+      .filter(order => order.spec_item_id === targetItem.id)
+      .map(order => order.id)
+  )
+  if (removedWorkOrderIds.size > 0) {
+    saveToStorage(
+      STORAGE_KEYS.workOrders,
+      allWorkOrders.filter(order => !removedWorkOrderIds.has(order.id))
+    )
+
+    const allGrants = getAccessGrants()
+    saveToStorage(
+      STORAGE_KEYS.accessGrants,
+      allGrants.filter(grant => !(grant.entity_type === "work_order" && removedWorkOrderIds.has(grant.entity_id)))
+    )
+  }
+
+  recomputeSpecificationStatus(specificationId)
+}
+
 export function updateSpecification(specification: Specification): void {
   const specifications = getSpecifications()
   const index = specifications.findIndex(spec => spec.id === specification.id)

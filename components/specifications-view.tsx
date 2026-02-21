@@ -35,6 +35,7 @@ export function SpecificationsView({
     createSpecification,
     setSpecificationPublished,
     deleteSpecification,
+    deleteSpecItem,
     grantAccess,
     revokeAccess,
     getSpecificationsForCurrentUser,
@@ -61,6 +62,8 @@ export function SpecificationsView({
 
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteLinkedParts, setDeleteLinkedParts] = useState(false)
+  const [deleteItemOpen, setDeleteItemOpen] = useState(false)
+  const [deleteItemTarget, setDeleteItemTarget] = useState<{ id: string; label: string } | null>(null)
 
   const [addItemOpen, setAddItemOpen] = useState(false)
 
@@ -232,6 +235,16 @@ export function SpecificationsView({
     })
   }
 
+  const handleDeleteSpecItem = () => {
+    if (!selectedSpecification || !deleteItemTarget) return
+
+    void runAction(async () => {
+      await deleteSpecItem(selectedSpecification.id, deleteItemTarget.id)
+      setDeleteItemOpen(false)
+      setDeleteItemTarget(null)
+    })
+  }
+
   const openHowItWorks = (topic: HowItWorksTopic) => {
     setHowItWorksTopic(topic)
     setHowItWorksOpen(true)
@@ -314,6 +327,10 @@ export function SpecificationsView({
                     onAddItem={() => setAddItemOpen(true)}
                     onHelp={() => openHowItWorks("items")}
                     onOpenPart={openPartDetails}
+                    onDeleteItem={(specItemId, partCode) => {
+                      setDeleteItemTarget({ id: specItemId, label: partCode })
+                      setDeleteItemOpen(true)
+                    }}
                   />
 
                   {!isOperator && canGrantSpecificationAccess && (
@@ -382,6 +399,19 @@ export function SpecificationsView({
         cascadeChecked={deleteLinkedParts}
         onCascadeCheckedChange={setDeleteLinkedParts}
         onConfirm={handleDeleteSpecification}
+        busy={actionBusy}
+      />
+
+      <DeleteConfirmationModal
+        open={deleteItemOpen}
+        onOpenChange={(open) => {
+          setDeleteItemOpen(open)
+          if (!open) setDeleteItemTarget(null)
+        }}
+        title="Удалить позицию?"
+        description="Это действие нельзя отменить. Позиция будет удалена из спецификации."
+        itemName={deleteItemTarget?.label}
+        onConfirm={handleDeleteSpecItem}
         busy={actionBusy}
       />
 

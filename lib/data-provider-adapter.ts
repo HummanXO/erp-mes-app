@@ -317,6 +317,10 @@ export function createSpecItem(specificationId: string, item: any) {
   return USE_API ? httpProvider.createSpecItem(specificationId, item) : local().createSpecItem(specificationId, item)
 }
 
+export function deleteSpecItem(specificationId: string, specItemId: string) {
+  return USE_API ? httpProvider.deleteSpecItem(specificationId, specItemId) : local().deleteSpecItem(specificationId, specItemId)
+}
+
 export function updateSpecification(specification: any) {
   return USE_API ? httpProvider.updateSpecification(specification) : local().updateSpecification(specification)
 }
@@ -663,6 +667,7 @@ const KNOWN_CONTEXT_OPERATIONS = Object.freeze([
   "updateInventoryTooling",
   "createSpecification",
   "createSpecItem",
+  "deleteSpecItem",
   "updateSpecification",
   "setSpecificationPublished",
   "deleteSpecification",

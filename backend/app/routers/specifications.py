@@ -193,6 +193,58 @@ def _delete_part_with_dependents(db: Session, part: Part) -> None:
     db.delete(part)
 
 
+def _part_has_deletion_dependencies(db: Session, *, part_id: UUID, org_id: UUID) -> bool:
+    part = db.query(Part).filter(
+        Part.id == part_id,
+        Part.org_id == org_id,
+    ).first()
+    if not part:
+        return False
+
+    if part.qty_done > 0 or part.status != "not_started":
+        return True
+
+    has_stage_facts = db.query(StageFact.id).filter(
+        StageFact.org_id == org_id,
+        StageFact.part_id == part_id,
+    ).first()
+    has_tasks = db.query(Task.id).filter(
+        Task.org_id == org_id,
+        Task.part_id == part_id,
+    ).first()
+    has_logistics = db.query(LogisticsEntry.id).filter(
+        LogisticsEntry.org_id == org_id,
+        LogisticsEntry.part_id == part_id,
+    ).first()
+    has_norms = db.query(MachineNorm.id).filter(
+        MachineNorm.part_id == part_id,
+    ).first()
+    has_stage_progress = db.query(PartStageStatus.id).filter(
+        PartStageStatus.part_id == part_id,
+        PartStageStatus.status != "pending",
+    ).first()
+
+    return bool(has_stage_facts or has_tasks or has_logistics or has_norms or has_stage_progress)
+
+
+def _ensure_spec_item_deletable(db: Session, *, item: SpecItem, org_id: UUID) -> None:
+    if not item.part_id:
+        return
+
+    shared_part_reference = db.query(SpecItem.id).filter(
+        SpecItem.part_id == item.part_id,
+        SpecItem.id != item.id,
+    ).first()
+    if shared_part_reference:
+        return
+
+    if _part_has_deletion_dependencies(db, part_id=item.part_id, org_id=org_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete specification item: linked part already has production activity",
+        )
+
+
 @specifications_router.get("", response_model=list[SpecificationResponse])
 def get_specifications(
     current_user: User = Depends(get_current_user),
@@ -451,6 +503,34 @@ def create_specification_item(
     db.refresh(item)
 
     return SpecItemResponse.model_validate(item)
+
+
+@specifications_router.delete("/{specification_id}/items/{spec_item_id}", status_code=204)
+def delete_specification_item(
+    specification_id: UUID,
+    spec_item_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _ensure_manage_specifications(current_user)
+    specification = _get_specification_or_404(db, specification_id, current_user.org_id)
+
+    item = db.query(SpecItem).filter(
+        SpecItem.id == spec_item_id,
+        SpecItem.specification_id == specification.id,
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Spec item not found")
+
+    _ensure_spec_item_deletable(db, item=item, org_id=current_user.org_id)
+
+    db.delete(item)
+    db.flush()
+    db.refresh(specification)
+    _recompute_specification_status(specification)
+    db.commit()
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @spec_items_router.get("", response_model=list[SpecItemResponse])

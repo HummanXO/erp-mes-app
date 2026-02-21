@@ -50,6 +50,11 @@ export function useSpecsDomain({
     return created
   }, [refreshData])
 
+  const deleteSpecItem = useCallback(async (specificationId: string, specItemId: string) => {
+    await dataProvider.deleteSpecItem(specificationId, specItemId)
+    await refreshData()
+  }, [refreshData])
+
   const updateSpecification = useCallback(async (specification: Specification) => {
     await dataProvider.updateSpecification(specification)
     await refreshData()
@@ -189,6 +194,7 @@ export function useSpecsDomain({
   return {
     createSpecification,
     createSpecItem,
+    deleteSpecItem,
     updateSpecification,
     setSpecificationPublished,
     deleteSpecification,

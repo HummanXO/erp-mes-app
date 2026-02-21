@@ -126,6 +126,7 @@ export interface AppContextType {
     specificationId: string,
     item: Omit<SpecItem, "id" | "specification_id" | "line_no" | "qty_done" | "status">
   ) => Promise<SpecItem>
+  deleteSpecItem: (specificationId: string, specItemId: string) => Promise<void>
   updateSpecification: (specification: Specification) => Promise<void>
   setSpecificationPublished: (specificationId: string, published: boolean) => Promise<void>
   deleteSpecification: (specificationId: string, deleteLinkedParts?: boolean) => Promise<void>

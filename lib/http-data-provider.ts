@@ -862,6 +862,10 @@ export async function createSpecItem(
   return transformSpecItem(response)
 }
 
+export async function deleteSpecItem(specificationId: string, specItemId: string): Promise<void> {
+  await apiClient.deleteSpecItem(specificationId, specItemId)
+}
+
 export async function updateSpecification(specification: Specification): Promise<void> {
   await apiClient.updateSpecification(specification.id, specification)
 }
