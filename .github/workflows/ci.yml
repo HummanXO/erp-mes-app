@@ -78,4 +78,5 @@ jobs:
           SECRET_KEY: ci-secret-key
           JWT_SECRET_KEY: ci-jwt-secret-key
           DATABASE_URL: sqlite:///./ci.db
+          PYTHONPATH: .
         run: pytest -q
