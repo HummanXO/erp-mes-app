@@ -1272,7 +1272,7 @@ export function PartDetails({
     )
   }
 
-  if (currentUser && currentUser.role !== "operator" && !part.is_cooperation) {
+  if (currentUser && currentUser.role !== "operator") {
     return <PartDetailsMaster part={part} onBack={onBack} />
   }
 
