@@ -57,7 +57,7 @@ import { FactJournal } from "./fact-journal"
 import { StageProgressSummary } from "./stage-progress-summary"
 import { AuditLogView } from "./audit-log-view"
 import { PartDetailsMaster } from "./part-details-master"
-import { PartDetailsCooperation } from "./part-details-cooperation"
+import { PartDetailsCooperationZip } from "./part-details-cooperation-zip"
 import { apiClient } from "@/lib/api-client"
 
 interface PartDetailsProps {
@@ -1291,7 +1291,7 @@ export function PartDetails({
 
   if (currentUser && currentUser.role !== "operator") {
     if (isCoop(part)) {
-      return <PartDetailsCooperation part={part} onBack={onBack} />
+      return <PartDetailsCooperationZip part={part} onBack={onBack} />
     }
     return <PartDetailsMaster part={part} onBack={onBack} />
   }
