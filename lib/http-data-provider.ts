@@ -52,6 +52,7 @@ function transformPart(backendPart: any): Part {
     deadline: backendPart.deadline,
     status: backendPart.status,
     drawing_url: backendPart.drawing_url ? resolveUploadUrl(String(backendPart.drawing_url)) : undefined,
+    drawing_preview_url: backendPart.drawing_preview_url ? resolveUploadUrl(String(backendPart.drawing_preview_url)) : undefined,
     description: backendPart.description,
     is_cooperation: backendPart.is_cooperation,
     cooperation_partner: backendPart.cooperation_partner,
@@ -505,6 +506,7 @@ export async function uploadAttachment(file: File): Promise<TaskAttachment> {
     id: response.id,
     name: response.name,
     url: resolveUploadUrl(response.url),
+    preview_url: response.preview_url ? resolveUploadUrl(String(response.preview_url)) : undefined,
     type: response.type,
     size: response.size,
   }

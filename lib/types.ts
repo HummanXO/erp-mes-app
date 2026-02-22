@@ -138,6 +138,7 @@ export interface Part {
   deadline: string
   status: PartStatus
   drawing_url?: string // URL to drawing/blueprint
+  drawing_preview_url?: string // Image preview URL for drawing (PDF -> rendered image)
   description?: string
   
   // Production configuration
@@ -292,6 +293,7 @@ export interface TaskAttachment {
   id: string
   name: string
   url: string
+  preview_url?: string
   type: "image" | "file"
   size?: number
 }

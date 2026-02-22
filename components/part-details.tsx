@@ -168,12 +168,17 @@ export function PartDetails({
   const MAX_DRAWING_FILE_SIZE_BYTES = 9 * 1024 * 1024
 
   const drawingUrlValue = drawingUrl.trim()
-  const drawingUrlLower = drawingUrlValue.toLowerCase()
+  const drawingPreviewUrlValue = (part.drawing_preview_url || "").trim()
+  const drawingDisplayUrlValue = drawingPreviewUrlValue || drawingUrlValue
+  const hasDrawingPreviewImage = Boolean(drawingPreviewUrlValue)
+  const drawingDisplayUrlLower = drawingDisplayUrlValue.toLowerCase()
   const isPdfDrawing =
-    drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
+    !hasDrawingPreviewImage &&
+    (drawingDisplayUrlLower.includes(".pdf") || drawingDisplayUrlLower.startsWith("data:application/pdf"))
   const isImageDrawing =
-    drawingUrlLower.startsWith("data:image/") ||
-    /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
+    hasDrawingPreviewImage ||
+    drawingDisplayUrlLower.startsWith("data:image/") ||
+    /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingDisplayUrlLower)
   const isKnownDrawingType = isPdfDrawing || isImageDrawing
 
   const isValidDrawingPath = (value: string) => {
@@ -205,7 +210,7 @@ export function PartDetails({
 
   useEffect(() => {
     setDrawingError(false)
-  }, [drawingUrl])
+  }, [drawingUrl, part.drawing_preview_url])
 
   useEffect(() => {
     setMachineDraftId(part.machine_id || "")
@@ -249,8 +254,8 @@ export function PartDetails({
     return false
   }
 
-  const isProtectedDrawing = drawingUrlValue ? isProtectedAttachmentUrl(drawingUrlValue) : false
-  const drawingImageSrc = isProtectedDrawing ? drawingBlobUrl : drawingUrlValue
+  const isProtectedDrawing = drawingDisplayUrlValue ? isProtectedAttachmentUrl(drawingDisplayUrlValue) : false
+  const drawingImageSrc = isProtectedDrawing ? drawingBlobUrl : drawingDisplayUrlValue
 
   useEffect(() => {
     let cancelled = false
@@ -260,7 +265,7 @@ export function PartDetails({
       setDrawingBlobUrl(null)
     }
 
-    const value = drawingUrlValue
+    const value = drawingDisplayUrlValue
     if (!value) return
 
     if (!isImageDrawing) return
@@ -287,7 +292,7 @@ export function PartDetails({
     return () => {
       cancelled = true
     }
-  }, [drawingUrlValue, isImageDrawing])
+  }, [drawingDisplayUrlValue, isImageDrawing])
   
   const machine = part.machine_id ? getMachineById(part.machine_id) : null
   const machiningMachines = machines.filter((m) => m.department === "machining")

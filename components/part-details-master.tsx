@@ -713,10 +713,14 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
   const [drawingObjectUrl, setDrawingObjectUrl] = useState<string | null>(null)
   const [isLoadingDrawingFile, setIsLoadingDrawingFile] = useState(false)
 
-  const drawingUrlValue = (part.drawing_url || "").trim()
+  const drawingOriginalUrlValue = (part.drawing_url || "").trim()
+  const drawingPreviewUrlValue = (part.drawing_preview_url || "").trim()
+  const drawingUrlValue = drawingPreviewUrlValue || drawingOriginalUrlValue
+  const hasDrawingPreviewImage = Boolean(drawingPreviewUrlValue)
   const drawingUrlLower = drawingUrlValue.toLowerCase()
-  const isPdfDrawing = drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf")
+  const isPdfDrawing = !hasDrawingPreviewImage && (drawingUrlLower.includes(".pdf") || drawingUrlLower.startsWith("data:application/pdf"))
   const isImageDrawing =
+    hasDrawingPreviewImage ||
     drawingUrlLower.startsWith("data:image/") ||
     /\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(drawingUrlLower)
   const isKnownDrawingType = isPdfDrawing || isImageDrawing

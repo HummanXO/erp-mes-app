@@ -85,6 +85,31 @@ def _normalize_drawing_url(value: str | None) -> str | None:
     return candidate
 
 
+def _drawing_preview_url(value: str | None) -> str | None:
+    normalized = _normalize_drawing_url(value)
+    if not normalized:
+        return None
+
+    lowered = normalized.lower()
+    if lowered.startswith("data:image/"):
+        return normalized
+
+    parsed = urlparse(normalized)
+    path = parsed.path if parsed.path else normalized
+    lower_path = path.lower()
+
+    if lower_path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg")):
+        return normalized
+
+    if lower_path.endswith(".pdf") and "/attachments/serve/" in lower_path:
+        if "preview=1" in (parsed.query or ""):
+            return normalized
+        separator = "&" if parsed.query else "?"
+        return f"{normalized}{separator}preview=1"
+
+    return None
+
+
 def _recompute_specification_status(db: Session, specification: Specification) -> None:
     """Keep specification status in sync when linked items are removed."""
     items = db.query(SpecItem).filter(SpecItem.specification_id == specification.id).all()
@@ -380,6 +405,7 @@ def get_parts(
         response_data = {
             **{k: v for k, v in part.__dict__.items() if not k.startswith('_')},
             'qty_ready': part.qty_done,
+            'drawing_preview_url': _drawing_preview_url(part.drawing_url),
             'progress': progress,
             'stage_statuses': stage_statuses,
             'machine': MachineResponse.model_validate(part.machine) if part.machine else None
@@ -429,6 +455,7 @@ def get_part(
     response_data = {
         **{k: v for k, v in part.__dict__.items() if not k.startswith('_')},
         'qty_ready': part.qty_done,
+        'drawing_preview_url': _drawing_preview_url(part.drawing_url),
         'progress': progress,
         'forecast': forecast,
         'stage_statuses': stage_statuses,
@@ -491,6 +518,7 @@ def recompute_part(
     response_data = {
         **{k: v for k, v in part.__dict__.items() if not k.startswith('_')},
         'qty_ready': part.qty_done,
+        'drawing_preview_url': _drawing_preview_url(part.drawing_url),
         'progress': progress,
         'stage_statuses': stage_statuses,
         'machine': MachineResponse.model_validate(part.machine) if part.machine else None
@@ -619,6 +647,7 @@ def create_part(
     response_data = {
         **{k: v for k, v in part.__dict__.items() if not k.startswith('_')},
         'qty_ready': part.qty_done,
+        'drawing_preview_url': _drawing_preview_url(part.drawing_url),
         'progress': progress,
         'stage_statuses': stage_statuses,
         'machine': MachineResponse.model_validate(part.machine) if part.machine else None
@@ -708,6 +737,7 @@ def update_part(
     response_data = {
         **{k: v for k, v in part.__dict__.items() if not k.startswith('_')},
         'qty_ready': part.qty_done,
+        'drawing_preview_url': _drawing_preview_url(part.drawing_url),
         'progress': progress,
         'stage_statuses': stage_statuses,
         'machine': MachineResponse.model_validate(part.machine) if part.machine else None

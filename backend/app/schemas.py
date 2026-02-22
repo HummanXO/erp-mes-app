@@ -188,6 +188,7 @@ class PartResponse(BaseModel):
     deadline: date
     status: str
     drawing_url: Optional[str] = None
+    drawing_preview_url: Optional[str] = None
     is_cooperation: bool
     cooperation_partner: Optional[str] = None
     cooperation_due_date: Optional[date] = None

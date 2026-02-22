@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import mimetypes
 import re
+import shutil
+import subprocess
 import uuid
 import time
 from email.utils import formatdate
@@ -39,6 +41,9 @@ _SAFE_FILENAME_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.[A-Za-z0-9]{1,16}$"
 )
 _CHUNK_SIZE = 1024 * 1024  # 1MB
+_PDF_PREVIEW_SUFFIX = "_preview.png"
+_PDF_PREVIEW_DPI = 144  # ~1190px width for A4 page
+_PDF_PREVIEW_TIMEOUT_SECONDS = 30
 
 
 def _org_upload_dir(user: User) -> Path:
@@ -83,6 +88,92 @@ def _validate_upload(file: UploadFile) -> str:
             detail=f"File type not allowed. Allowed: {settings.ALLOWED_EXTENSIONS}",
         )
     return ext
+
+
+def _looks_like_pdf(file_path: Path) -> bool:
+    try:
+        with file_path.open("rb") as f:
+            header = f.read(5)
+        return header == b"%PDF-"
+    except Exception:
+        return False
+
+
+def _pdf_preview_path_for(file_path: Path) -> Path:
+    return file_path.with_name(f"{file_path.stem}{_PDF_PREVIEW_SUFFIX}")
+
+
+def _preview_url_for_attachment(*, filename: str, is_pdf: bool, is_image: bool) -> str | None:
+    base_url = f"/api/v1/attachments/serve/{filename}"
+    if is_image:
+        return base_url
+    if is_pdf:
+        return f"{base_url}?preview=1"
+    return None
+
+
+def _ensure_pdf_preview(file_path: Path) -> Path | None:
+    """Best-effort PDF->PNG preview generation (first page). Returns preview path if available."""
+    if not _looks_like_pdf(file_path):
+        return None
+
+    preview_path = _pdf_preview_path_for(file_path)
+    try:
+        if preview_path.exists() and preview_path.is_file():
+            src_mtime = file_path.stat().st_mtime_ns
+            prev_stat = preview_path.stat()
+            if prev_stat.st_size > 0 and prev_stat.st_mtime_ns >= src_mtime:
+                return preview_path
+    except OSError:
+        pass
+
+    gs_bin = shutil.which("gs")
+    if not gs_bin:
+        logger.warning("Ghostscript (gs) not found; cannot generate PDF preview for %s", file_path.name)
+        return None
+
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = preview_path.with_name(f"{preview_path.name}.tmp-{uuid.uuid4().hex}")
+    tmp_path.unlink(missing_ok=True)
+    try:
+        cmd = [
+            gs_bin,
+            "-dSAFER",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-sDEVICE=png16m",
+            "-dTextAlphaBits=4",
+            "-dGraphicsAlphaBits=4",
+            f"-r{_PDF_PREVIEW_DPI}",
+            "-dFirstPage=1",
+            "-dLastPage=1",
+            f"-sOutputFile={str(tmp_path)}",
+            str(file_path),
+        ]
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=_PDF_PREVIEW_TIMEOUT_SECONDS,
+        )
+        if not tmp_path.exists() or tmp_path.stat().st_size <= 0:
+            logger.warning("PDF preview was not created for %s", file_path.name)
+            return None
+        tmp_path.replace(preview_path)
+        return preview_path
+    except subprocess.TimeoutExpired:
+        logger.warning("PDF preview generation timed out for %s", file_path.name)
+        return None
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or b"").decode("utf-8", errors="ignore").strip()
+        logger.warning("PDF preview generation failed for %s: %s", file_path.name, stderr or exc)
+        return None
+    except Exception:
+        logger.exception("Unexpected error while generating PDF preview for %s", file_path.name)
+        return None
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 async def _stream_save_upload(*, file: UploadFile, dest_path: Path) -> int:
@@ -138,12 +229,19 @@ async def upload_file(
     # Determine type
     image_exts = {"jpg", "jpeg", "png", "gif", "webp"}
     file_type = "image" if ext in image_exts else "file"
+    is_pdf = ext == "pdf" or _looks_like_pdf(file_path)
+
+    # Eager preview generation for uploaded PDFs (best-effort; upload should still succeed on failure).
+    if is_pdf:
+        _ensure_pdf_preview(file_path)
 
     # NOTE: Use the authenticated/authorized serve endpoint; do not expose static mounts.
+    url = f"/api/v1/attachments/serve/{filename}"
     return {
         "id": file_id,
         "name": file.filename,
-        "url": f"/api/v1/attachments/serve/{filename}",
+        "url": url,
+        "preview_url": _preview_url_for_attachment(filename=filename, is_pdf=is_pdf, is_image=file_type == "image"),
         "type": file_type,
         "size": size,
         "uploaded_at": datetime.utcnow().isoformat(),
@@ -161,6 +259,7 @@ def _attachment_url_matches_filename(url: str | None, filename: str) -> bool:
 def serve_file(
     filename: str,
     request: Request,
+    preview: bool = False,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -188,13 +287,21 @@ def serve_file(
     }
 
     def _finalize_response(scope: str):
+        response_path = file_path
+        response_media_type = None
+        if preview:
+            preview_path = _ensure_pdf_preview(file_path)
+            if preview_path and preview_path.exists() and preview_path.is_file():
+                response_path = preview_path
+                response_media_type = "image/png"
+
         if request.headers.get("if-none-match") == etag:
             response = Response(status_code=304, headers=response_headers)
         else:
-            mime, _ = mimetypes.guess_type(str(file_path))
+            mime, _ = mimetypes.guess_type(str(response_path))
             response = FileResponse(
-                path=str(file_path),
-                media_type=mime or "application/octet-stream",
+                path=str(response_path),
+                media_type=response_media_type or mime or "application/octet-stream",
                 headers=response_headers,
             )
         if settings.DEBUG:
