@@ -1002,18 +1002,11 @@ export function PartDetailsCooperationZip({ part, onBack }: PartDetailsCooperati
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" className="h-9 px-2" onClick={handleBack}>
           <ArrowLeft className="mr-1 h-4 w-4" />
           Назад
         </Button>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h1 className="truncate text-lg font-bold text-slate-900">Деталь: {part.code}</h1>
-          <Badge className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700 hover:bg-blue-50">Кооперация</Badge>
-          <Badge variant="outline" className="rounded-full border-teal-300 bg-teal-50 px-2.5 py-1 text-teal-700">
-            COOP ZIP UI
-          </Badge>
-        </div>
       </div>
 
       <div className="grid grid-cols-12 gap-6">

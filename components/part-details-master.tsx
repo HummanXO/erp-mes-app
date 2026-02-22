@@ -1327,12 +1327,11 @@ export function PartDetailsMaster({ part, onBack }: PartDetailsMasterProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2">
+      <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" className="h-9 px-2" onClick={handleBack}>
           <ArrowLeft className="mr-1 h-4 w-4" />
           Назад
         </Button>
-        <h1 className="text-lg font-bold text-slate-900">Деталь: {part.code}</h1>
       </div>
 
       <div className="grid grid-cols-12 gap-6">
